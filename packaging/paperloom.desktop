@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Paperloom
+GenericName=Live Wallpaper
+Comment=Play MP4 loops as your desktop background
+Exec=paperloom-gui
+Icon=paperloom
+Terminal=false
+Categories=Utility;
+StartupNotify=true

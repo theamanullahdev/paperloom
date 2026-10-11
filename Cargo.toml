@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/paperloom-common",
+    "crates/paperloom-gui",
+    "crates/paperloom-engine",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"

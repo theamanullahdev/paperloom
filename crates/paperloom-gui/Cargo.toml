@@ -1,0 +1,42 @@
+[package]
+name = "paperloom-gui"
+version.workspace = true
+edition.workspace = true
+description = "Live video wallpapers for Linux — play MP4 loops as your desktop background."
+authors = ["Amanullah Behlim <theamanullahdev@gmail.com>"]
+
+[dependencies]
+# "tokio": iced's default executor backend (thread-pool) has no timer
+# support at all (`iced::time::every` doesn't exist without it) — needed
+# to drive the settings-page highlight animation's frame ticks.
+iced = { version = "0.14", features = ["tokio"] }
+rfd = "0.17"
+paperloom-common = { path = "../paperloom-common" }
+
+# cargo-deb reads this to build a .deb package containing both binaries —
+# `cargo deb -p paperloom-gui` from the workspace root (see README). Not
+# `paperloom-engine`'s Cargo.toml: cargo-deb builds one package per
+# invocation, keyed off whichever crate you point it at, so the combined
+# package lives here and just pulls the other binary in as an extra asset.
+[package.metadata.deb]
+name = "paperloom"
+maintainer = "Amanullah Behlim <theamanullahdev@gmail.com>"
+# "$auto": cargo-deb inspects the actual compiled binaries via ldd and adds
+# whatever shared libraries they really link against (libmpv2, libc, etc.)
+# — don't hand-maintain that list, it'll drift from reality.
+depends = "$auto"
+section = "video"
+priority = "optional"
+extended-description = """\
+Paperloom plays looping MP4 videos as your Linux desktop background \
+(Wallpaper Engine / Lively Wallpaper, but native to X11/Wayland). GUI-only: \
+import a video, click "Set as wallpaper", done. Designed to idle at \
+near-zero CPU/RAM — the renderer pauses on fullscreen apps, screen lock, \
+battery saver, or any window covering the desktop (each independently \
+configurable)."""
+assets = [
+    ["target/release/paperloom-gui", "usr/bin/", "755"],
+    ["target/release/paperloom-engine", "usr/bin/", "755"],
+    ["../../packaging/paperloom.desktop", "usr/share/applications/paperloom.desktop", "644"],
+    ["../../packaging/icon.png", "usr/share/icons/hicolor/512x512/apps/paperloom.png", "644"],
+]

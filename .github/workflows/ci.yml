@@ -1,0 +1,50 @@
+name: CI
+
+# Runs on every push and PR against main: build, lint, test, and build the
+# .deb as a downloadable artifact (not a GitHub Release — those only come
+# from version tags, see release.yml). This is the "every push" half of
+# what was asked for; the "release page" half is the other workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libmpv-dev
+        run: sudo apt-get update && sudo apt-get install -y libmpv-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (debug, all crates)
+        run: cargo build --workspace --verbose
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --verbose
+
+      - name: Build release binaries
+        run: cargo build --release --workspace
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build .deb
+        run: cargo deb -p paperloom-gui
+
+      - name: Upload .deb as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperloom-deb
+          path: target/debian/*.deb

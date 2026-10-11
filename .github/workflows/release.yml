@@ -1,0 +1,41 @@
+name: Release
+
+# Runs only when a version tag is pushed (e.g. `git tag v0.2.0 && git push
+# --tags`) — builds the .deb and publishes it on a real GitHub Release page,
+# attached as a downloadable asset. Bump the `version` in the workspace
+# Cargo.toml to match the tag *before* tagging — the tag doesn't do that
+# for you, and the built .deb's filename/version comes from Cargo.toml.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to create the Release and upload assets
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libmpv-dev
+        run: sudo apt-get update && sudo apt-get install -y libmpv-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build --release --workspace
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build .deb
+        run: cargo deb -p paperloom-gui
+
+      - name: Create GitHub Release and attach the .deb
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/debian/*.deb
+          generate_release_notes: true

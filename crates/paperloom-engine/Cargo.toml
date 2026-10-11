@@ -1,0 +1,35 @@
+[package]
+name = "paperloom-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+paperloom-common = { path = "../paperloom-common" }
+
+# Video decode/render. Requires the system libmpv-dev package to build
+# (not a pure-Rust crate — see README/AGENTS notes). Using `libmpv2`, not
+# the older `libmpv` crate: `libmpv` vendors mpv client API v1 headers and
+# refuses to run against this system's mpv 0.37 (client API v2) with a
+# VersionMismatch error — confirmed by actually running it. `libmpv2` is
+# the maintained fork that targets client API v2.
+libmpv2 = "6.0"
+
+# X11 desktop integration (root-window wallpaper embedding).
+x11rb = "0.14"
+
+# Wayland desktop integration (wlr-layer-shell background layer).
+# "system" feature: links real libwayland-client.so instead of the default
+# pure-Rust protocol implementation — required to get a `wl_display` pointer
+# EGL/Mesa can actually use (the pure-Rust backend has no C-ABI-compatible
+# display to hand it).
+wayland-client = { version = "0.31", features = ["system"] }
+smithay-client-toolkit = "0.21"
+
+# EGL, for driving an OpenGL context on the Wayland surface (libmpv's render
+# API needs one — Wayland has no "give mpv a window id" shortcut like X11's
+# `wid`). "dynamic": dlopen's libEGL.so.1 at runtime instead of linking
+# against it at build time, so this still builds without an EGL dev package
+# installed — same reasoning as libmpv-dev, but there's no live Wayland
+# session here to find out whether it's actually needed yet.
+khronos-egl = { version = "6", features = ["dynamic"] }
+wayland-egl = "0.32"
