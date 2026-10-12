@@ -51,11 +51,14 @@ impl App {
         theme::from_mode(self.settings.theme)
     }
 
-    /// Only the Settings page needs frame ticks right now (to animate the
-    /// search-result highlight) — delegate rather than run a global timer
-    /// all the time, so idling on the Library page costs nothing extra.
+    /// Both pages only need frame ticks while something on them is
+    /// actively animating (settings-highlight fade, gallery hover fade) —
+    /// each delegates its own subscription so an idle page costs nothing.
     pub fn subscription(&self) -> Subscription<Message> {
-        self.settings_page.subscription().map(Message::Settings)
+        Subscription::batch([
+            self.settings_page.subscription().map(Message::Settings),
+            self.library_page.subscription().map(Message::Library),
+        ])
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -77,6 +80,7 @@ impl App {
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
             border: Border { color: t.border, width: 1.0, radius: 0.0.into() },
+            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.25), offset: iced::Vector::new(2.0, 0.0), blur_radius: 12.0 },
             ..container::Style::default()
         })
         .height(Length::Fill);
@@ -100,7 +104,9 @@ impl App {
         .padding([16, 24])
         .width(Length::Fill)
         .style(move |_theme| container::Style {
+            background: Some(Background::Color(t.surface)),
             border: Border { color: t.border, width: 0.0, radius: 0.0.into() },
+            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.2), offset: iced::Vector::new(0.0, 2.0), blur_radius: 10.0 },
             ..container::Style::default()
         });
 

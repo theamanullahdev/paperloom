@@ -15,5 +15,5 @@ mod settings;
 
 pub use config_store::{load, save};
 pub use library::{Library, LibraryEntry};
-pub use paths::{config_file, library_dir};
+pub use paths::{config_file, library_dir, thumbnails_dir};
 pub use settings::{ImportMode, Settings, ThemeMode};
