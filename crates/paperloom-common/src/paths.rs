@@ -16,3 +16,11 @@ pub fn config_file() -> PathBuf {
 pub fn library_dir() -> PathBuf {
     project_dirs().data_dir().join("library")
 }
+
+/// Generated preview-frame thumbnails for the library gallery. Separate
+/// from `library_dir()` so a `ReferenceInPlace` entry (whose source file
+/// lives elsewhere and isn't ours to touch) still gets a thumbnail we own
+/// and can freely delete.
+pub fn thumbnails_dir() -> PathBuf {
+    project_dirs().data_dir().join("thumbnails")
+}

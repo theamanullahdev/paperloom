@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +11,13 @@ pub struct LibraryEntry {
     pub display_name: String,
     pub path: PathBuf,
     pub mode: ImportMode,
+    /// A single extracted preview frame for the gallery grid, generated at
+    /// import time via `ffmpeg` (already a hard dependency through
+    /// `libmpv`/`mpv`, so this adds nothing new to the system). `None` if
+    /// `ffmpeg` isn't on `PATH` or extraction failed — the gallery falls
+    /// back to a placeholder tile rather than treating that as fatal.
+    #[serde(default)]
+    pub thumbnail: Option<PathBuf>,
 }
 
 /// The user's wallpaper library: what's been imported and where it actually
@@ -26,8 +34,23 @@ fn manifest_file() -> PathBuf {
 }
 
 impl Library {
+    /// Loads the manifest and backfills thumbnails for any entry imported
+    /// before thumbnail generation existed (`#[serde(default)]` leaves
+    /// those as `None` on load). Saves once if anything was generated, so
+    /// this only pays the `ffmpeg` cost the first time per entry.
     pub fn load() -> Self {
-        Self::load_from(&manifest_file())
+        let mut library = Self::load_from(&manifest_file());
+        let mut changed = false;
+        for entry in &mut library.entries {
+            if entry.thumbnail.is_none() {
+                entry.thumbnail = generate_thumbnail(&entry.path);
+                changed |= entry.thumbnail.is_some();
+            }
+        }
+        if changed {
+            let _ = library.save();
+        }
+        library
     }
 
     fn load_from(path: &Path) -> Self {
@@ -75,7 +98,9 @@ impl Library {
             }
         };
 
-        self.entries.push(LibraryEntry { display_name, path, mode });
+        let thumbnail = generate_thumbnail(&path);
+
+        self.entries.push(LibraryEntry { display_name, path, mode, thumbnail });
         Ok(())
     }
 
@@ -100,8 +125,37 @@ impl Library {
                 }
             }
         }
+        if let Some(thumbnail) = &entry.thumbnail {
+            let _ = fs::remove_file(thumbnail);
+        }
 
         Ok(())
+    }
+}
+
+/// Extracts a single frame (1s in, to skip likely-black opening frames) as a
+/// small JPEG for the gallery grid. Best-effort: a missing `ffmpeg` or a
+/// failed extraction just means no thumbnail, not an import failure.
+fn generate_thumbnail(video: &Path) -> Option<PathBuf> {
+    let dir = paths::thumbnails_dir();
+    fs::create_dir_all(&dir).ok()?;
+
+    let stem = video.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "wallpaper".to_string());
+    let dest = unique_destination(&dir, Path::new(&format!("{stem}.jpg")));
+
+    let status = Command::new("ffmpeg")
+        .args(["-y", "-ss", "1", "-i"])
+        .arg(video)
+        .args(["-frames:v", "1", "-vf", "scale=480:-1", "-q:v", "4"])
+        .arg(&dest)
+        .output()
+        .ok()?
+        .status;
+
+    if status.success() && dest.is_file() {
+        Some(dest)
+    } else {
+        None
     }
 }
 
@@ -251,6 +305,7 @@ mod tests {
             display_name: "loop.mp4".into(),
             path: PathBuf::from("/tmp/whatever/loop.mp4"),
             mode: ImportMode::ReferenceInPlace,
+            thumbnail: None,
         });
         library.save_to(&manifest_path).unwrap();
 

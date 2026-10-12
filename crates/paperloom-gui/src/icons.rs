@@ -1,15 +1,12 @@
-//! Hand-drawn sidebar nav icons (`assets/icons/`) — not a generic icon
-//! font/library pull. Library: a framed play-triangle (distinct from a
-//! plain grid). Settings: three sliders at different positions, not the
-//! overused gear glyph. Both drawn at a consistent ~1.75 stroke weight
-//! with round caps/joins, 24x24 viewBox — matching the "consistent stroke
-//! weight, clear silhouette" principle from Apple's icon guidelines and
-//! elementary OS's own HIG (icons should have a distinctive shape, not
-//! just a rounded rectangle).
+//! Icons (`assets/icons/`), vendored from Lucide (ISC-licensed —
+//! `assets/icons/LICENSE-lucide.txt`) rather than hand-drawn: a real,
+//! consistently-designed icon set beats freehanding SVG paths from
+//! scratch. Library nav uses `clapperboard.svg` (distinct from a plain
+//! grid/gear), Settings uses `sliders-horizontal.svg`.
 //!
-//! Drawn black in the source files; Iced's `svg` widget recolors them at
-//! render time via `Style { color: Some(..) }`, so the same file works
-//! for every theme/state without separate colored copies.
+//! Iced's `svg` widget recolors at render time via
+//! `Style { color: Some(..) }`, so the same file works for every
+//! theme/state without separate colored copies.
 
 use iced::widget::svg;
 
@@ -19,4 +16,20 @@ pub fn library() -> svg::Handle {
 
 pub fn settings() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/settings.svg").as_slice())
+}
+
+/// Hover overlay on a gallery card — signals "this tile is a video", since
+/// a static thumbnail alone looks like a plain image.
+pub fn play() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/play.svg").as_slice())
+}
+
+/// Placeholder tile for an entry whose thumbnail failed to generate (no
+/// `ffmpeg` on `PATH`, or extraction failed).
+pub fn film() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/film.svg").as_slice())
+}
+
+pub fn trash() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/trash.svg").as_slice())
 }
