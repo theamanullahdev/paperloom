@@ -2,6 +2,7 @@
 name = "paperloom-gui"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "Live video wallpapers for Linux — play MP4 loops as your desktop background."
 authors = ["Amanullah Behlim <theamanullahdev@gmail.com>"]
 
@@ -9,7 +10,7 @@ authors = ["Amanullah Behlim <theamanullahdev@gmail.com>"]
 # "tokio": iced's default executor backend (thread-pool) has no timer
 # support at all (`iced::time::every` doesn't exist without it) — needed
 # to drive the settings-page highlight animation's frame ticks.
-iced = { version = "0.14", features = ["tokio"] }
+iced = { version = "0.14", features = ["tokio", "svg"] }
 rfd = "0.17"
 paperloom-common = { path = "../paperloom-common" }
 
@@ -21,6 +22,7 @@ paperloom-common = { path = "../paperloom-common" }
 [package.metadata.deb]
 name = "paperloom"
 maintainer = "Amanullah Behlim <theamanullahdev@gmail.com>"
+license-file = ["../../LICENSE"]
 # "$auto": cargo-deb inspects the actual compiled binaries via ldd and adds
 # whatever shared libraries they really link against (libmpv2, libc, etc.)
 # — don't hand-maintain that list, it'll drift from reality.

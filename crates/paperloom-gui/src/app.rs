@@ -1,9 +1,10 @@
-use iced::widget::{button, column, container, row, text};
-use iced::{Element, Length, Subscription, Task, Theme};
+use iced::widget::{button, column, container, row, svg, text, Space};
+use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Subscription, Task, Theme};
 
 use paperloom_common::Settings;
 
 use crate::pages::{library, settings};
+use crate::{icons, theme};
 
 pub struct App {
     page: Page,
@@ -47,7 +48,7 @@ impl App {
     }
 
     pub fn theme(&self) -> Theme {
-        crate::theme::from_mode(self.settings.theme)
+        theme::from_mode(self.settings.theme)
     }
 
     /// Only the Settings page needs frame ticks right now (to animate the
@@ -58,22 +59,94 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let nav_button = |label: &'static str, page: Page| {
-            button(text(label)).on_press(Message::SwitchPage(page)).width(Length::Fill)
-        };
+        let t = theme::tokens(self.settings.theme);
 
-        let nav = container(
-            column![nav_button("Library", Page::Library), nav_button("Settings", Page::Settings)]
-                .spacing(8)
-                .padding(12),
+        let sidebar = container(
+            column![
+                text("Paperloom").font(theme::DISPLAY_FONT).size(20).color(t.primary),
+                column![
+                    nav_item(icons::library(), "Library", Page::Library, self.page == Page::Library, t),
+                    nav_item(icons::settings(), "Settings", Page::Settings, self.page == Page::Settings, t),
+                ]
+                .spacing(4),
+            ]
+            .spacing(20)
+            .padding(16)
+            .width(Length::Fixed(200.0)),
         )
-        .width(Length::Fixed(180.0));
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(t.surface)),
+            border: Border { color: t.border, width: 1.0, radius: 0.0.into() },
+            ..container::Style::default()
+        })
+        .height(Length::Fill);
 
-        let content = match self.page {
-            Page::Library => self.library_page.view().map(Message::Library),
-            Page::Settings => self.settings_page.view(&self.settings).map(Message::Settings),
+        let (title, header, body) = match self.page {
+            Page::Library => ("Library", self.library_page.header().map(Message::Library), self.library_page.body(t).map(Message::Library)),
+            Page::Settings => {
+                ("Settings", self.settings_page.header().map(Message::Settings), self.settings_page.body(&self.settings, t).map(Message::Settings))
+            }
         };
 
-        row![nav, content].into()
+        let top_bar = container(
+            row![
+                text(title).font(theme::DISPLAY_FONT).size(22).color(t.foreground),
+                Space::new().width(Length::Fill),
+                header,
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .padding([16, 24])
+        .width(Length::Fill)
+        .style(move |_theme| container::Style {
+            border: Border { color: t.border, width: 0.0, radius: 0.0.into() },
+            ..container::Style::default()
+        });
+
+        let content = column![top_bar, container(body).padding([8, 24]).width(Length::Fill).height(Length::Fill)]
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        container(row![sidebar, content])
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.background)), ..container::Style::default() })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
+}
+
+fn nav_item<'a>(icon: svg::Handle, label: &'static str, page: Page, active: bool, t: theme::Tokens) -> Element<'a, Message> {
+    let icon_color = if active { t.primary } else { t.muted_foreground };
+    let text_color = if active { t.primary } else { t.foreground };
+
+    let content = row![
+        svg(icon).width(18).height(18).style(move |_theme, _status| svg::Style { color: Some(icon_color) }),
+        text(label).font(theme::BODY_FONT).size(14).color(text_color),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+
+    button(content)
+        .padding([10, 12])
+        .width(Length::Fill)
+        .on_press(Message::SwitchPage(page))
+        .style(move |_theme, status| {
+            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            let background = if active {
+                Some(Background::Color(Color { a: 0.12, ..t.primary }))
+            } else if hovered {
+                Some(Background::Color(t.muted))
+            } else {
+                None
+            };
+            button::Style {
+                background,
+                text_color,
+                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 8.0.into() },
+                shadow: Shadow::default(),
+                snap: false,
+            }
+        })
+        .into()
 }

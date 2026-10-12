@@ -3,11 +3,13 @@ mod registry;
 use std::time::{Duration, Instant};
 
 use iced::widget::{column, container, mouse_area, pick_list, scrollable, text, text_input, toggler};
-use iced::{Animation, Background, Color, Element, Length, Subscription, Task};
+use iced::{Animation, Background, Border, Element, Length, Subscription, Task};
 
 use paperloom_common::{ImportMode, Settings, ThemeMode};
 pub use registry::SettingId;
 use registry::ENTRIES;
+
+use crate::theme;
 
 const THEME_OPTIONS: &[ThemeMode] = &[ThemeMode::System, ThemeMode::Light, ThemeMode::Dark];
 const IMPORT_MODE_OPTIONS: &[ImportMode] = &[
@@ -18,13 +20,11 @@ const IMPORT_MODE_OPTIONS: &[ImportMode] = &[
 
 pub struct State {
     search: String,
-    /// The setting a search result most recently jumped to, so the full
-    /// list can call it out instead of just dumping the user back at the
-    /// top of the page.
+    /// The setting a search result most recently jumped to, *or* the one
+    /// just toggled — both cases reuse the same fade as feedback (jump:
+    /// "here it is", toggle: "that registered"), rather than tracking two
+    /// separate animation states for what's visually the same effect.
     highlighted: Option<SettingId>,
-    /// Fades `highlighted`'s row in rather than popping it on instantly —
-    /// Iced's own built-in animation support (`iced::Animation`), not an
-    /// extra dependency.
     highlight_fade: Animation<bool>,
 }
 
@@ -66,14 +66,18 @@ impl State {
         }
     }
 
+    fn flash(&mut self, id: SettingId) {
+        self.highlighted = Some(id);
+        self.highlight_fade = Animation::new(false).quick();
+        self.highlight_fade.go_mut(true, Instant::now());
+    }
+
     pub fn update(&mut self, settings: &mut Settings, message: Message) -> Task<Message> {
         match message {
             Message::SearchChanged(value) => self.search = value,
             Message::ResultSelected(id) => {
                 self.search.clear();
-                self.highlighted = Some(id);
-                self.highlight_fade = Animation::new(false).quick();
-                self.highlight_fade.go_mut(true, Instant::now());
+                self.flash(id);
             }
             Message::Tick => {}
             Message::Toggle(id, value) => {
@@ -87,73 +91,73 @@ impl State {
                     SettingId::Muted => settings.muted = value,
                     SettingId::ImportMode | SettingId::Theme => {}
                 }
+                self.flash(id);
                 let _ = paperloom_common::save(settings);
             }
             Message::ImportModeSelected(mode) => {
                 settings.import_mode = mode;
+                self.flash(SettingId::ImportMode);
                 let _ = paperloom_common::save(settings);
             }
             Message::ThemeSelected(theme) => {
                 settings.theme = theme;
+                self.flash(SettingId::Theme);
                 let _ = paperloom_common::save(settings);
             }
         }
         Task::none()
     }
 
-    pub fn view<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
-        let search = text_input("Search settings... try \"dark mode\"", &self.search)
+    pub fn header<'a>(&'a self) -> Element<'a, Message> {
+        text_input("Search settings... try \"dark mode\"", &self.search)
             .on_input(Message::SearchChanged)
-            .padding(8);
-
-        let body: Element<'a, Message> = if self.search.is_empty() {
-            self.full_list(settings)
-        } else {
-            self.search_results()
-        };
-
-        scrollable(column![search, body].spacing(16).padding(16)).into()
+            .padding(8)
+            .width(Length::Fixed(280.0))
+            .into()
     }
 
-    fn search_results<'a>(&'a self) -> Element<'a, Message> {
+    pub fn body<'a>(&'a self, settings: &'a Settings, t: theme::Tokens) -> Element<'a, Message> {
+        if self.search.is_empty() {
+            scrollable(self.full_list(settings, t)).into()
+        } else {
+            scrollable(self.search_results(t)).into()
+        }
+    }
+
+    fn search_results<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let results: Vec<_> = ENTRIES.iter().filter(|entry| registry::matches(entry, &self.search)).collect();
 
         if results.is_empty() {
             return text("No matching settings.").into();
         }
 
-        let mut list = column![].spacing(4);
+        let mut list = column![].spacing(6);
         for entry in results {
-            let row = container(text(format!("{}  ·  {}", entry.section, entry.label)))
-                .padding(10)
-                .width(Length::Fill);
+            let row = card(text(format!("{}  ·  {}", entry.section, entry.label)).into(), t);
             list = list.push(mouse_area(row).on_press(Message::ResultSelected(entry.id)));
         }
         list.into()
     }
 
-    fn full_list<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
+    fn full_list<'a>(&'a self, settings: &'a Settings, t: theme::Tokens) -> Element<'a, Message> {
         let now = Instant::now();
-        let row = |id: SettingId, content: Element<'a, Message>| {
-            let fade = if self.highlighted == Some(id) {
-                self.highlight_fade.interpolate(0.0_f32, 1.0_f32, now)
+        let row = move |id: SettingId, content: Element<'a, Message>| {
+            let fade = if self.highlighted == Some(id) { self.highlight_fade.interpolate(0.0_f32, 1.0_f32, now) } else { 0.0 };
+            let base = card(content, t);
+            if fade > 0.0 {
+                container(base).style(move |_theme| container::Style {
+                    background: Some(Background::Color(iced::Color { a: fade * 0.18, ..t.primary })),
+                    border: Border { color: iced::Color { a: fade, ..t.primary }, width: 1.0, radius: 10.0.into() },
+                    ..container::Style::default()
+                })
+                .into()
             } else {
-                0.0
-            };
-            container(content).padding(10).width(Length::Fill).style(move |_theme| {
-                if fade > 0.0 {
-                    container::Style {
-                        background: Some(Background::Color(Color { a: fade, ..Color::from_rgb(0.26, 0.45, 0.85) })),
-                        ..container::Style::default()
-                    }
-                } else {
-                    container::Style::default()
-                }
-            })
+                base
+            }
         };
 
         column![
-            text("Performance & idle behavior").size(18),
+            section_title("Performance & idle behavior", t),
             row(
                 SettingId::PauseFullscreenApp,
                 toggler(settings.pause_on_fullscreen_app)
@@ -182,7 +186,7 @@ impl State {
                     .on_toggle(|v| Message::Toggle(SettingId::PauseWindowCovering, v))
                     .into(),
             ),
-            text("Storage").size(18),
+            section_title("Storage", t),
             row(
                 SettingId::ImportMode,
                 column![
@@ -192,26 +196,37 @@ impl State {
                 .spacing(6)
                 .into(),
             ),
-            text("Appearance").size(18),
+            section_title("Appearance", t),
             row(
                 SettingId::Theme,
-                column![
-                    text("Theme"),
-                    pick_list(THEME_OPTIONS, Some(settings.theme), Message::ThemeSelected),
-                ]
-                .spacing(6)
-                .into(),
+                column![text("Theme"), pick_list(THEME_OPTIONS, Some(settings.theme), Message::ThemeSelected),].spacing(6).into(),
             ),
-            text("Playback").size(18),
+            section_title("Playback", t),
             row(
                 SettingId::Muted,
-                toggler(settings.muted)
-                    .label("Mute wallpaper audio")
-                    .on_toggle(|v| Message::Toggle(SettingId::Muted, v))
-                    .into(),
+                toggler(settings.muted).label("Mute wallpaper audio").on_toggle(|v| Message::Toggle(SettingId::Muted, v)).into(),
             ),
         ]
-        .spacing(10)
+        .spacing(12)
         .into()
     }
+}
+
+fn section_title<'a>(label: &'static str, t: theme::Tokens) -> Element<'a, Message> {
+    text(label).font(theme::BODY_FONT).size(13).color(t.muted_foreground).into()
+}
+
+/// Same card treatment as the Library page — surface background, thin
+/// border, rounded corners — so every settings row reads as a distinct
+/// element instead of bare text floating on the page background.
+fn card<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Message> {
+    container(content)
+        .padding(12)
+        .width(Length::Fill)
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(t.surface)),
+            border: Border { color: t.border, width: 1.0, radius: 10.0.into() },
+            ..container::Style::default()
+        })
+        .into()
 }
