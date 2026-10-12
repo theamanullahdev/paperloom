@@ -7,6 +7,7 @@
 
 mod app;
 mod engine_client;
+mod icons;
 mod pages;
 mod theme;
 
@@ -15,5 +16,8 @@ pub fn main() -> iced::Result {
         .title("Paperloom")
         .theme(app::App::theme)
         .subscription(app::App::subscription)
+        .default_font(theme::BODY_FONT)
+        .font(include_bytes!("../assets/fonts/IBMPlexSans.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/BricolageGrotesque.ttf").as_slice())
         .run()
 }

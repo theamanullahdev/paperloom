@@ -16,13 +16,14 @@ use std::process::Command;
 
 use paperloom_common::Settings;
 use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{Atom, AtomEnum, ConnectionExt as _, Window};
+use x11rb::protocol::xproto::{Atom, AtomEnum, ConnectionExt as _, MapState, Window};
 
 pub struct PauseDetector {
     root: Window,
     net_active_window: Atom,
     net_wm_state: Atom,
     net_wm_state_fullscreen: Atom,
+    net_wm_state_hidden: Atom,
     net_client_list_stacking: Atom,
 }
 
@@ -33,6 +34,7 @@ impl PauseDetector {
             net_active_window: intern(conn, b"_NET_ACTIVE_WINDOW")?,
             net_wm_state: intern(conn, b"_NET_WM_STATE")?,
             net_wm_state_fullscreen: intern(conn, b"_NET_WM_STATE_FULLSCREEN")?,
+            net_wm_state_hidden: intern(conn, b"_NET_WM_STATE_HIDDEN")?,
             net_client_list_stacking: intern(conn, b"_NET_CLIENT_LIST_STACKING")?,
         })
     }
@@ -64,9 +66,21 @@ impl PauseDetector {
     }
 
     /// Approximates "something is covering the desktop" as "the topmost
-    /// normal window is at least as big as the screen" (i.e. maximized or
-    /// bigger) — not pixel-perfect occlusion, but close enough for a pause
-    /// heuristic and far simpler than tracking real window regions.
+    /// *actually visible* normal window is at least as big as the screen
+    /// and positioned at its origin" (i.e. maximized or bigger) — not
+    /// pixel-perfect occlusion, but close enough for a pause heuristic and
+    /// far simpler than tracking real window regions.
+    ///
+    /// Must filter out windows that are merely *listed* but not currently
+    /// on screen: `_NET_CLIENT_LIST_STACKING` includes minimized/iconified
+    /// windows (they keep their pre-minimize geometry, so a minimized
+    /// maximized window would otherwise false-positive as "covering") and
+    /// windows that are unmapped. Geometry is also relative to each
+    /// window's parent, not the root, so it must be translated to root
+    /// coordinates before comparing against the screen size — otherwise a
+    /// window that isn't actually at the top-left corner (most ordinary,
+    /// non-maximized windows) can still read as big enough and wrongly
+    /// count as covering the desktop.
     fn a_window_covers_desktop(
         &self,
         conn: &impl Connection,
@@ -80,10 +94,28 @@ impl PauseDetector {
             if win == our_window {
                 continue;
             }
-            if let Ok(geom) = conn.get_geometry(win)?.reply() {
-                if geom.width >= screen_width && geom.height >= screen_height {
-                    return Ok(true);
-                }
+
+            let Ok(Ok(attrs)) = conn.get_window_attributes(win).map(|c| c.reply()) else {
+                continue;
+            };
+            if attrs.map_state != MapState::VIEWABLE {
+                continue;
+            }
+
+            let states = get_property_u32_list(conn, win, self.net_wm_state).unwrap_or_default();
+            if states.contains(&self.net_wm_state_hidden) {
+                continue;
+            }
+
+            let Ok(geom) = conn.get_geometry(win)?.reply() else { continue };
+            let Ok(translated) = conn.translate_coordinates(win, self.root, 0, 0)?.reply() else { continue };
+
+            if translated.dst_x <= 0
+                && translated.dst_y <= 0
+                && geom.width >= screen_width
+                && geom.height >= screen_height
+            {
+                return Ok(true);
             }
         }
         Ok(false)
