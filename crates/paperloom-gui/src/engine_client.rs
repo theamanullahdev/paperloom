@@ -39,6 +39,24 @@ pub fn stop() -> Result<(), Error> {
     stream.write_all(Command::Stop.encode().as_bytes()).map_err(Error::Io)
 }
 
+/// Opens a full-screen preview window (`paperloom-engine --preview`). One
+/// at a time: if the previous preview is still open, does nothing.
+pub fn preview(path: &Path) -> Result<(), Error> {
+    use std::sync::Mutex;
+    static CURRENT: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
+    let mut current = CURRENT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(child) = current.as_mut() {
+        if child.try_wait().map_err(Error::Io)?.is_none() {
+            return Ok(());
+        }
+    }
+    let engine = sibling_binary("paperloom-engine").ok_or(Error::EngineNotFound)?;
+    let child = std::process::Command::new(engine).arg("--preview").arg(path).spawn().map_err(Error::Io)?;
+    *current = Some(child);
+    Ok(())
+}
+
 fn connect_or_spawn() -> Result<UnixStream, Error> {
     if let Ok(stream) = UnixStream::connect(socket_path()) {
         return Ok(stream);

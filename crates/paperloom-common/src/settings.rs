@@ -48,6 +48,52 @@ impl std::fmt::Display for ThemeMode {
     }
 }
 
+/// One online wallpaper source in the user's list. Built-in sources keep a
+/// fixed `id` (their domain); user-added ones get `custom-<n>` ids.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourceSetting {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    /// Empty for sources that don't need one. Stored in the config file
+    /// (made owner-readable only), not a keyring — see `config_store::save`.
+    pub api_key: String,
+    /// Page URL for a user-added source ("{q}" is replaced with the search
+    /// text if present); unused for built-ins.
+    pub url: String,
+    pub builtin: bool,
+}
+
+pub const SOURCE_MOTIONBGS: &str = "motionbgs.com";
+pub const SOURCE_PEXELS: &str = "pexels.com";
+pub const SOURCE_PIXABAY: &str = "pixabay.com";
+
+impl SourceSetting {
+    /// Whether this source can be used yet — Pexels/Pixabay refuse to
+    /// answer without a key.
+    pub fn needs_key(&self) -> bool {
+        matches!(self.id.as_str(), SOURCE_PEXELS | SOURCE_PIXABAY)
+    }
+}
+
+fn builtin_sources() -> Vec<SourceSetting> {
+    let make = |id: &str, name: &str, enabled: bool| SourceSetting {
+        id: id.to_string(),
+        name: name.to_string(),
+        enabled,
+        api_key: String::new(),
+        url: String::new(),
+        builtin: true,
+    };
+    vec![
+        make(SOURCE_MOTIONBGS, "MotionBGs", true),
+        // Off until the user adds a key, so a fresh install doesn't show
+        // "needs API key" errors for sources they never asked for.
+        make(SOURCE_PEXELS, "Pexels (videos)", false),
+        make(SOURCE_PIXABAY, "Pixabay (videos)", false),
+    ]
+}
+
 /// User-configurable behavior, persisted to `paths::config_file()`.
 ///
 /// Every field here is something the user can change — nothing about
@@ -66,6 +112,20 @@ pub struct Settings {
     /// Lively, mpvpaper), since audio from a background wallpaper is
     /// usually unwanted.
     pub muted: bool,
+    pub sources: Vec<SourceSetting>,
+}
+
+impl Settings {
+    /// Adds any built-in source missing from `sources` (a config written
+    /// before that source existed). Never touches existing entries.
+    pub fn with_builtin_sources(mut self) -> Self {
+        for builtin in builtin_sources() {
+            if !self.sources.iter().any(|source| source.id == builtin.id) {
+                self.sources.push(builtin);
+            }
+        }
+        self
+    }
 }
 
 impl Default for Settings {
@@ -78,6 +138,7 @@ impl Default for Settings {
             import_mode: ImportMode::default(),
             theme: ThemeMode::default(),
             muted: true,
+            sources: builtin_sources(),
         }
     }
 }

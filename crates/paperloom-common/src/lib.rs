@@ -18,4 +18,4 @@ pub use config_store::{load, save};
 pub use display::primary_aspect_ratio;
 pub use library::{Library, LibraryEntry};
 pub use paths::{config_file, downloads_dir, library_dir, online_cache_dir, thumbnails_dir};
-pub use settings::{ImportMode, Settings, ThemeMode};
+pub use settings::{ImportMode, Settings, SourceSetting, ThemeMode, SOURCE_MOTIONBGS, SOURCE_PEXELS, SOURCE_PIXABAY};
