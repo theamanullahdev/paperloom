@@ -261,7 +261,7 @@ impl State {
         // arbitrary clients). `pause_on_fullscreen_app` and
         // `pause_on_window_covering_desktop` simply have no effect here.
         let should_pause = (settings.pause_on_screen_lock && crate::pause::screen_is_locked())
-            || (settings.pause_on_battery_saver && crate::pause::battery_saver_active());
+            || (settings.pause_on_low_battery && crate::pause::battery_critically_low());
 
         if should_pause != self.is_paused {
             self.is_paused = should_pause;

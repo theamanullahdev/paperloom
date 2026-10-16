@@ -24,3 +24,16 @@ pub fn library_dir() -> PathBuf {
 pub fn thumbnails_dir() -> PathBuf {
     project_dirs().data_dir().join("thumbnails")
 }
+
+/// In-progress and finished downloads from the online library, plus the
+/// queue manifest. Kept apart from `library_dir()` so a half-finished
+/// `.part` file can never show up as an importable wallpaper.
+pub fn downloads_dir() -> PathBuf {
+    project_dirs().data_dir().join("downloads")
+}
+
+/// Cached preview images for online-library browsing (disposable — safe to
+/// delete at any time, they're re-fetched on demand).
+pub fn online_cache_dir() -> PathBuf {
+    project_dirs().cache_dir().join("online")
+}

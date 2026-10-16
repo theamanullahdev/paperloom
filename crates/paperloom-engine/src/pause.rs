@@ -5,11 +5,11 @@
 //! `pause` property on change.
 //!
 //! Checked at a low frequency (see `backends::x11`), not every event-loop
-//! tick: two of the four checks shell out to `gdbus`/`powerprofilesctl`,
-//! and none of lock state, battery-saver state, or what's fullscreen
-//! change fast enough to need checking faster than every couple of
-//! seconds. That keeps this consistent with "near-zero idle cost" even
-//! though it isn't literally zero.
+//! tick: two of the four checks shell out to `gdbus`/`upower`, and none of
+//! lock state, battery level, or what's fullscreen change fast enough to
+//! need checking faster than every couple of seconds. That keeps this
+//! consistent with "near-zero idle cost" even though it isn't literally
+//! zero.
 
 use std::error::Error;
 use std::process::Command;
@@ -51,7 +51,7 @@ impl PauseDetector {
             || (settings.pause_on_window_covering_desktop
                 && self.a_window_covers_desktop(conn, screen_width, screen_height, our_window).unwrap_or(false))
             || (settings.pause_on_screen_lock && screen_is_locked())
-            || (settings.pause_on_battery_saver && battery_saver_active())
+            || (settings.pause_on_low_battery && battery_critically_low())
     }
 
     fn active_window_is_fullscreen(&self, conn: &impl Connection) -> Result<bool, Box<dyn Error>> {
@@ -143,7 +143,7 @@ fn get_property_u32_list(conn: &impl Connection, window: Window, property: Atom)
 /// `pub(crate)`: also used directly by `backends::wayland`, which can't use
 /// `PauseDetector` as a whole (its fullscreen/window-covering checks are
 /// X11-specific, no portable Wayland equivalent exists) but can still use
-/// this one and `battery_saver_active` below, since both are
+/// this one and `battery_critically_low` below, since both are
 /// windowing-system-independent.
 pub(crate) fn screen_is_locked() -> bool {
     Command::new("gdbus")
@@ -162,10 +162,42 @@ pub(crate) fn screen_is_locked() -> bool {
         .unwrap_or(false)
 }
 
-pub(crate) fn battery_saver_active() -> bool {
-    Command::new("powerprofilesctl")
-        .arg("get")
+/// Pauses on an actual critically-low battery, not merely "unplugged": a
+/// `powerprofilesctl get` check (the original implementation) reports
+/// `power-saver` the instant you unplug on this machine, regardless of
+/// charge level, which meant the wallpaper paused every single time it
+/// ran on battery — not what "battery saver" should mean. Threshold
+/// chosen to match typical OS low-battery warnings (~20%), not configurable
+/// yet (see AGENTS.md open questions if that changes).
+const LOW_BATTERY_PERCENT: u8 = 20;
+
+pub(crate) fn battery_critically_low() -> bool {
+    let Some(device) = Command::new("upower")
+        .arg("-e")
         .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).trim() == "power-saver")
-        .unwrap_or(false)
+        .ok()
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .and_then(|list| list.lines().find(|line| line.contains("BAT")).map(str::to_string))
+    else {
+        return false;
+    };
+
+    let Ok(info) = Command::new("upower").args(["-i", device.trim()]).output() else {
+        return false;
+    };
+    let info = String::from_utf8_lossy(&info.stdout);
+
+    // A charging/fully-charged battery is never "critically low" even if
+    // the percentage briefly reads under the threshold right after
+    // plugging in. Exact match on the state value, not a substring check
+    // — "discharging" also contains "charging".
+    let state = info.lines().find_map(|line| line.trim().strip_prefix("state:")).map(str::trim);
+    if matches!(state, Some("charging") | Some("fully-charged")) {
+        return false;
+    }
+
+    info.lines()
+        .find_map(|line| line.trim().strip_prefix("percentage:"))
+        .and_then(|value| value.trim().trim_end_matches('%').parse::<u8>().ok())
+        .is_some_and(|percent| percent <= LOW_BATTERY_PERCENT)
 }

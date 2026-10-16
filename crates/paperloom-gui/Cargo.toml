@@ -13,6 +13,7 @@ authors = ["Amanullah Behlim <theamanullahdev@gmail.com>"]
 iced = { version = "0.14", features = ["tokio", "svg", "image"] }
 rfd = "0.17"
 paperloom-common = { path = "../paperloom-common" }
+paperloom-fetch = { path = "../paperloom-fetch" }
 
 # cargo-deb reads this to build a .deb package containing both binaries —
 # `cargo deb -p paperloom-gui` from the workspace root (see README). Not
@@ -32,9 +33,9 @@ priority = "optional"
 extended-description = """\
 Paperloom plays looping MP4 videos as your Linux desktop background \
 (Wallpaper Engine / Lively Wallpaper, but native to X11/Wayland). GUI-only: \
-import a video, click "Set as wallpaper", done. Designed to idle at \
+import videos (or download them from the built-in online library), click "Set as wallpaper", done. Designed to idle at \
 near-zero CPU/RAM — the renderer pauses on fullscreen apps, screen lock, \
-battery saver, or any window covering the desktop (each independently \
+low battery, or any window covering the desktop (each independently \
 configurable)."""
 assets = [
     ["target/release/paperloom-gui", "usr/bin/", "755"],

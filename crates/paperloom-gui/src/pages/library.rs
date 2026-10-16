@@ -1,7 +1,7 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use iced::widget::{button, column, container, grid, image, mouse_area, row, scrollable, svg, text, text_input, Space};
-use iced::{Animation, Background, Border, Element, Length, Shadow, Subscription, Task};
+use iced::{Background, Border, Element, Length, Shadow, Subscription, Task};
 
 use paperloom_common::{Library, Settings};
 
@@ -11,30 +11,35 @@ pub struct State {
     library: Library,
     search: String,
     status: Option<String>,
-    /// Set when "Remove" is clicked, before the user confirms — the tile
-    /// switches to a "really remove? / cancel" prompt instead of deleting
-    /// immediately. Direct response to a flagged UX anti-pattern
-    /// ("no confirmation before delete") — see DESIGN.md.
+    /// Set when "Remove" is clicked from a tile's kebab menu, before the
+    /// user confirms — the tile switches to a "really remove? / cancel"
+    /// prompt instead of deleting immediately. Direct response to a
+    /// flagged UX anti-pattern ("no confirmation before delete") — see
+    /// DESIGN.md.
     confirm_remove: Option<usize>,
-    /// The tile the cursor is currently over, if any — drives the hover
-    /// overlay fade below. Only one can be hovered at a time, so a single
-    /// `Option` (rather than per-tile state) is enough.
+    /// The tile whose kebab (top-right "⋮") menu is currently open, if
+    /// any — only one open at a time, so opening a different tile's menu
+    /// closes whatever was open.
+    menu_open: Option<usize>,
+    /// The tile under the cursor — the only one that animates.
     hovered: Option<usize>,
-    hover_fade: Animation<bool>,
+    /// Frames elapsed since the hover began (see `ping_pong`).
+    preview_tick: usize,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     SearchChanged(String),
     ImportClicked,
+    MenuToggled(usize),
     RemoveClicked(usize),
     ConfirmRemoveClicked(usize),
     CancelRemoveClicked,
     SetAsWallpaperClicked(usize),
     StopClicked,
+    PreviewTick,
     TileHovered(usize),
     TileUnhovered(usize),
-    Tick,
 }
 
 impl State {
@@ -44,16 +49,23 @@ impl State {
             search: String::new(),
             status: None,
             confirm_remove: None,
+            menu_open: None,
             hovered: None,
-            hover_fade: Animation::new(false).quick(),
+            preview_tick: 0,
         }
     }
 
-    /// Only subscribes to frame ticks while a tile's hover overlay is
-    /// actively fading, so an idle library view costs nothing extra.
-    pub fn subscription(&self) -> Subscription<Message> {
-        if self.hover_fade.is_animating(Instant::now()) {
-            iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
+    /// Ticks only while the library tab is on screen *and* a tile with
+    /// motion frames is hovered — at rest (the normal case) this page
+    /// schedules nothing, so an open-but-idle library costs nothing.
+    pub fn subscription(&self, active: bool) -> Subscription<Message> {
+        let animating = self
+            .hovered
+            .and_then(|index| self.library.entries.get(index))
+            .is_some_and(|entry| entry.preview_frames.len() > 1);
+
+        if active && animating {
+            iced::time::every(Duration::from_millis(100)).map(|_| Message::PreviewTick)
         } else {
             Subscription::none()
         }
@@ -64,18 +76,35 @@ impl State {
             Message::SearchChanged(value) => self.search = value,
             Message::ImportClicked => {
                 let picked = rfd::FileDialog::new()
-                    .set_title("Import wallpaper")
+                    .set_title("Import wallpapers")
                     .add_filter("MP4 video", &["mp4"])
-                    .pick_file();
+                    .pick_files();
 
-                if let Some(path) = picked {
-                    self.status = match self.library.import(&path, settings.import_mode) {
-                        Ok(()) => None,
-                        Err(err) => Some(format!("Couldn't import that file: {err}")),
+                if let Some(paths) = picked {
+                    let total = paths.len();
+                    let mut failed = Vec::new();
+                    for path in &paths {
+                        if let Err(err) = self.library.import(path, settings.import_mode) {
+                            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                            failed.push(format!("{name} ({err})"));
+                        }
+                    }
+                    self.status = if failed.is_empty() {
+                        None
+                    } else if failed.len() == total {
+                        Some(format!("Couldn't import: {}", failed.join(", ")))
+                    } else {
+                        Some(format!("Imported {}/{total}. Failed: {}", total - failed.len(), failed.join(", ")))
                     };
                 }
             }
-            Message::RemoveClicked(index) => self.confirm_remove = Some(index),
+            Message::MenuToggled(index) => {
+                self.menu_open = if self.menu_open == Some(index) { None } else { Some(index) };
+            }
+            Message::RemoveClicked(index) => {
+                self.menu_open = None;
+                self.confirm_remove = Some(index);
+            }
             Message::CancelRemoveClicked => self.confirm_remove = None,
             Message::ConfirmRemoveClicked(index) => {
                 self.confirm_remove = None;
@@ -98,19 +127,36 @@ impl State {
                     Err(err) => Some(format!("Couldn't stop playback: {err}")),
                 };
             }
+            Message::PreviewTick => self.preview_tick = self.preview_tick.wrapping_add(1),
             Message::TileHovered(index) => {
+                // Restart from the poster frame so playback begins exactly
+                // where the static image already was — no visible jump.
                 self.hovered = Some(index);
-                self.hover_fade = Animation::new(false).quick();
-                self.hover_fade.go_mut(true, Instant::now());
+                self.preview_tick = 0;
             }
             Message::TileUnhovered(index) => {
                 if self.hovered == Some(index) {
-                    self.hover_fade.go_mut(false, Instant::now());
+                    self.hovered = None;
                 }
             }
-            Message::Tick => {}
         }
         Task::none()
+    }
+
+    /// Imports a finished online download, titled and tagged with its
+    /// origin so the online browser can mark it "In library".
+    pub fn import_downloaded(&mut self, settings: &Settings, job: &paperloom_fetch::Job) -> Result<(), String> {
+        self.library
+            .import_named(&job.final_path(), settings.import_mode, &job.title, &job.id)
+            .map_err(|err| format!("Couldn't add \"{}\" to your library: {err}", job.title))
+    }
+
+    pub fn set_status(&mut self, message: String) {
+        self.status = Some(message);
+    }
+
+    pub fn has_source(&self, source_id: &str) -> bool {
+        self.library.contains_source(source_id)
     }
 
     pub fn header<'a>(&'a self) -> Element<'a, Message> {
@@ -119,7 +165,7 @@ impl State {
                 .on_input(Message::SearchChanged)
                 .padding(8)
                 .width(Length::Fixed(240.0)),
-            button(text("Import wallpaper...")).style(button::primary).on_press(Message::ImportClicked),
+            button(text("Import wallpapers...")).style(button::primary).on_press(Message::ImportClicked),
             button(text("Stop wallpaper")).style(button::secondary).on_press(Message::StopClicked),
         ]
         .spacing(8)
@@ -144,15 +190,15 @@ impl State {
             };
             container(text(message).color(t.muted_foreground)).padding(24).into()
         } else {
-            let now = Instant::now();
             let fluid = grid::Grid::with_children(matches.into_iter().map(|(index, entry)| {
-                let fade = if self.hovered == Some(index) { self.hover_fade.interpolate(0.0_f32, 1.0_f32, now) } else { 0.0 };
                 let confirming = self.confirm_remove == Some(index);
-                tile(index, entry, fade, confirming, t)
+                let menu_open = self.menu_open == Some(index);
+                let tick = if self.hovered == Some(index) { self.preview_tick } else { 0 };
+                tile(index, entry, confirming, menu_open, tick, t)
             }))
-            .fluid(260)
+            .fluid(super::gallery::FLUID_COLUMN_WIDTH)
             .spacing(16)
-            .height(grid::aspect_ratio(16, 10));
+            .height(grid::aspect_ratio(super::gallery::card_ratio(), 1.0));
 
             scrollable(container(fluid).padding([4, 4])).into()
         };
@@ -175,18 +221,31 @@ impl State {
     }
 }
 
-/// A single gallery tile: thumbnail (or a film-icon placeholder), tinted on
-/// hover with the title and action buttons fading in over it — a video
-/// wallpaper's defining trait is that it moves, so the grid should read as
-/// a gallery of previews, not a file list with buttons bolted on.
+/// A single gallery card: a preview image sized to the real desktop's
+/// aspect ratio, a kebab menu in its top-right corner for secondary
+/// actions (currently just "Remove"), and a fixed bottom bar with the
+/// primary "Set as wallpaper" action — buttons live in the card's chrome
+/// rather than appearing only on hover, so they work the same on a
+/// touchpad as a mouse and are visible at a glance.
 fn tile<'a>(
     index: usize,
     entry: &'a paperloom_common::LibraryEntry,
-    fade: f32,
     confirming: bool,
+    menu_open: bool,
+    preview_tick: usize,
     t: theme::Tokens,
 ) -> Element<'a, Message> {
-    let thumb: Element<'a, Message> = match &entry.thumbnail {
+    // Tick 0 is the poster (also `preview_frames[0]`), so a tile at rest
+    // and a tile that just started playing show the identical image.
+    // Entries without frames fall back to the plain `thumbnail`, then to
+    // an icon if extraction failed outright.
+    let current_frame = if entry.preview_frames.is_empty() {
+        entry.thumbnail.as_ref()
+    } else {
+        entry.preview_frames.get(ping_pong(preview_tick, entry.preview_frames.len()))
+    };
+
+    let thumb: Element<'a, Message> = match current_frame {
         Some(path) => image(image::Handle::from_path(path)).content_fit(iced::ContentFit::Cover).into(),
         None => container(
             svg(icons::film()).width(32).height(32).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) }),
@@ -196,13 +255,45 @@ fn tile<'a>(
         .into(),
     };
 
-    // Below a visibility floor, don't build the overlay's buttons/icons at
-    // all — a container's background alpha fading doesn't carry its
-    // children with it, so a "fade-in" built only from background alpha
-    // left every tile's badge and action buttons fully opaque *all the
-    // time*, hover or not. Gating actual presence on `fade`, not just its
-    // background color, is what makes "hidden until hovered" real.
-    let overlay: Element<'a, Message> = if confirming {
+    let kebab = button(svg(icons::ellipsis()).width(16).height(16).style(|_theme, _status| svg::Style { color: Some(iced::Color::WHITE) }))
+        .style(move |_theme, status| {
+            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(Background::Color(iced::Color { a: if hovered || menu_open { 0.65 } else { 0.4 }, ..iced::Color::BLACK })),
+                text_color: iced::Color::WHITE,
+                border: Border { radius: 6.0.into(), ..Border::default() },
+                shadow: Shadow::default(),
+                snap: false,
+            }
+        })
+        .padding(4)
+        .on_press(Message::MenuToggled(index));
+
+    let kebab_corner: Element<'a, Message> = if menu_open {
+        iced::widget::stack![
+            container(kebab).padding(6),
+            container(
+                container(
+                    button(text("Remove").size(13).color(t.destructive))
+                        .style(button::text)
+                        .padding([6, 10])
+                        .on_press(Message::RemoveClicked(index)),
+                )
+                .style(move |_theme| container::Style {
+                    background: Some(Background::Color(t.surface)),
+                    border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
+                    shadow: Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.3), offset: iced::Vector::new(0.0, 2.0), blur_radius: 8.0 },
+                    ..container::Style::default()
+                }),
+            )
+            .padding([38, 6])
+        ]
+        .into()
+    } else {
+        container(kebab).padding(6).into()
+    };
+
+    let confirm_overlay: Element<'a, Message> = if confirming {
         container(
             column![
                 text("Remove this wallpaper?").color(iced::Color::WHITE).size(13),
@@ -218,31 +309,7 @@ fn tile<'a>(
         .center(Length::Fill)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(iced::Color { a: 0.82, ..iced::Color::BLACK })),
-            border: Border { radius: 12.0.into(), ..Border::default() },
-            ..container::Style::default()
-        })
-        .into()
-    } else if fade > 0.01 {
-        let play_badge = svg(icons::play()).width(36).height(36).style(|_theme, _status| svg::Style { color: Some(iced::Color::WHITE) });
-
-        let actions = row![
-            button(text("Set as wallpaper").size(12)).style(button::primary).on_press(Message::SetAsWallpaperClicked(index)),
-            button(svg(icons::trash()).width(16).height(16).style(|_theme, _status| svg::Style { color: Some(iced::Color::WHITE) }))
-                .style(button::text)
-                .on_press(Message::RemoveClicked(index)),
-        ]
-        .spacing(8)
-        .align_y(iced::Alignment::Center);
-
-        container(
-            column![container(play_badge).center(Length::Fill), container(actions).padding([0, 4])]
-                .spacing(8)
-                .padding(10)
-                .height(Length::Fill),
-        )
-        .style(move |_theme| container::Style {
-            background: Some(Background::Color(iced::Color { a: fade * 0.72, ..iced::Color::BLACK })),
-            border: Border { radius: 12.0.into(), ..Border::default() },
+            border: Border { radius: 0.0.into(), ..Border::default() },
             ..container::Style::default()
         })
         .into()
@@ -250,30 +317,75 @@ fn tile<'a>(
         container(Space::new().width(Length::Fill).height(Length::Fill)).into()
     };
 
-    let name_strip = container(text(entry.display_name.clone()).size(12).color(iced::Color::WHITE))
-        .padding([4, 8])
-        .width(Length::Fill)
-        .style(|_theme| container::Style {
-            background: Some(Background::Color(iced::Color { a: 0.55, ..iced::Color::BLACK })),
-            ..container::Style::default()
-        });
+    let image_area = container(iced::widget::stack![
+        thumb,
+        container(kebab_corner).align_x(iced::alignment::Horizontal::Right).width(Length::Fill),
+        confirm_overlay,
+    ])
+    .clip(true)
+    .style(move |_theme| container::Style {
+        border: Border { color: t.border, width: 1.0, radius: Border::default().radius },
+        ..container::Style::default()
+    })
+    .width(Length::Fill)
+    .height(Length::Fill);
 
-    let stack = iced::widget::stack![thumb, overlay, container(name_strip).align_y(iced::alignment::Vertical::Bottom).height(Length::Fill)];
+    let chrome = column![
+        text(entry.display_name.clone()).size(13).color(t.foreground),
+        row![
+            button(text("Set as wallpaper").size(12)).style(button::primary).width(Length::Fill).on_press(Message::SetAsWallpaperClicked(index)),
+        ]
+        .spacing(8),
+    ]
+    .spacing(8)
+    .padding([8, 2]);
 
     mouse_area(
-        container(stack)
-            .clip(true)
-            .style(move |_theme| container::Style {
-                border: Border { color: t.border, width: 1.0, radius: 12.0.into() },
-                shadow: if fade > 0.0 {
-                    Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.35 * fade), offset: iced::Vector::new(0.0, 4.0), blur_radius: 16.0 }
-                } else {
-                    Shadow::default()
-                },
-                ..container::Style::default()
-            }),
+        container(
+            column![image_area, chrome]
+                .spacing(0)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(t.surface)),
+            border: Border { color: t.border, width: 1.0, radius: 12.0.into() },
+            shadow: Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.15), offset: iced::Vector::new(0.0, 2.0), blur_radius: 8.0 },
+            ..container::Style::default()
+        })
+        .padding(0),
     )
     .on_enter(Message::TileHovered(index))
     .on_exit(Message::TileUnhovered(index))
     .into()
+}
+
+/// Maps an ever-increasing tick to a frame index that plays forward then
+/// backward (0,1,..,n-1,n-2,..,1,0,1,..) — a short clip excerpt isn't
+/// loopable, so replaying it backwards avoids a visible jump from the last
+/// frame to the first.
+fn ping_pong(tick: usize, frames: usize) -> usize {
+    if frames <= 1 {
+        return 0;
+    }
+    let period = 2 * (frames - 1);
+    let position = tick % period;
+    if position < frames {
+        position
+    } else {
+        period - position
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ping_pong;
+
+    #[test]
+    fn ping_pong_bounces_without_repeating_the_ends() {
+        let sequence: Vec<usize> = (0..10).map(|tick| ping_pong(tick, 4)).collect();
+        assert_eq!(sequence, [0, 1, 2, 3, 2, 1, 0, 1, 2, 3]);
+        assert_eq!(ping_pong(5, 1), 0);
+        assert_eq!(ping_pong(5, 0), 0);
+    }
 }

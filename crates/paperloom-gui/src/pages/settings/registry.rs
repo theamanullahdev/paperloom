@@ -9,7 +9,7 @@
 pub enum SettingId {
     PauseFullscreenApp,
     PauseScreenLock,
-    PauseBatterySaver,
+    PauseLowBattery,
     PauseWindowCovering,
     ImportMode,
     Theme,
@@ -43,10 +43,10 @@ pub const ENTRIES: &[Entry] = &[
         aliases: &["lock screen", "locked", "performance", "idle", "optimizer"],
     },
     Entry {
-        id: SettingId::PauseBatterySaver,
-        label: "Pause on battery saver",
+        id: SettingId::PauseLowBattery,
+        label: "Pause on low battery",
         section: "Performance & idle behavior",
-        aliases: &["battery", "power saver", "performance", "idle", "optimizer"],
+        aliases: &["battery", "low battery", "power saver", "performance", "idle", "optimizer"],
     },
     Entry {
         id: SettingId::PauseWindowCovering,

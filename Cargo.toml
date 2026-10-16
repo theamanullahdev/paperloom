@@ -4,6 +4,7 @@ members = [
     "crates/paperloom-common",
     "crates/paperloom-gui",
     "crates/paperloom-engine",
+    "crates/paperloom-fetch",
 ]
 
 [workspace.package]

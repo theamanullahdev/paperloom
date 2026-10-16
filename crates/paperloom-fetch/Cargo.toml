@@ -1,0 +1,12 @@
+[package]
+name = "paperloom-fetch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Online wallpaper sources and a resumable download queue for Paperloom."
+
+[dependencies]
+paperloom-common = { path = "../paperloom-common" }
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+ureq = "3"

@@ -21,7 +21,9 @@ use std::time::Duration;
 use libmpv2::Mpv;
 use paperloom_common::ipc::Command;
 use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{ConnectionExt as _, CreateWindowAux, EventMask, PropMode, WindowClass};
+use x11rb::protocol::xproto::{
+    ConfigureWindowAux, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, StackMode, WindowClass,
+};
 use x11rb::wrapper::ConnectionExt as _;
 
 use crate::pause::PauseDetector;
@@ -63,6 +65,7 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     mark_as_desktop_window(&conn, window)?;
 
     conn.map_window(window)?;
+    lower_below_everything(&conn, window)?;
     conn.flush()?;
 
     let mpv = Mpv::with_initializer(|init| {
@@ -96,8 +99,8 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     let mut is_paused = false;
     // Pause triggers are checked every 10 ticks (~2s at the 200ms tick
     // below), not every tick: two of the four checks shell out to
-    // `gdbus`/`powerprofilesctl`, and none of lock/battery-saver/fullscreen
-    // state changes fast enough to need checking faster than that.
+    // `gdbus`/`upower`, and none of lock/battery/fullscreen state changes
+    // fast enough to need checking faster than that.
     let mut tick: u32 = 0;
 
     loop {
@@ -119,6 +122,16 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
                 if let Err(err) = mpv.set_property("pause", is_paused) {
                     eprintln!("paperloom-engine: failed to set pause state: {err}");
                 }
+            }
+
+            // Nemo's desktop-icons window is also tagged `_NET_WM_WINDOW_TYPE_DESKTOP`,
+            // and EWMH doesn't define a stacking order *within* that type — so on some
+            // session restarts Nemo (re)creates or restacks its icon window above ours,
+            // leaving icons buried under the video. Re-asserting "below everything" on
+            // the same low-frequency tick as the pause check keeps this corrected
+            // without adding a dedicated poll loop.
+            if let Err(err) = lower_below_everything(&conn, window) {
+                eprintln!("paperloom-engine: failed to re-lower desktop window: {err}");
             }
         }
 
@@ -174,6 +187,17 @@ fn handle_connection(stream: UnixStream, mpv: &Mpv) {
 fn apply_mute_from_settings(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
     let settings = paperloom_common::load();
     mpv.set_property("mute", settings.muted)?;
+    Ok(())
+}
+
+/// Explicitly stacks `window` below every other window, including Nemo's
+/// desktop-icons window — both are `_NET_WM_WINDOW_TYPE_DESKTOP`, and
+/// nothing in EWMH orders windows that share that type, so without this
+/// the wallpaper can end up drawn *over* the desktop icons instead of
+/// behind them.
+fn lower_below_everything(conn: &impl Connection, window: u32) -> Result<(), Box<dyn Error>> {
+    conn.configure_window(window, &ConfigureWindowAux::new().stack_mode(StackMode::BELOW))?;
+    conn.flush()?;
     Ok(())
 }
 

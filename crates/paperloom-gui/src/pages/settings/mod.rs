@@ -84,7 +84,7 @@ impl State {
                 match id {
                     SettingId::PauseFullscreenApp => settings.pause_on_fullscreen_app = value,
                     SettingId::PauseScreenLock => settings.pause_on_screen_lock = value,
-                    SettingId::PauseBatterySaver => settings.pause_on_battery_saver = value,
+                    SettingId::PauseLowBattery => settings.pause_on_low_battery = value,
                     SettingId::PauseWindowCovering => {
                         settings.pause_on_window_covering_desktop = value;
                     }
@@ -173,10 +173,10 @@ impl State {
                     .into(),
             ),
             row(
-                SettingId::PauseBatterySaver,
-                toggler(settings.pause_on_battery_saver)
-                    .label("Pause on battery saver")
-                    .on_toggle(|v| Message::Toggle(SettingId::PauseBatterySaver, v))
+                SettingId::PauseLowBattery,
+                toggler(settings.pause_on_low_battery)
+                    .label("Pause on low battery")
+                    .on_toggle(|v| Message::Toggle(SettingId::PauseLowBattery, v))
                     .into(),
             ),
             row(
