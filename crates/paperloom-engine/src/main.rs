@@ -21,7 +21,26 @@ use std::env;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let path = env::args().nth(1);
+    let mut args = env::args().skip(1);
+    let first = args.next();
+
+    // `--preview <file>`: a one-off full-screen window for the GUI's
+    // double-click preview, not the wallpaper daemon.
+    if first.as_deref() == Some("--preview") {
+        let Some(file) = args.next() else {
+            eprintln!("paperloom-engine: --preview needs a file");
+            return ExitCode::FAILURE;
+        };
+        return match backends::preview::run(&file) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("paperloom-engine: {err}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
+    let path = first;
 
     // WAYLAND_DISPLAY is the standard way an app detects a usable Wayland
     // session is available; falling back to X11 (directly, or via

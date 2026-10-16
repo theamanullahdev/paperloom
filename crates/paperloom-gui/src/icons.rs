@@ -34,3 +34,25 @@ pub fn ellipsis() -> svg::Handle {
 pub fn globe() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/globe.svg").as_slice())
 }
+
+pub fn download() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/download.svg").as_slice())
+}
+
+/// Drag handle on a download row.
+pub fn grip() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/grip-vertical.svg").as_slice())
+}
+
+pub fn move_to_top() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/arrow-up-to-line.svg").as_slice())
+}
+
+pub fn wifi_off() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/wifi-off.svg").as_slice())
+}
+
+/// Nav icon for the sources page.
+pub fn layers() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/layers.svg").as_slice())
+}

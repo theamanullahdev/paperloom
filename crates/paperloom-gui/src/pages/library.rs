@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use iced::widget::{button, column, container, grid, image, mouse_area, row, scrollable, svg, text, text_input, Space};
+use iced::widget::image::Allocation;
 use iced::{Background, Border, Element, Length, Shadow, Subscription, Task};
 
 use paperloom_common::{Library, Settings};
@@ -25,6 +27,13 @@ pub struct State {
     hovered: Option<usize>,
     /// Frames elapsed since the hover began (see `ping_pong`).
     preview_tick: usize,
+    /// GPU-resident preview frames for recently hovered tiles, keyed by
+    /// library index. iced uploads images to the GPU asynchronously, so a
+    /// frame that has never been drawn shows nothing for a frame or two —
+    /// exactly the black flicker when animating. Holding an `Allocation`
+    /// per frame guarantees it draws immediately; playback only starts
+    /// once every frame of the tile is allocated.
+    preview_cache: HashMap<usize, Vec<Option<Allocation>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +49,8 @@ pub enum Message {
     PreviewTick,
     TileHovered(usize),
     TileUnhovered(usize),
+    FrameAllocated { entry: usize, frame: usize, result: Result<Allocation, iced::widget::image::Error> },
+    OpenPreview(usize),
 }
 
 impl State {
@@ -52,6 +63,7 @@ impl State {
             menu_open: None,
             hovered: None,
             preview_tick: 0,
+            preview_cache: HashMap::new(),
         }
     }
 
@@ -59,16 +71,17 @@ impl State {
     /// motion frames is hovered — at rest (the normal case) this page
     /// schedules nothing, so an open-but-idle library costs nothing.
     pub fn subscription(&self, active: bool) -> Subscription<Message> {
-        let animating = self
-            .hovered
-            .and_then(|index| self.library.entries.get(index))
-            .is_some_and(|entry| entry.preview_frames.len() > 1);
+        let animating = self.hovered.is_some_and(|index| self.preview_ready(index));
 
         if active && animating {
             iced::time::every(Duration::from_millis(100)).map(|_| Message::PreviewTick)
         } else {
             Subscription::none()
         }
+    }
+
+    fn preview_ready(&self, index: usize) -> bool {
+        self.preview_cache.get(&index).is_some_and(|frames| frames.len() > 1 && frames.iter().all(Option::is_some))
     }
 
     pub fn update(&mut self, settings: &Settings, message: Message) -> Task<Message> {
@@ -89,6 +102,7 @@ impl State {
                             failed.push(format!("{name} ({err})"));
                         }
                     }
+                    self.preview_cache.clear();
                     self.status = if failed.is_empty() {
                         None
                     } else if failed.len() == total {
@@ -108,6 +122,8 @@ impl State {
             Message::CancelRemoveClicked => self.confirm_remove = None,
             Message::ConfirmRemoveClicked(index) => {
                 self.confirm_remove = None;
+                self.hovered = None;
+                self.preview_cache.clear();
                 self.status = match self.library.remove(index) {
                     Ok(()) => None,
                     Err(err) => Some(format!("Couldn't remove that wallpaper: {err}")),
@@ -133,6 +149,32 @@ impl State {
                 // where the static image already was — no visible jump.
                 self.hovered = Some(index);
                 self.preview_tick = 0;
+
+                let Some(entry) = self.library.entries.get(index) else { return Task::none() };
+                if entry.preview_frames.len() > 1 && !self.preview_cache.contains_key(&index) {
+                    // Keep GPU memory bounded: only the tile being hovered
+                    // (plus nothing else) holds its frames.
+                    self.preview_cache.clear();
+                    self.preview_cache.insert(index, vec![None; entry.preview_frames.len()]);
+                    return Task::batch(entry.preview_frames.iter().enumerate().map(|(frame, path)| {
+                        iced::widget::image::allocate(image::Handle::from_path(path))
+                            .map(move |result| Message::FrameAllocated { entry: index, frame, result })
+                    }));
+                }
+            }
+            Message::FrameAllocated { entry, frame, result } => {
+                if let (Ok(allocation), Some(frames)) = (result, self.preview_cache.get_mut(&entry)) {
+                    if let Some(slot) = frames.get_mut(frame) {
+                        *slot = Some(allocation);
+                    }
+                }
+            }
+            Message::OpenPreview(index) => {
+                if let Some(entry) = self.library.entries.get(index) {
+                    if let Err(err) = crate::engine_client::preview(&entry.path) {
+                        self.status = Some(format!("Couldn't open the preview: {err}"));
+                    }
+                }
             }
             Message::TileUnhovered(index) => {
                 if self.hovered == Some(index) {
@@ -146,6 +188,8 @@ impl State {
     /// Imports a finished online download, titled and tagged with its
     /// origin so the online browser can mark it "In library".
     pub fn import_downloaded(&mut self, settings: &Settings, job: &paperloom_fetch::Job) -> Result<(), String> {
+        self.preview_cache.clear();
+        self.hovered = None;
         self.library
             .import_named(&job.final_path(), settings.import_mode, &job.title, &job.id)
             .map_err(|err| format!("Couldn't add \"{}\" to your library: {err}", job.title))
@@ -193,7 +237,7 @@ impl State {
             let fluid = grid::Grid::with_children(matches.into_iter().map(|(index, entry)| {
                 let confirming = self.confirm_remove == Some(index);
                 let menu_open = self.menu_open == Some(index);
-                let tick = if self.hovered == Some(index) { self.preview_tick } else { 0 };
+                let tick = if self.hovered == Some(index) && self.preview_ready(index) { self.preview_tick } else { 0 };
                 tile(index, entry, confirming, menu_open, tick, t)
             }))
             .fluid(super::gallery::FLUID_COLUMN_WIDTH)
@@ -357,6 +401,7 @@ fn tile<'a>(
     )
     .on_enter(Message::TileHovered(index))
     .on_exit(Message::TileUnhovered(index))
+    .on_double_click(Message::OpenPreview(index))
     .into()
 }
 

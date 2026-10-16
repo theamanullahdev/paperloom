@@ -8,8 +8,9 @@ use crate::{paths, Settings};
 pub fn load() -> Settings {
     fs::read_to_string(paths::config_file())
         .ok()
-        .and_then(|contents| toml::from_str(&contents).ok())
+        .and_then(|contents| toml::from_str::<Settings>(&contents).ok())
         .unwrap_or_default()
+        .with_builtin_sources()
 }
 
 pub fn save(settings: &Settings) -> std::io::Result<()> {
@@ -19,5 +20,8 @@ pub fn save(settings: &Settings) -> std::io::Result<()> {
     }
 
     let contents = toml::to_string_pretty(settings).expect("Settings always serializes");
-    fs::write(path, contents)
+    fs::write(&path, contents)?;
+    // The file can hold API keys: owner read/write only.
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
 }

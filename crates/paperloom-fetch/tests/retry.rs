@@ -7,7 +7,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
-use paperloom_fetch::{OnlineItem, Queue, Status};
+use paperloom_fetch::{OnlineItem, Queue, Status, Variant};
 
 #[test]
 fn transient_failures_retry_until_success() {
@@ -48,14 +48,14 @@ fn transient_failures_retry_until_success() {
     let queue = Queue::start();
     let item = OnlineItem {
         id: "1".into(),
-        source: "test",
+        source: "test".into(),
+        source_name: "Test".into(),
         title: "Retry Me".into(),
-        quality: String::new(),
         thumb_url: String::new(),
-        download_url: url,
+        variants: vec![Variant { label: "HD".into(), url }],
         page_url: String::new(),
     };
-    assert!(queue.add(&item));
+    assert!(queue.add(&item, "HD"));
 
     let mut saw_waiting = false;
     let deadline = Instant::now() + Duration::from_secs(60);

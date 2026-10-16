@@ -43,11 +43,18 @@ pub struct Job {
     pub title: String,
     pub url: String,
     pub file_name: String,
+    /// "HD" or "4K": the rendition the user chose.
+    #[serde(default)]
+    pub quality: String,
     pub status: Status,
     pub bytes_done: u64,
     pub bytes_total: Option<u64>,
     pub attempts: u32,
     pub last_error: Option<String>,
+    /// Seconds until the next automatic retry, for display. Filled in by
+    /// `Queue::snapshot`; never persisted.
+    #[serde(skip)]
+    pub retry_in: Option<u64>,
 }
 
 impl Job {
@@ -55,7 +62,7 @@ impl Job {
         downloads_dir().join(&self.file_name)
     }
 
-    fn part_path(&self) -> PathBuf {
+    pub fn part_path(&self) -> PathBuf {
         downloads_dir().join(format!("{}.part", self.file_name))
     }
 }
@@ -100,6 +107,10 @@ impl Queue {
             if matches!(job.status, Status::Downloading | Status::Waiting) {
                 job.status = Status::Queued;
             }
+            // Progress isn't saved on every chunk; the part file is the truth.
+            if let Ok(meta) = job.part_path().metadata() {
+                job.bytes_done = meta.len();
+            }
         }
 
         let queue = Queue { shared: Arc::new(Shared { state: Mutex::new(State { jobs, ..State::default() }), wake: Condvar::new() }) };
@@ -108,25 +119,29 @@ impl Queue {
         queue
     }
 
-    /// Queues `item`. Returns `false` if that wallpaper is already queued
-    /// or downloaded-but-not-yet-imported.
-    pub fn add(&self, item: &OnlineItem) -> bool {
-        let id = format!("{}:{}", item.source, item.id);
+    /// Queues `item` in the given rendition (`"HD"` or `"4K"`). Returns
+    /// `false` if that wallpaper is already queued or
+    /// downloaded-but-not-yet-imported, or has no such rendition.
+    pub fn add(&self, item: &OnlineItem, quality: &str) -> bool {
+        let Some(variant) = item.variant(quality) else { return false };
+        let id = item.key();
         let mut state = self.lock();
         if state.jobs.iter().any(|job| job.id == id) {
             return false;
         }
         state.jobs.push(Job {
-            file_name: file_name_for(&item.id, &item.title),
+            file_name: file_name_for(&item.source, &item.id, &item.title, quality),
             id,
-            source: item.source.to_string(),
+            source: item.source_name.clone(),
+            quality: quality.to_string(),
             title: item.title.clone(),
-            url: item.download_url.clone(),
+            url: variant.url.clone(),
             status: Status::Queued,
             bytes_done: 0,
             bytes_total: None,
             attempts: 0,
             last_error: None,
+            retry_in: None,
         });
         save(&state);
         drop(state);
@@ -134,8 +149,34 @@ impl Queue {
         true
     }
 
+    /// Jobs in priority order (the worker always takes the first one that
+    /// is ready), with `retry_in` filled in.
     pub fn snapshot(&self) -> Vec<Job> {
-        self.lock().jobs.clone()
+        let state = self.lock();
+        let now = Instant::now();
+        state
+            .jobs
+            .iter()
+            .cloned()
+            .map(|mut job| {
+                job.retry_in = state.retry_at.get(&job.id).map(|at| at.saturating_duration_since(now).as_secs());
+                job
+            })
+            .collect()
+    }
+
+    /// Moves a job to `position` in the queue (0 = next to download). A
+    /// download already in flight isn't interrupted, but the new order
+    /// decides what starts after it.
+    pub fn move_job(&self, id: &str, position: usize) {
+        let mut state = self.lock();
+        let Some(from) = state.jobs.iter().position(|job| job.id == id) else { return };
+        let job = state.jobs.remove(from);
+        let to = position.min(state.jobs.len());
+        state.jobs.insert(to, job);
+        save(&state);
+        drop(state);
+        self.shared.wake.notify_all();
     }
 
     pub fn is_busy(&self) -> bool {
@@ -216,28 +257,50 @@ impl Queue {
         }
     }
 
-    /// Blocks until a job is eligible, marks it `Downloading`, returns it.
+    /// Blocks until a job is eligible *and* the internet is reachable,
+    /// marks it `Downloading`, returns it. While offline, queued jobs just
+    /// wait (no attempts burned, no backoff growth).
     fn next_job(&self) -> (Job, Arc<AtomicBool>) {
-        let mut state = self.lock();
         loop {
+            let state = self.lock();
             let now = Instant::now();
             let ready = state.jobs.iter().position(|job| {
                 matches!(job.status, Status::Queued | Status::Waiting)
                     && state.retry_at.get(&job.id).is_none_or(|at| *at <= now)
             });
 
-            if let Some(position) = ready {
-                let cancel = Arc::new(AtomicBool::new(false));
-                state.jobs[position].status = Status::Downloading;
-                let job = state.jobs[position].clone();
-                state.active = Some((job.id.clone(), cancel.clone()));
-                save(&state);
-                return (job, cancel);
+            let Some(position) = ready else {
+                let next_retry = state.retry_at.values().min().map(|at| at.saturating_duration_since(now));
+                let wait = next_retry.unwrap_or(Duration::from_secs(30)).max(Duration::from_millis(200));
+                drop(self.shared.wake.wait_timeout(state, wait).unwrap_or_else(|poisoned| poisoned.into_inner()));
+                continue;
+            };
+            let id = state.jobs[position].id.clone();
+            drop(state);
+
+            // Checked without holding the lock: this can take ~1s.
+            if !crate::net::is_online() {
+                let mut state = self.lock();
+                if let Some(job) = state.jobs.iter_mut().find(|job| job.id == id) {
+                    job.last_error = Some("Waiting for internet connection".to_string());
+                }
+                drop(self.shared.wake.wait_timeout(state, Duration::from_secs(3)).unwrap_or_else(|poisoned| poisoned.into_inner()));
+                continue;
             }
 
-            let next_retry = state.retry_at.values().min().map(|at| at.saturating_duration_since(now));
-            let wait = next_retry.unwrap_or(Duration::from_secs(30)).max(Duration::from_millis(200));
-            state = self.shared.wake.wait_timeout(state, wait).unwrap_or_else(|poisoned| poisoned.into_inner()).0;
+            let mut state = self.lock();
+            // The job may have been cancelled or already started meanwhile.
+            let Some(position) = state.jobs.iter().position(|job| job.id == id && matches!(job.status, Status::Queued | Status::Waiting)) else {
+                continue;
+            };
+            let cancel = Arc::new(AtomicBool::new(false));
+            state.jobs[position].status = Status::Downloading;
+            state.jobs[position].last_error = None;
+            state.retry_at.remove(&id);
+            let job = state.jobs[position].clone();
+            state.active = Some((id, cancel.clone()));
+            save(&state);
+            return (job, cancel);
         }
     }
 
@@ -258,6 +321,10 @@ impl Queue {
                 Err(FetchError::Permanent(message)) => {
                     job.status = Status::Failed;
                     job.last_error = Some(message);
+                }
+                Err(FetchError::Offline) => {
+                    job.status = Status::Queued;
+                    job.last_error = Some("Waiting for internet connection".to_string());
                 }
                 Err(FetchError::Transient(message)) => {
                     job.attempts += 1;
@@ -288,8 +355,14 @@ fn save(state: &State) {
     let _ = std::fs::write(path, text);
 }
 
-/// `<id>-<title>.mp4` with anything filesystem-hostile flattened to `-`.
-fn file_name_for(id: &str, title: &str) -> String {
+/// `<source>-<id>-<title>-<quality>.mp4` with anything filesystem-hostile
+/// flattened to `-` (the source is included so ids from different sites
+/// can never collide).
+fn file_name_for(source: &str, id: &str, title: &str, quality: &str) -> String {
+    let flat = |text: &str| -> String {
+        text.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect::<String>().split('-').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("-")
+    };
+    let (source, id, quality) = (flat(source), flat(id), flat(quality));
     let slug: String = title
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
@@ -299,7 +372,7 @@ fn file_name_for(id: &str, title: &str) -> String {
         .collect::<Vec<_>>()
         .join("-");
     let slug: String = slug.chars().take(60).collect();
-    format!("{id}-{}.mp4", if slug.is_empty() { "wallpaper" } else { &slug })
+    format!("{source}-{id}-{}-{quality}.mp4", if slug.is_empty() { "wallpaper" } else { &slug })
 }
 
 #[cfg(test)]
@@ -316,8 +389,8 @@ mod tests {
 
     #[test]
     fn file_names_are_filesystem_safe() {
-        assert_eq!(file_name_for("10118", "Wandering Samurai"), "10118-wandering-samurai.mp4");
-        assert_eq!(file_name_for("9", "../../etc/passwd"), "9-etc-passwd.mp4");
-        assert_eq!(file_name_for("7", "★★★"), "7-wallpaper.mp4");
+        assert_eq!(file_name_for("motionbgs.com", "10118", "Wandering Samurai", "4K"), "motionbgs-com-10118-wandering-samurai-4k.mp4");
+        assert_eq!(file_name_for("x", "9", "../../etc/passwd", "HD"), "x-9-etc-passwd-hd.mp4");
+        assert_eq!(file_name_for("x", "7", "★★★", "HD"), "x-7-wallpaper-hd.mp4");
     }
 }

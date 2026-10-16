@@ -77,12 +77,16 @@ pub enum FetchError {
     Transient(String),
     /// Retrying won't help (404/410/other 4xx).
     Permanent(String),
+    /// No internet connection at all (checked up front, so callers can say
+    /// so immediately instead of waiting for a timeout).
+    Offline,
 }
 
 impl std::fmt::Display for FetchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FetchError::Transient(msg) | FetchError::Permanent(msg) => f.write_str(msg),
+            FetchError::Offline => f.write_str("No internet connection"),
         }
     }
 }
@@ -104,11 +108,24 @@ pub fn classify_transport(err: ureq::Error) -> FetchError {
 /// Fetches a page as text, returning the body and the final URL after
 /// redirects (needed to page through search results).
 pub fn get_text(url: &str) -> Result<(String, String), FetchError> {
+    get_text_with(url, &[])
+}
+
+/// Like `get_text`, with extra request headers (API keys).
+pub fn get_text_with(url: &str, headers: &[(&str, &str)]) -> Result<(String, String), FetchError> {
     use ureq::ResponseExt;
 
     wait_turn(Lane::Page);
-    let mut response = agent().get(url).call().map_err(classify_transport)?;
-    if let Some(err) = classify_status(response.status().as_u16()) {
+    let mut request = agent().get(url);
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let mut response = request.call().map_err(classify_transport)?;
+    let status = response.status().as_u16();
+    if status == 401 || status == 403 {
+        return Err(FetchError::Permanent("the API key was rejected (check it in Sources)".into()));
+    }
+    if let Some(err) = classify_status(status) {
         return Err(err);
     }
     let final_url = response.get_uri().to_string();

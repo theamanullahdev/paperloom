@@ -6,17 +6,14 @@
 //! robots.txt allows are requested (never `/ajax/`, `/a2/`, `/admin/`).
 
 use crate::http::{self, FetchError};
-use crate::source::{Listing, OnlineItem, Source};
+use crate::source::{Listing, OnlineItem, Source, Variant};
+use paperloom_common::SOURCE_MOTIONBGS;
 
 const SITE: &str = "https://motionbgs.com";
 
 pub struct MotionBgs;
 
 impl Source for MotionBgs {
-    fn name(&self) -> &'static str {
-        "motionbgs.com"
-    }
-
     fn fetch(&self, query: &str, page: u32, base: Option<&str>) -> Result<Listing, FetchError> {
         let url = page_url(query, page, base);
         let (html, final_url) = http::get_text(&url)?;
@@ -54,7 +51,7 @@ fn normalize_base(final_url: &str) -> Option<String> {
     (url != format!("{SITE}/")).then_some(url)
 }
 
-fn url_encode(input: &str) -> String {
+pub(crate) fn url_encode(input: &str) -> String {
     let mut out = String::new();
     for byte in input.bytes() {
         match byte {
@@ -76,13 +73,20 @@ pub(crate) fn parse_listing(html: &str) -> Vec<OnlineItem> {
         let href = attr_after(tile, "href=").unwrap_or_default();
         let quality = text_between(tile, "class=frm>", "<").unwrap_or_default().trim().to_string();
 
+        // `/dl/hd/<id>/` exists for every wallpaper; `/dl/4k/<id>/` only
+        // for the ones the tile badges "4K".
+        let mut variants = vec![Variant { label: "HD".into(), url: format!("{SITE}/dl/hd/{id}/") }];
+        if quality.contains("4K") {
+            variants.push(Variant { label: "4K".into(), url: format!("{SITE}/dl/4k/{id}/") });
+        }
+
         items.push(OnlineItem {
             id: id.clone(),
-            source: "motionbgs.com",
+            source: SOURCE_MOTIONBGS.to_string(),
+            source_name: "MotionBGS".to_string(),
             title: decode_entities(title.trim()),
-            quality,
             thumb_url: absolute(&thumb),
-            download_url: format!("{SITE}/dl/hd/{id}/"),
+            variants,
             page_url: absolute(&href),
         });
     }
@@ -146,8 +150,10 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].id, "10118");
         assert_eq!(items[0].title, "Wandering Samurai");
-        assert_eq!(items[0].quality, "4K");
-        assert_eq!(items[0].download_url, "https://motionbgs.com/dl/hd/10118/");
+        assert_eq!(items[0].variants.len(), 2);
+        assert_eq!(items[0].variant("HD").unwrap().url, "https://motionbgs.com/dl/hd/10118/");
+        assert_eq!(items[0].variant("4K").unwrap().url, "https://motionbgs.com/dl/4k/10118/");
+        assert_eq!(items[1].variants.len(), 1);
         assert_eq!(items[0].page_url, "https://motionbgs.com/wandering-samurai");
         assert_eq!(items[0].thumb_url, "https://motionbgs.com/i/c/364x205/media/10118/wandering-samurai.3840x2160.jpg");
         assert_eq!(items[1].title, "Tom & Jerry");
