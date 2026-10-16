@@ -57,7 +57,7 @@ impl std::fmt::Display for ThemeMode {
 pub struct Settings {
     pub pause_on_fullscreen_app: bool,
     pub pause_on_screen_lock: bool,
-    pub pause_on_battery_saver: bool,
+    pub pause_on_low_battery: bool,
     pub pause_on_window_covering_desktop: bool,
     pub import_mode: ImportMode,
     pub theme: ThemeMode,
@@ -73,7 +73,7 @@ impl Default for Settings {
         Self {
             pause_on_fullscreen_app: true,
             pause_on_screen_lock: true,
-            pause_on_battery_saver: true,
+            pause_on_low_battery: true,
             pause_on_window_covering_desktop: true,
             import_mode: ImportMode::default(),
             theme: ThemeMode::default(),

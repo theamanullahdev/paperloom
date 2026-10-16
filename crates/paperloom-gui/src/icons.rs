@@ -18,18 +18,19 @@ pub fn settings() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/settings.svg").as_slice())
 }
 
-/// Hover overlay on a gallery card — signals "this tile is a video", since
-/// a static thumbnail alone looks like a plain image.
-pub fn play() -> svg::Handle {
-    svg::Handle::from_memory(include_bytes!("../assets/icons/play.svg").as_slice())
-}
-
 /// Placeholder tile for an entry whose thumbnail failed to generate (no
 /// `ffmpeg` on `PATH`, or extraction failed).
 pub fn film() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/film.svg").as_slice())
 }
 
-pub fn trash() -> svg::Handle {
-    svg::Handle::from_memory(include_bytes!("../assets/icons/trash.svg").as_slice())
+/// The top-right kebab menu on a gallery card (secondary actions like
+/// "Remove", kept out of the card's primary bottom button bar).
+pub fn ellipsis() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/ellipsis.svg").as_slice())
+}
+
+/// Nav icon for the online library.
+pub fn globe() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/globe.svg").as_slice())
 }

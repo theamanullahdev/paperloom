@@ -72,6 +72,18 @@ fn dark() -> Tokens {
     }
 }
 
+/// Turns the user's setting into a concrete Light/Dark: `System` follows
+/// the desktop's reported preference (`iced::system`), and stays dark if
+/// the desktop doesn't report one.
+pub fn resolve(mode: ThemeMode, system: iced::theme::Mode) -> ThemeMode {
+    match mode {
+        ThemeMode::System if system == iced::theme::Mode::Light => ThemeMode::Light,
+        ThemeMode::System => ThemeMode::Dark,
+        explicit => explicit,
+    }
+}
+
+/// Expects an already-`resolve`d mode; a raw `System` renders as dark.
 pub fn tokens(mode: ThemeMode) -> Tokens {
     match mode {
         ThemeMode::Light => light(),
@@ -79,9 +91,6 @@ pub fn tokens(mode: ThemeMode) -> Tokens {
     }
 }
 
-/// `ThemeMode::System` doesn't attempt to detect the desktop's actual
-/// light/dark preference (no simple portable way to do that from Iced
-/// directly without another dependency) — falls back to dark.
 pub fn from_mode(mode: ThemeMode) -> Theme {
     let t = tokens(mode);
     let name = match mode {
