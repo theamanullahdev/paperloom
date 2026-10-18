@@ -218,7 +218,7 @@ fn pixmaps(style: TrayStyle, size: TraySize, dark_panel: bool) -> Vec<Icon> {
             let mut data = file[8..].to_vec();
             if style == TrayStyle::Black {
                 // The glyph is white; black keeps its alpha, zeroes R, G, B.
-                for pixel in data.chunks_exact_mut(4) {
+                for pixel in data.as_chunks_mut::<4>().0 {
                     pixel[1..].fill(0);
                 }
             }
