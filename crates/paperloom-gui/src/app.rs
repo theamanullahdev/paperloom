@@ -91,6 +91,7 @@ impl App {
         // Opened from the tray menu's "Tray icon settings…".
         let start = if std::env::args().any(|arg| arg == "--tray-settings") {
             app.page = Page::Settings;
+            app.settings_page.refresh(app.library_page.library());
             app.settings_page.update(&mut app.settings, settings::Message::ResultSelected(settings::SettingId::TrayIcon)).map(Message::Settings)
         } else {
             Task::none()
@@ -141,6 +142,7 @@ impl App {
             Message::GoToSetting(id) => {
                 self.search_open = false;
                 self.page = if id == settings::SettingId::Updates { Page::Updates } else { Page::Settings };
+                self.settings_page.refresh(self.library_page.library());
                 self.settings_page.update(&mut self.settings, settings::Message::ResultSelected(id)).map(Message::Settings)
             }
             Message::ShowInLibrary(name) => {
@@ -152,6 +154,9 @@ impl App {
             Message::SwitchPage(page) => {
                 self.search_open = false;
                 self.page = page;
+                if page == Page::Settings {
+                    self.settings_page.refresh(self.library_page.library());
+                }
                 if page == Page::Online {
                     if std::mem::take(&mut self.online_stale) {
                         self.online_page.update(&self.settings, online::Message::Reload).map(Message::Online)
@@ -169,10 +174,11 @@ impl App {
             Message::Settings(msg) => self.settings_page.update(&mut self.settings, msg).map(Message::Settings),
             Message::Updates(updates::Message::Back) => {
                 self.page = Page::Settings;
+                self.settings_page.refresh(self.library_page.library());
                 Task::none()
             }
             Message::Updates(msg) => self.updates_page.update(&mut self.settings, msg).map(Message::Updates),
-            Message::Library(msg) => self.library_page.update(&self.settings, msg).map(Message::Library),
+            Message::Library(msg) => self.library_page.update(&mut self.settings, msg).map(Message::Library),
             Message::Online(msg) => self.online_page.update(&self.settings, msg).map(Message::Online),
             Message::Downloads(downloads::Message::Back) => {
                 self.page = Page::Online;
@@ -323,7 +329,7 @@ impl App {
         let content_width = (size.width - rail_width).max(0.0);
 
         let (title, header, body) = match self.page {
-            Page::Library => ("Library", self.library_page.header().map(Message::Library), self.library_page.body(t).map(Message::Library)),
+            Page::Library => ("Library", self.library_page.header().map(Message::Library), self.library_page.body(self.settings.library_view, t).map(Message::Library)),
             Page::Online => {
                 let in_library = |id: &str| self.library_page.has_source(id);
                 ("Online", self.online_page.header(t).map(Message::Online), self.online_page.body(t, &in_library).map(Message::Online))
@@ -382,7 +388,7 @@ impl App {
         // The search popup floats over the page, right under the top bar;
         // clicking anywhere else on the page closes it.
         let body: Element<'_, Message> = if self.search_open {
-            let results = search::results(&self.search, self.library_page.names().map(|(_, name)| name), self.settings.allow_mature);
+            let results = search::results(&self.search, self.library_page.names(), self.settings.allow_mature);
             let popup = search::popup(results, content_width - 24.0, t);
             stack![
                 body,

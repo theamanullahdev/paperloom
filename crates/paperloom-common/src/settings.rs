@@ -168,6 +168,31 @@ pub struct Settings {
     pub tray_style: TrayStyle,
     pub tray_size: TraySize,
     pub updates: UpdateSettings,
+    /// How the Library page lays out wallpapers.
+    pub library_view: LibraryView,
+}
+
+/// The Library page's view: grid of cards or list of rows, in three sizes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LibraryView {
+    pub layout: LibraryLayout,
+    pub size: ViewSize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LibraryLayout {
+    #[default]
+    Grid,
+    List,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ViewSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
 }
 
 /// App self-update preferences (Settings → Updates).
@@ -220,6 +245,7 @@ impl Default for Settings {
             tray_style: TrayStyle::default(),
             tray_size: TraySize::default(),
             updates: UpdateSettings::default(),
+            library_view: LibraryView::default(),
         }
     }
 }
