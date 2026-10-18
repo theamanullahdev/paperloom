@@ -56,3 +56,25 @@ pub fn wifi_off() -> svg::Handle {
 pub fn layers() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/layers.svg").as_slice())
 }
+
+pub fn grid() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/layout-grid.svg").as_slice())
+}
+
+pub fn list() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/list.svg").as_slice())
+}
+
+/// "Set as wallpaper" on compact cards and rows.
+pub fn play() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/play.svg").as_slice())
+}
+
+pub fn back() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/chevron-left.svg").as_slice())
+}
+
+/// An empty collection's cover.
+pub fn folder() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/folder.svg").as_slice())
+}
