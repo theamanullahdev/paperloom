@@ -39,14 +39,40 @@ dylibbundler --overwrite-dir --bundle-deps --create-dir \
   --dest-dir "$app/Contents/Frameworks" \
   --install-path "@executable_path/../Frameworks/"
 
+# dylibbundler adds its rpath once per fixed file it touches, so a binary
+# can end up with the same LC_RPATH twice — which macOS 15's dyld rejects
+# outright ("duplicate LC_RPATH"). Keep exactly one of each.
+dedupe_rpaths() {
+  local file="$1" rpath count
+  otool -l "$file" | awk '/cmd LC_RPATH/{getline; getline; print $2}' | sort | uniq -c | while read -r count rpath; do
+    while [ "$count" -gt 1 ]; do
+      install_name_tool -delete_rpath "$rpath" "$file"
+      count=$((count - 1))
+    done
+  done
+}
+for file in "$app/Contents/MacOS/"* "$app/Contents/Frameworks/"*.dylib; do
+  dedupe_rpaths "$file"
+done
+
 # Rewriting load commands invalidates signatures; re-sign everything ad hoc.
 find "$app/Contents/Frameworks" -name '*.dylib' -exec codesign --force --sign - {} \;
 for exe in "$app/Contents/MacOS/"*; do codesign --force --sign - "$exe"; done
 codesign --force --sign - "$app"
 
-# Smoke test: the bundled engine must load its libraries without Homebrew.
+# Smoke test: the bundled engine must load its libraries without Homebrew,
+# and both bundled executables must actually start (a dyld failure aborts
+# before main; a healthy engine rejects the bogus path with exit 1).
 otool -L "$app/Contents/MacOS/paperloom-engine" | grep -q "@executable_path/../Frameworks/libmpv" \
   || { echo "libmpv wasn't rewritten into the bundle" >&2; exit 1; }
+set +e
+"$app/Contents/MacOS/paperloom-engine" --preview /does-not-exist.mp4
+engine_code=$?
+"$app/Contents/MacOS/ffmpeg" -version > /dev/null
+ffmpeg_code=$?
+set -e
+[ "$engine_code" = 1 ] || { echo "bundled paperloom-engine failed to start (exit $engine_code)" >&2; exit 1; }
+[ "$ffmpeg_code" = 0 ] || { echo "bundled ffmpeg failed to start (exit $ffmpeg_code)" >&2; exit 1; }
 
 mkdir -p "$out_dir" "$work/dmg"
 cp -R "$app" "$work/dmg/"

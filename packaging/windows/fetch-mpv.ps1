@@ -36,6 +36,8 @@ $exports = dumpbin /exports (Join-Path $Out "libmpv-2.dll") |
 if (-not $exports) { throw "no mpv_* exports found in libmpv-2.dll" }
 $def = Join-Path $Out "mpv.def"
 @("LIBRARY libmpv-2.dll", "EXPORTS") + $exports | Set-Content -Encoding ascii $def
-lib /nologo /def:$def /machine:x64 /out:(Join-Path $Out "mpv.lib")
+$lib = Join-Path $Out "mpv.lib"
+lib /nologo "/def:$def" /machine:x64 "/out:$lib"
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $lib)) { throw "lib.exe failed to create $lib" }
 
 Write-Host "libmpv ready in $Out ($($exports.Count) exports)"
