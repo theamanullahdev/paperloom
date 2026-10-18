@@ -182,3 +182,10 @@ jobs:
             dist/paperloom-*
             dist/SHA256SUMS.txt
           fail_on_unmatched_files: true
+
+  # Refresh the apt repository (GitHub Pages) with the new .deb, so apt
+  # users get this release through their normal system updates.
+  apt:
+    needs: publish
+    uses: ./.github/workflows/apt-repo.yml
+    secrets: inherit
