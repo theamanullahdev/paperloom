@@ -15,6 +15,20 @@ use crate::paths;
 #[serde(default)]
 pub struct EngineState {
     pub current_wallpaper: Option<PathBuf>,
+    /// The desktop's own background settings from before Paperloom
+    /// replaced them with a still of the video (Linux: so the workspace
+    /// switcher/overview, which draw the system background, match).
+    /// Restored when the wallpaper is stopped.
+    pub saved_background: Vec<SavedSetting>,
+}
+
+/// One `gsettings` value: schema, key, and the value exactly as
+/// `gsettings get` printed it (a GVariant literal, so `set` takes it back).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedSetting {
+    pub schema: String,
+    pub key: String,
+    pub value: String,
 }
 
 impl EngineState {

@@ -31,6 +31,18 @@ Download from the [Releases page](https://github.com/theamanullahdev/paperloom/r
 
 Once installed, Paperloom keeps itself current. **Settings → Updates** checks GitHub for new releases, downloads the right installer for your system (resumable, SHA-256 verified) and opens it. You can also skip a version there. Flatpak installs are updated by Flatpak instead.
 
+### Updating
+
+**Settings → Updates** in the app downloads the newest installer and opens it in your system's package installer, where you confirm. The `.deb`/`.rpm` don't update silently in the background: they don't come from an apt/dnf repository. To update from a terminal instead, on Ubuntu / Mint / Debian:
+
+```
+curl -fsSL https://api.github.com/repos/theamanullahdev/paperloom/releases/latest \
+  | grep -o 'https://[^"]*linux-x86_64\.deb' | head -n1 | xargs curl -fL -o /tmp/paperloom.deb \
+  && sudo apt install /tmp/paperloom.deb
+```
+
+On Fedora, replace `\.deb` with `\.rpm` and the last line with `sudo dnf install /tmp/paperloom.rpm`. Restart Paperloom (and stop/start the wallpaper) afterwards.
+
 **The installers aren't code-signed yet** (that costs money: an Apple Developer account at $99/year and a Windows code-signing certificate). Until then:
 
 - **Windows:** SmartScreen says "Windows protected your PC". Click **More info → Run anyway**.
