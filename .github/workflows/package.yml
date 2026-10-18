@@ -1,0 +1,250 @@
+name: Package
+
+# Builds every installer from one commit. Reusable: CI runs it on every
+# push/PR (installers become downloadable run artifacts), and release.yml
+# runs it on the freshly tagged release commit, then publishes the results.
+#
+# Asset names follow paperloom-<version>-<os>-<arch>[-setup].<ext> — the
+# in-app updater (paperloom-fetch/src/update.rs) picks installers by that
+# pattern, so keep the two in sync.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build (defaults to the triggering commit)
+        type: string
+        default: ""
+      version:
+        description: Version to stamp into the build (defaults to Cargo.toml's)
+        type: string
+        default: ""
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux (.deb, .rpm)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Version
+        id: v
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$VERSION" ]; then scripts/set-version.sh "$VERSION"; fi
+          echo "version=$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
+      - name: Install libmpv-dev
+        run: sudo apt-get update && sudo apt-get install -y libmpv-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+      - name: Build
+        run: cargo build --release --workspace --locked
+      - name: Package
+        run: |
+          version="${{ steps.v.outputs.version }}"
+          cargo deb -p paperloom-gui --no-build --output target/debian/paperloom.deb
+          cargo generate-rpm -p crates/paperloom-gui --output target/generate-rpm/paperloom.rpm
+          mkdir -p dist
+          cp target/debian/paperloom.deb "dist/paperloom-$version-linux-x86_64.deb"
+          cp target/generate-rpm/paperloom.rpm "dist/paperloom-$version-linux-x86_64.rpm"
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-linux
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows (.msi, setup .exe)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Version
+        id: v
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$VERSION" ]; then scripts/set-version.sh "$VERSION"; fi
+          echo "version=$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch libmpv and ffmpeg
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: packaging/windows/fetch-mpv.ps1 -Out C:\mpv
+      - name: Build
+        shell: pwsh
+        env:
+          RUSTFLAGS: -L native=C:\mpv
+        run: cargo build --release --workspace --locked
+      - name: Stage files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force C:\stage | Out-Null
+          Copy-Item target\release\paperloom-gui.exe, target\release\paperloom-engine.exe, C:\mpv\libmpv-2.dll, C:\mpv\ffmpeg.exe C:\stage
+          Copy-Item LICENSE C:\stage\LICENSE.txt
+          Get-ChildItem C:\stage
+      - name: Smoke test (engine loads libmpv)
+        shell: pwsh
+        run: |
+          # A missing/broken DLL fails at process start (0xC0000135), before
+          # main runs; a healthy engine reaches main and rejects the path (1).
+          $p = Start-Process C:\stage\paperloom-engine.exe -ArgumentList "--preview","C:\does-not-exist.mp4" -Wait -PassThru
+          Write-Host "exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 1) { throw "paperloom-engine.exe failed to start (exit $($p.ExitCode))" }
+      - name: Build .msi
+        shell: pwsh
+        working-directory: packaging/windows
+        run: |
+          $version = "${{ steps.v.outputs.version }}"
+          dotnet tool install --global wix --version 5.0.2
+          New-Item -ItemType Directory -Force ..\..\dist | Out-Null
+          wix build paperloom.wxs -arch x64 -d Version=$version -d Stage=C:\stage -o "..\..\dist\paperloom-$version-windows-x86_64.msi"
+      - name: Build setup .exe
+        shell: pwsh
+        run: |
+          $version = "${{ steps.v.outputs.version }}"
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+            $env:PATH += ";${env:ProgramFiles(x86)}\Inno Setup 6"
+          }
+          iscc /DAppVersion=$version /DStage=C:\stage "/DOutputDir=$PWD\dist" packaging\windows\paperloom.iss
+          Remove-Item dist\*.wixpdb -ErrorAction SilentlyContinue
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-windows
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.arch }} (.dmg)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: aarch64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Version
+        id: v
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$VERSION" ]; then scripts/set-version.sh "$VERSION"; fi
+          echo "version=$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
+      - name: Install mpv, ffmpeg, dylibbundler
+        run: brew install mpv ffmpeg dylibbundler
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
+      - name: Build
+        run: RUSTFLAGS="-L $(brew --prefix)/lib" cargo build --release --workspace --locked
+      - name: Build .dmg
+        run: packaging/macos/build-dmg.sh "${{ steps.v.outputs.version }}" target/release dist
+      - name: Smoke test (bundled engine loads its libraries)
+        run: |
+          mount="$(mktemp -d)"
+          hdiutil attach dist/*.dmg -mountpoint "$mount" -nobrowse
+          set +e
+          "$mount/Paperloom.app/Contents/MacOS/paperloom-engine" --preview /does-not-exist.mp4
+          code=$?
+          set -e
+          hdiutil detach "$mount"
+          echo "exit code: $code"
+          [ "$code" = 1 ] || { echo "paperloom-engine failed to start"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-macos-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  flatpak-sources:
+    name: Flatpak cargo sources
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Version
+        id: v
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$VERSION" ]; then scripts/set-version.sh "$VERSION"; fi
+          echo "version=$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generate cargo-sources.json
+        run: |
+          pip install aiohttp tomlkit
+          curl -fsSL -o /tmp/flatpak-cargo-generator.py \
+            https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
+          python3 /tmp/flatpak-cargo-generator.py Cargo.lock -o cargo-sources.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-cargo-sources
+          path: cargo-sources.json
+
+  flatpak:
+    name: Flatpak bundle
+    needs: flatpak-sources
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Version
+        id: v
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$VERSION" ]; then scripts/set-version.sh "$VERSION"; fi
+          echo "version=$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: flatpak-cargo-sources
+          path: packaging/flatpak
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/io.github.theamanullahdev.Paperloom.yml
+          bundle: paperloom-${{ steps.v.outputs.version }}-linux-x86_64.flatpak
+          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/*.yml') }}
+          upload-artifact: false
+      - name: Collect bundle
+        run: mkdir -p dist && mv paperloom-*.flatpak dist/ && ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-flatpak
+          path: dist/*
+          if-no-files-found: error

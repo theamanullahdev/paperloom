@@ -1,41 +1,161 @@
 name: Release
 
-# Runs only when a version tag is pushed (e.g. `git tag v0.2.0 && git push
-# --tags`) — builds the .deb and publishes it on a real GitHub Release page,
-# attached as a downloadable asset. Bump the `version` in the workspace
-# Cargo.toml to match the tag *before* tagging — the tag doesn't do that
-# for you, and the built .deb's filename/version comes from Cargo.toml.
+# Fully automatic releases. Every push to main that changes more than docs
+# becomes a GitHub Release:
+#
+#   1. plan     — next version from the commits since the last tag
+#                 (scripts/next-version.sh: feat → minor, fix/other → patch,
+#                 breaking → major, minor while 0.x). Docs-only pushes, or a
+#                 commit message containing [skip release], release nothing.
+#   2. test     — clippy + tests.
+#   3. package  — every installer, with that version stamped in.
+#   4. publish  — only once all of the above passed: commit the version
+#                 bump, tag vX.Y.Z, push, and create the Release with every
+#                 installer, SHA256SUMS.txt and notes from the commit list.
+#
+# Run it by hand from the Actions tab ("Run workflow") to force a
+# patch/minor/major release.
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+# One release at a time, in push order.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # required to create the Release and upload assets
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decide the version
+        id: plan
+        env:
+          BUMP: ${{ inputs.bump || 'auto' }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if [[ "$MESSAGE" == *"[skip release]"* ]]; then
+            echo "Commit asked for [skip release]."
+            exit 0
+          fi
+          version="$(scripts/next-version.sh "$BUMP")"
+          if [ -z "$version" ]; then
+            echo "Nothing release-worthy since the last tag."
+            exit 0
+          fi
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$version already exists."
+            exit 0
+          fi
+          echo "Releasing $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
+  test:
+    needs: plan
+    if: needs.plan.outputs.version != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
       - name: Install libmpv-dev
         run: sudo apt-get update && sudo apt-get install -y libmpv-dev
-
       - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build release binaries
-        run: cargo build --release --workspace
-
-      - name: Install cargo-deb
-        run: cargo install cargo-deb --locked
-
-      - name: Build .deb
-        run: cargo deb -p paperloom-gui
-
-      - name: Create GitHub Release and attach the .deb
-        uses: softprops/action-gh-release@v2
         with:
-          files: target/debian/*.deb
-          generate_release_notes: true
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  package:
+    needs: plan
+    if: needs.plan.outputs.version != ''
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ github.sha }}
+      version: ${{ needs.plan.outputs.version }}
+
+  publish:
+    needs: [plan, test, package]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum paperloom-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Commit the version bump and tag it
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          scripts/set-version.sh "$VERSION"
+          git add Cargo.toml Cargo.lock packaging/flatpak
+          git commit -m "chore(release): v$VERSION [skip release]" || true
+          git tag -a "v$VERSION" -m "Paperloom $VERSION"
+          git push origin "v$VERSION"
+          # Fast-forward main to the bump commit when nothing landed in the
+          # meantime; if main moved on, the tag alone is the record (the
+          # next release computes its version from tags, not from main).
+          git push origin "HEAD:main" || echo "::warning::main moved on during the release; v$VERSION's bump commit is only on the tag."
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          previous="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -vx "v$VERSION" | head -n1)"
+          range="${previous:+$previous..}HEAD"
+          {
+            echo "## Download"
+            echo
+            echo "| System | File |"
+            echo "|---|---|"
+            echo "| Windows (installer) | \`paperloom-$VERSION-windows-x86_64-setup.exe\` |"
+            echo "| Windows (MSI, for managed installs) | \`paperloom-$VERSION-windows-x86_64.msi\` |"
+            echo "| macOS, Apple Silicon | \`paperloom-$VERSION-macos-aarch64.dmg\` |"
+            echo "| macOS, Intel | \`paperloom-$VERSION-macos-x86_64.dmg\` |"
+            echo "| Ubuntu / Linux Mint / Debian | \`paperloom-$VERSION-linux-x86_64.deb\` |"
+            echo "| Fedora / openSUSE | \`paperloom-$VERSION-linux-x86_64.rpm\` |"
+            echo "| Any Linux (Flatpak bundle) | \`paperloom-$VERSION-linux-x86_64.flatpak\` |"
+            echo
+            echo "Already installed? Paperloom offers this update itself under **Settings → Updates**."
+            echo "The installers aren't code-signed yet, so Windows SmartScreen and macOS Gatekeeper warn on first launch — see the README for how to get past that."
+            echo
+            echo "## Changes"
+            echo
+            git log --format='- %s (%h)' "$range" --invert-grep --grep='^chore(release):'
+          } > notes.md
+          cat notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.plan.outputs.version }}
+          name: Paperloom ${{ needs.plan.outputs.version }}
+          body_path: notes.md
+          files: |
+            dist/paperloom-*
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true

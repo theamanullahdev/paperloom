@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.theamanullahdev.Paperloom</id>
+  <name>Paperloom</name>
+  <summary>Play looping videos as your desktop wallpaper</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="io.github.theamanullahdev">
+    <name>Amanullah Behlim</name>
+  </developer>
+  <description>
+    <p>
+      Paperloom turns any MP4 loop into a live desktop background — like
+      Wallpaper Engine or Lively Wallpaper, but native to the Linux desktop.
+    </p>
+    <ul>
+      <li>Import your own videos or download wallpapers from the built-in online library</li>
+      <li>Pauses automatically when a fullscreen app is open, the screen is locked, the battery is low, or a window covers the desktop</li>
+      <li>Restores your wallpaper at login</li>
+      <li>Designed to use effectively no CPU or memory while the wallpaper isn't visible</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.theamanullahdev.Paperloom.desktop</launchable>
+  <url type="homepage">https://github.com/theamanullahdev/paperloom</url>
+  <url type="bugtracker">https://github.com/theamanullahdev/paperloom/issues</url>
+  <url type="vcs-browser">https://github.com/theamanullahdev/paperloom</url>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <keywords>
+    <keyword>wallpaper</keyword>
+    <keyword>live wallpaper</keyword>
+    <keyword>video wallpaper</keyword>
+    <keyword>background</keyword>
+  </keywords>
+  <content_rating type="oars-1.1" />
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <releases>
+    <!-- The release workflow inserts each new version here. -->
+    <release version="0.1.0" date="2026-10-18" />
+  </releases>
+</component>
