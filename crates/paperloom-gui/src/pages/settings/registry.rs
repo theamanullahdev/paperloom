@@ -19,6 +19,8 @@ pub enum SettingId {
     Updates,
     AllowMature,
     TrayIcon,
+    TrayStyle,
+    TraySize,
 }
 
 pub struct Entry {
@@ -94,6 +96,18 @@ pub const ENTRIES: &[Entry] = &[
         label: "Show Paperloom in the system tray",
         section: "Startup",
         aliases: &["tray", "system tray", "applet", "panel", "indicator", "notification area", "icon"],
+    },
+    Entry {
+        id: SettingId::TrayStyle,
+        label: "Tray icon style",
+        section: "Startup",
+        aliases: &["tray color", "colored", "monochrome", "black and white", "white icon", "black icon", "applet style", "symbolic"],
+    },
+    Entry {
+        id: SettingId::TraySize,
+        label: "Tray icon size",
+        section: "Startup",
+        aliases: &["tray size", "icon size", "applet size", "bigger icon", "smaller icon"],
     },
     Entry {
         id: SettingId::Updates,

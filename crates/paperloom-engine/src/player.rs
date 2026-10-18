@@ -106,7 +106,7 @@ pub fn set_paused(mpv: &Mpv, paused: bool) {
 #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(unused_variables))]
 pub fn periodic(settings: &paperloom_common::Settings) {
     #[cfg(all(unix, not(target_os = "macos")))]
-    crate::tray::sync(settings.show_tray_icon);
+    crate::tray::sync(settings);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
