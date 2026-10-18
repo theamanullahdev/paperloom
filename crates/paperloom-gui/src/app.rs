@@ -5,7 +5,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Subscr
 
 use paperloom_common::Settings;
 
-use crate::pages::{downloads, library, online, settings, sources};
+use crate::pages::{downloads, library, online, settings, sources, updates};
 use crate::{icons, theme};
 
 pub struct App {
@@ -16,6 +16,7 @@ pub struct App {
     online_page: online::State,
     downloads_page: downloads::State,
     sources_page: sources::State,
+    updates_page: updates::State,
     /// Sources changed since the Online tab last loaded; reload it when
     /// next opened so the change takes effect.
     online_stale: bool,
@@ -31,6 +32,7 @@ pub(crate) enum Page {
     Downloads,
     Sources,
     Settings,
+    Updates,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +43,7 @@ pub enum Message {
     Online(online::Message),
     Downloads(downloads::Message),
     Sources(sources::Message),
+    Updates(updates::Message),
     /// Fires while downloads are in flight: moves finished files into the
     /// library.
     DownloadsTick,
@@ -49,7 +52,7 @@ pub enum Message {
 
 impl App {
     pub fn new() -> (Self, Task<Message>) {
-        let app = Self {
+        let mut app = Self {
             page: Page::Library,
             settings: paperloom_common::load(),
             settings_page: settings::State::new(),
@@ -57,10 +60,16 @@ impl App {
             online_page: online::State::new(),
             downloads_page: downloads::State::default(),
             sources_page: sources::State::default(),
+            updates_page: updates::State::new(),
             online_stale: false,
             system_theme: iced::theme::Mode::None,
         };
-        (app, iced::system::theme().map(Message::SystemTheme))
+        let check = if app.settings.updates.check_on_startup {
+            app.updates_page.start_check(&app.settings).map(Message::Updates)
+        } else {
+            Task::none()
+        };
+        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check]))
     }
 
     fn effective_theme(&self) -> paperloom_common::ThemeMode {
@@ -81,7 +90,16 @@ impl App {
                     Task::none()
                 }
             }
+            Message::Settings(settings::Message::OpenUpdates) => {
+                self.page = Page::Updates;
+                Task::none()
+            }
             Message::Settings(msg) => self.settings_page.update(&mut self.settings, msg).map(Message::Settings),
+            Message::Updates(updates::Message::Back) => {
+                self.page = Page::Settings;
+                Task::none()
+            }
+            Message::Updates(msg) => self.updates_page.update(&mut self.settings, msg).map(Message::Updates),
             Message::Library(msg) => self.library_page.update(&self.settings, msg).map(Message::Library),
             Message::Online(msg) => self.online_page.update(&self.settings, msg).map(Message::Online),
             Message::Downloads(downloads::Message::Back) => {
@@ -143,6 +161,11 @@ impl App {
             } else {
                 Subscription::none()
             },
+            if self.updates_page.is_downloading() {
+                iced::time::every(Duration::from_millis(300)).map(|_| Message::Updates(updates::Message::Tick))
+            } else {
+                Subscription::none()
+            },
             if self.downloads_page.is_dragging() {
                 iced::event::listen_with(|event, _status, _window| match event {
                     iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
@@ -199,10 +222,17 @@ impl App {
             column![
                 text("Paperloom").font(theme::DISPLAY_FONT).size(20).color(t.primary),
                 column![
-                    nav_item(icons::library(), "Library", Page::Library, self.page == Page::Library, t),
-                    nav_item(icons::globe(), "Online", Page::Online, matches!(self.page, Page::Online | Page::Downloads), t),
-                    nav_item(icons::layers(), "Sources", Page::Sources, self.page == Page::Sources, t),
-                    nav_item(icons::settings(), "Settings", Page::Settings, self.page == Page::Settings, t),
+                    nav_item(icons::library(), "Library", Page::Library, self.page == Page::Library, false, t),
+                    nav_item(icons::globe(), "Online", Page::Online, matches!(self.page, Page::Online | Page::Downloads), false, t),
+                    nav_item(icons::layers(), "Sources", Page::Sources, self.page == Page::Sources, false, t),
+                    nav_item(
+                        icons::settings(),
+                        "Settings",
+                        Page::Settings,
+                        matches!(self.page, Page::Settings | Page::Updates),
+                        self.updates_page.available(&self.settings).is_some(),
+                        t
+                    ),
                 ]
                 .spacing(4),
             ]
@@ -230,9 +260,12 @@ impl App {
                 self.downloads_page.body(t, self.online_page.queue().snapshot()).map(Message::Downloads),
             ),
             Page::Sources => ("Sources", Space::new().into(), self.sources_page.body(&self.settings, t).map(Message::Sources)),
-            Page::Settings => {
-                ("Settings", self.settings_page.header().map(Message::Settings), self.settings_page.body(&self.settings, t).map(Message::Settings))
-            }
+            Page::Settings => (
+                "Settings",
+                self.settings_page.header().map(Message::Settings),
+                self.settings_page.body(&self.settings, self.updates_page.summary(&self.settings), t).map(Message::Settings),
+            ),
+            Page::Updates => ("Updates", self.updates_page.header().map(Message::Updates), self.updates_page.body(&self.settings, t).map(Message::Updates)),
         };
 
         let top_bar = container(
@@ -266,16 +299,23 @@ impl App {
     }
 }
 
-fn nav_item<'a>(icon: svg::Handle, label: &'static str, page: Page, active: bool, t: theme::Tokens) -> Element<'a, Message> {
+/// `badge`: a small dot after the label (Settings, when an update is available).
+fn nav_item<'a>(icon: svg::Handle, label: &'static str, page: Page, active: bool, badge: bool, t: theme::Tokens) -> Element<'a, Message> {
     let icon_color = if active { t.primary } else { t.muted_foreground };
     let text_color = if active { t.primary } else { t.foreground };
 
-    let content = row![
+    let mut content = row![
         svg(icon).width(18).height(18).style(move |_theme, _status| svg::Style { color: Some(icon_color) }),
         text(label).font(theme::BODY_FONT).size(14).color(text_color),
     ]
     .spacing(10)
     .align_y(Alignment::Center);
+    if badge {
+        content = content.push(Space::new().width(Length::Fill)).push(
+            container(Space::new().width(8).height(8))
+                .style(move |_theme| container::Style { background: Some(Background::Color(t.primary)), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default() }),
+        );
+    }
 
     button(content)
         .padding([10, 12])

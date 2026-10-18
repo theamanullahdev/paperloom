@@ -2,7 +2,7 @@ mod registry;
 
 use std::time::{Duration, Instant};
 
-use iced::widget::{column, container, mouse_area, pick_list, scrollable, text, text_input, toggler};
+use iced::widget::{button, column, container, mouse_area, pick_list, row, scrollable, slider, text, text_input, toggler, Space};
 use iced::{Animation, Background, Border, Element, Length, Subscription, Task};
 
 use paperloom_common::{ImportMode, Settings, ThemeMode};
@@ -26,6 +26,10 @@ pub struct State {
     /// separate animation states for what's visually the same effect.
     highlighted: Option<SettingId>,
     highlight_fade: Animation<bool>,
+    /// Read from the OS (its login-items entry is the source of truth, not
+    /// the config file), refreshed after every change.
+    autostart: bool,
+    autostart_error: Option<String>,
 }
 
 impl Default for State {
@@ -34,6 +38,8 @@ impl Default for State {
             search: String::new(),
             highlighted: None,
             highlight_fade: Animation::new(false).quick(),
+            autostart: paperloom_common::autostart::is_enabled(),
+            autostart_error: None,
         }
     }
 }
@@ -45,6 +51,9 @@ pub enum Message {
     Toggle(SettingId, bool),
     ImportModeSelected(ImportMode),
     ThemeSelected(ThemeMode),
+    LowBatteryChanged(u8),
+    /// Handled by the app (it owns navigation).
+    OpenUpdates,
     /// Ticks only while `highlight_fade` is actually animating — see
     /// `subscription`. Carries no data; it exists purely to trigger a
     /// redraw so `view` re-samples the animation at the new time.
@@ -89,7 +98,11 @@ impl State {
                         settings.pause_on_window_covering_desktop = value;
                     }
                     SettingId::Muted => settings.muted = value,
-                    SettingId::ImportMode | SettingId::Theme => {}
+                    SettingId::Autostart => {
+                        self.autostart_error = paperloom_common::autostart::set_enabled(value).err().map(|err| err.to_string());
+                        self.autostart = paperloom_common::autostart::is_enabled();
+                    }
+                    SettingId::ImportMode | SettingId::Theme | SettingId::LowBatteryPercent | SettingId::Updates => {}
                 }
                 self.flash(id);
                 let _ = paperloom_common::save(settings);
@@ -99,6 +112,12 @@ impl State {
                 self.flash(SettingId::ImportMode);
                 let _ = paperloom_common::save(settings);
             }
+            Message::LowBatteryChanged(percent) => {
+                settings.low_battery_percent = percent;
+                self.flash(SettingId::LowBatteryPercent);
+                let _ = paperloom_common::save(settings);
+            }
+            Message::OpenUpdates => {}
             Message::ThemeSelected(theme) => {
                 settings.theme = theme;
                 self.flash(SettingId::Theme);
@@ -116,11 +135,22 @@ impl State {
             .into()
     }
 
-    pub fn body<'a>(&'a self, settings: &'a Settings, t: theme::Tokens) -> Element<'a, Message> {
+    /// `update_summary`: one line from the Updates page ("Up to date",
+    /// "Version 0.3.0 available", ...) shown on its entry here.
+    pub fn body<'a>(&'a self, settings: &'a Settings, update_summary: String, t: theme::Tokens) -> Element<'a, Message> {
         if self.search.is_empty() {
-            scrollable(self.full_list(settings, t)).into()
+            scrollable(self.full_list(settings, update_summary, t)).into()
         } else {
             scrollable(self.search_results(t)).into()
+        }
+    }
+
+    /// Clicking a search result that lives on its own page goes there.
+    fn result_message(id: SettingId) -> Message {
+        if id == SettingId::Updates {
+            Message::OpenUpdates
+        } else {
+            Message::ResultSelected(id)
         }
     }
 
@@ -134,12 +164,12 @@ impl State {
         let mut list = column![].spacing(6);
         for entry in results {
             let row = card(text(format!("{}  ·  {}", entry.section, entry.label)).into(), t);
-            list = list.push(mouse_area(row).on_press(Message::ResultSelected(entry.id)));
+            list = list.push(mouse_area(row).on_press(Self::result_message(entry.id)));
         }
         list.into()
     }
 
-    fn full_list<'a>(&'a self, settings: &'a Settings, t: theme::Tokens) -> Element<'a, Message> {
+    fn full_list<'a>(&'a self, settings: &'a Settings, update_summary: String, t: theme::Tokens) -> Element<'a, Message> {
         let now = Instant::now();
         let row = move |id: SettingId, content: Element<'a, Message>| {
             let fade = if self.highlighted == Some(id) { self.highlight_fade.interpolate(0.0_f32, 1.0_f32, now) } else { 0.0 };
@@ -180,6 +210,15 @@ impl State {
                     .into(),
             ),
             row(
+                SettingId::LowBatteryPercent,
+                column![
+                    text(format!("Low battery means {}% or less, while unplugged", settings.low_battery_percent)),
+                    slider(5..=50, settings.low_battery_percent, Message::LowBatteryChanged).step(1u8).width(Length::Fixed(280.0)),
+                ]
+                .spacing(6)
+                .into(),
+            ),
+            row(
                 SettingId::PauseWindowCovering,
                 toggler(settings.pause_on_window_covering_desktop)
                     .label("Pause when a window covers the desktop")
@@ -205,6 +244,37 @@ impl State {
             row(
                 SettingId::Muted,
                 toggler(settings.muted).label("Mute wallpaper audio").on_toggle(|v| Message::Toggle(SettingId::Muted, v)).into(),
+            ),
+            section_title("Startup", t),
+            row(SettingId::Autostart, {
+                let mut content = column![
+                    toggler(self.autostart)
+                        .label("Start Paperloom when I log in")
+                        .on_toggle(|v| Message::Toggle(SettingId::Autostart, v)),
+                    text("Only the lightweight wallpaper engine starts, and it brings back your last wallpaper.")
+                        .size(12)
+                        .color(t.muted_foreground),
+                ]
+                .spacing(6);
+                if let Some(error) = &self.autostart_error {
+                    content = content.push(text(format!("Couldn't change this: {error}")).size(12).color(t.destructive));
+                }
+                content.into()
+            }),
+            section_title("About", t),
+            row(
+                SettingId::Updates,
+                row![
+                    column![
+                        text(format!("Paperloom {}", env!("CARGO_PKG_VERSION"))),
+                        text(update_summary).size(12).color(t.muted_foreground),
+                    ]
+                    .spacing(4),
+                    Space::new().width(Length::Fill),
+                    button(text("Updates")).style(button::secondary).on_press(Message::OpenUpdates),
+                ]
+                .align_y(iced::Alignment::Center)
+                .into(),
             ),
         ]
         .spacing(12)

@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +11,7 @@ pub struct LibraryEntry {
     pub path: PathBuf,
     pub mode: ImportMode,
     /// The poster shown on a tile at rest: the first of `preview_frames`.
-    /// `None` if `ffmpeg` isn't on `PATH` or extraction failed entirely —
+    /// `None` if `ffmpeg` isn't bundled or on `PATH` or extraction failed entirely —
     /// the gallery falls back to a plain icon tile rather than treating
     /// that as fatal.
     #[serde(default)]
@@ -199,7 +198,7 @@ fn generate_preview_frames(video: &Path) -> Vec<PathBuf> {
         .expect("an unused stem exists");
 
     let pattern = dir.join(format!("{unique_stem}-m%02d.jpg"));
-    let ran = Command::new("ffmpeg")
+    let ran = crate::process::command("ffmpeg")
         .args(["-y", "-ss", &PREVIEW_START_SECONDS.to_string(), "-t", &PREVIEW_SECONDS.to_string(), "-i"])
         .arg(video)
         .args(["-vf", &format!("fps={PREVIEW_FPS},scale={PREVIEW_WIDTH}:-1"), "-q:v", "5"])

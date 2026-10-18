@@ -1,25 +1,15 @@
-//! The wire protocol between `paperloom-gui` and `paperloom-engine`, over a
-//! Unix domain socket. Deliberately tiny — one line in, one line out — not a
-//! generic RPC framework, because there are two commands and that's not
+//! The wire protocol between `paperloom-gui` and `paperloom-engine`.
+//! Deliberately tiny — one line in, nothing back — not a generic RPC
+//! framework, because there are a handful of commands and that's not
 //! expected to grow fast.
+//!
+//! Transport: a Unix domain socket on Linux/macOS, a named pipe on
+//! Windows (std has no `AF_UNIX` there). Both sides only ever go through
+//! `Listener::accept_command` / `send`, so neither the engine backends nor
+//! the GUI need to know which one is in use.
 
+use std::io;
 use std::path::PathBuf;
-
-use crate::paths;
-
-/// Where the engine listens. `$XDG_RUNTIME_DIR` is the right place for a
-/// per-user, per-session socket (cleared on logout, not world-readable);
-/// falls back to the data dir if it's unset, which happens in some minimal
-/// environments.
-pub fn socket_path() -> PathBuf {
-    match std::env::var_os("XDG_RUNTIME_DIR") {
-        Some(dir) if !dir.is_empty() => PathBuf::from(dir).join("paperloom-engine.sock"),
-        _ => paths::library_dir()
-            .parent()
-            .expect("library_dir always has a parent")
-            .join("engine.sock"),
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -27,6 +17,9 @@ pub enum Command {
     Play(PathBuf),
     /// Stop playback (the window stays put, just shows nothing).
     Stop,
+    /// Exit the engine. Used before an update is installed (Windows can't
+    /// replace a running executable) and is otherwise harmless.
+    Quit,
 }
 
 impl Command {
@@ -34,15 +27,248 @@ impl Command {
         match self {
             Command::Play(path) => format!("PLAY {}\n", path.display()),
             Command::Stop => "STOP\n".to_string(),
+            Command::Quit => "QUIT\n".to_string(),
         }
     }
 
     pub fn decode(line: &str) -> Option<Command> {
         let line = line.trim_end_matches(['\r', '\n']);
-        if line == "STOP" {
-            return Some(Command::Stop);
+        match line {
+            "STOP" => Some(Command::Stop),
+            "QUIT" => Some(Command::Quit),
+            _ => line.strip_prefix("PLAY ").map(|path| Command::Play(PathBuf::from(path))),
         }
-        line.strip_prefix("PLAY ").map(|path| Command::Play(PathBuf::from(path)))
+    }
+}
+
+/// Sends one command to a running engine. Fails (with a connection error)
+/// if no engine is listening — the caller decides whether to start one.
+pub fn send(command: &Command) -> io::Result<()> {
+    imp::send(command.encode().as_bytes())
+}
+
+/// The engine's end. Non-blocking: `accept_command` returns `Ok(None)`
+/// straight away when nobody is connecting, so it fits in each backend's
+/// existing poll loop instead of needing its own thread.
+pub struct Listener(imp::Listener);
+
+impl Listener {
+    pub fn bind() -> io::Result<Self> {
+        imp::Listener::bind().map(Self)
+    }
+
+    /// The next command, if a client connected since the last call.
+    /// A connection that sent garbage yields `Ok(None)` (and is logged),
+    /// not an error: one bad client mustn't take the daemon down.
+    pub fn accept_command(&mut self) -> io::Result<Option<Command>> {
+        let Some(line) = self.0.accept_line()? else {
+            return Ok(None);
+        };
+        let command = Command::decode(&line);
+        if command.is_none() {
+            eprintln!("paperloom-engine: bad ipc command: {}", line.trim());
+        }
+        Ok(command)
+    }
+}
+
+#[cfg(unix)]
+mod imp {
+    use std::io::{self, BufRead, BufReader, Write};
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::path::PathBuf;
+
+    /// Where the engine listens. `$XDG_RUNTIME_DIR` is the right place for
+    /// a per-user, per-session socket (cleared on logout, not
+    /// world-readable); falls back to the data dir if it's unset, which
+    /// happens in some minimal environments and always on macOS.
+    pub fn socket_path() -> PathBuf {
+        match std::env::var_os("XDG_RUNTIME_DIR") {
+            Some(dir) if !dir.is_empty() => PathBuf::from(dir).join("paperloom-engine.sock"),
+            _ => crate::paths::library_dir().parent().expect("library_dir always has a parent").join("engine.sock"),
+        }
+    }
+
+    pub fn send(bytes: &[u8]) -> io::Result<()> {
+        UnixStream::connect(socket_path())?.write_all(bytes)
+    }
+
+    pub struct Listener(UnixListener);
+
+    impl Listener {
+        /// Clears out a stale socket left behind by a previous run that
+        /// didn't exit cleanly (e.g. SIGKILL) — otherwise `bind` fails with
+        /// `AddrInUse` even though nothing is actually listening anymore.
+        pub fn bind() -> io::Result<Self> {
+            let path = socket_path();
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let _ = std::fs::remove_file(&path);
+            let listener = UnixListener::bind(path)?;
+            listener.set_nonblocking(true)?;
+            Ok(Self(listener))
+        }
+
+        pub fn accept_line(&mut self) -> io::Result<Option<String>> {
+            let stream = match self.0.accept() {
+                Ok((stream, _addr)) => stream,
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => return Ok(None),
+                Err(err) => return Err(err),
+            };
+            // The accepted stream inherits non-blocking mode on some
+            // platforms (macOS); the client writes its line right after
+            // connecting, so a short blocking read is what we want.
+            stream.set_nonblocking(false)?;
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(1)))?;
+            let mut line = String::new();
+            BufReader::new(stream).read_line(&mut line)?;
+            Ok(Some(line))
+        }
+    }
+}
+
+#[cfg(windows)]
+mod imp {
+    use std::io::{self, Write};
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_BROKEN_PIPE, ERROR_NO_DATA, ERROR_PIPE_CONNECTED, ERROR_PIPE_LISTENING, HANDLE,
+        INVALID_HANDLE_VALUE,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{ReadFile, FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_INBOUND};
+    use windows_sys::Win32::System::Pipes::{
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, SetNamedPipeHandleState, PIPE_NOWAIT, PIPE_READMODE_BYTE,
+        PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
+    };
+
+    /// Per-user name, so two people logged into the same machine each get
+    /// their own engine. The pipe's default security descriptor only gives
+    /// write access to its creator (and admins/SYSTEM), so another user
+    /// can't send commands to ours either.
+    fn pipe_name() -> String {
+        let user = std::env::var("USERNAME").unwrap_or_else(|_| "default".to_string());
+        let user: String = user.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        format!(r"\\.\pipe\paperloom-engine-{user}")
+    }
+
+    pub fn send(bytes: &[u8]) -> io::Result<()> {
+        // std opens a named pipe's client end like any file. The server
+        // only keeps one instance, so a second client arriving mid-command
+        // gets ERROR_PIPE_BUSY; retrying briefly covers that.
+        let mut last_error = None;
+        for _ in 0..10 {
+            match std::fs::OpenOptions::new().write(true).open(pipe_name()) {
+                Ok(mut pipe) => return pipe.write_all(bytes),
+                Err(err) if err.raw_os_error() == Some(231) => {
+                    // ERROR_PIPE_BUSY
+                    last_error = Some(err);
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| io::Error::other("engine pipe busy")))
+    }
+
+    pub struct Listener {
+        pipe: HANDLE,
+    }
+
+    impl Listener {
+        /// `FILE_FLAG_FIRST_PIPE_INSTANCE` makes a second engine fail here
+        /// instead of silently sharing the name with the first.
+        pub fn bind() -> io::Result<Self> {
+            let name: Vec<u16> = std::ffi::OsStr::new(&pipe_name()).encode_wide().chain(Some(0)).collect();
+            // SAFETY: `name` is a valid NUL-terminated wide string that
+            // outlives the call; null security attributes = default DACL.
+            let pipe = unsafe {
+                CreateNamedPipeW(
+                    name.as_ptr(),
+                    PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_NOWAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                    1,
+                    0,
+                    4096,
+                    0,
+                    std::ptr::null(),
+                )
+            };
+            if pipe == INVALID_HANDLE_VALUE {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(Self { pipe })
+        }
+
+        /// In `PIPE_NOWAIT` mode `ConnectNamedPipe` returns at once:
+        /// `ERROR_PIPE_CONNECTED` means a client is there, `ERROR_PIPE_LISTENING`
+        /// means nobody yet. Once connected, the pipe is switched to blocking
+        /// mode just long enough to read the client's one line, then
+        /// disconnected and put back to listening.
+        pub fn accept_line(&mut self) -> io::Result<Option<String>> {
+            // SAFETY: `self.pipe` is a live pipe handle owned by `self`.
+            let connected = unsafe { ConnectNamedPipe(self.pipe, std::ptr::null_mut()) } != 0;
+            if !connected {
+                // SAFETY: plain thread-local error query.
+                match unsafe { GetLastError() } {
+                    ERROR_PIPE_CONNECTED => {}
+                    ERROR_PIPE_LISTENING => return Ok(None),
+                    // A client connected and already went away: reset.
+                    ERROR_NO_DATA => {
+                        self.disconnect();
+                        return Ok(None);
+                    }
+                    code => return Err(io::Error::from_raw_os_error(code as i32)),
+                }
+            }
+
+            self.set_mode(PIPE_READMODE_BYTE | PIPE_WAIT);
+            let line = self.read_until_newline();
+            self.disconnect();
+            self.set_mode(PIPE_READMODE_BYTE | PIPE_NOWAIT);
+            line.map(Some)
+        }
+
+        fn read_until_newline(&self) -> io::Result<String> {
+            let mut bytes = Vec::new();
+            let mut buf = [0u8; 512];
+            while !bytes.contains(&b'\n') && bytes.len() < 64 * 1024 {
+                let mut read = 0u32;
+                // SAFETY: `buf` is valid for `buf.len()` bytes; synchronous read.
+                let ok = unsafe { ReadFile(self.pipe, buf.as_mut_ptr(), buf.len() as u32, &mut read, std::ptr::null_mut()) } != 0;
+                if !ok {
+                    // SAFETY: plain thread-local error query.
+                    let code = unsafe { GetLastError() };
+                    if code == ERROR_BROKEN_PIPE {
+                        break; // client closed after writing: normal end
+                    }
+                    return Err(io::Error::from_raw_os_error(code as i32));
+                }
+                if read == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&buf[..read as usize]);
+            }
+            Ok(String::from_utf8_lossy(&bytes).into_owned())
+        }
+
+        fn set_mode(&self, mode: u32) {
+            // SAFETY: `self.pipe` is live; `mode` outlives the call.
+            unsafe { SetNamedPipeHandleState(self.pipe, &mode, std::ptr::null(), std::ptr::null()) };
+        }
+
+        fn disconnect(&self) {
+            // SAFETY: `self.pipe` is live.
+            unsafe { DisconnectNamedPipe(self.pipe) };
+        }
+    }
+
+    impl Drop for Listener {
+        fn drop(&mut self) {
+            // SAFETY: closing the handle we own, exactly once.
+            unsafe { CloseHandle(self.pipe) };
+        }
     }
 }
 
@@ -57,8 +283,16 @@ mod tests {
     }
 
     #[test]
-    fn stop_round_trips() {
+    fn windows_path_round_trips() {
+        let cmd = Command::Play(PathBuf::from(r"C:\Users\Me\Videos\my loop.mp4"));
+        assert_eq!(Command::decode(&cmd.encode()), Some(cmd));
+    }
+
+    #[test]
+    fn stop_and_quit_round_trip() {
         assert_eq!(Command::decode(&Command::Stop.encode()), Some(Command::Stop));
+        assert_eq!(Command::decode(&Command::Quit.encode()), Some(Command::Quit));
+        assert_eq!(Command::decode("STOP\r\n"), Some(Command::Stop));
     }
 
     #[test]
