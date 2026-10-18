@@ -65,10 +65,14 @@ pub fn play(mpv: &Mpv, path: &str) {
         return;
     }
     remember(Some(path));
+    #[cfg(all(unix, not(target_os = "macos")))]
+    crate::desktop_background::show_frame_of_in_background(path);
 }
 
 fn remember(path: Option<&str>) {
-    let state = EngineState { current_wallpaper: path.map(Into::into) };
+    // Load-modify-save: the state file also holds the saved desktop background.
+    let mut state = EngineState::load();
+    state.current_wallpaper = path.map(Into::into);
     if let Err(err) = state.save() {
         eprintln!("paperloom-engine: failed to save engine state: {err}");
     }
@@ -105,12 +109,19 @@ pub fn poll_ipc(listener: &mut Listener, mpv: &Mpv) -> Flow {
             }
             play(mpv, &path.to_string_lossy());
         }
+        // Stopping the wallpaper ends the engine: an idle engine would keep
+        // its (now black) window over the desktop, and costs memory for
+        // nothing. The GUI starts a fresh one on the next Play. The user's
+        // own desktop background comes back too.
         Command::Stop => {
-            if let Err(err) = mpv.command("stop", &[]) {
-                eprintln!("paperloom-engine: failed to stop: {err}");
-            }
+            let _ = mpv.command("stop", &[]);
             remember(None);
+            #[cfg(all(unix, not(target_os = "macos")))]
+            crate::desktop_background::restore();
+            return Flow::Quit;
         }
+        // Quit (before an update) keeps the current wallpaper remembered,
+        // so the updated engine picks it back up.
         Command::Quit => return Flow::Quit,
     }
     Flow::Continue
