@@ -31,6 +31,9 @@ pub fn releases_api_url() -> String {
     format!("https://api.github.com/repos/{REPOSITORY}/releases?per_page=30")
 }
 
+/// Where the README's apt setup writes the Paperloom repository entry.
+pub const APT_SOURCE_FILE: &str = "/etc/apt/sources.list.d/paperloom.list";
+
 pub fn releases_page_url() -> String {
     format!("https://github.com/{REPOSITORY}/releases")
 }
@@ -317,7 +320,12 @@ impl InstallKind {
                     return (InstallKind::Flatpak, format!("running inside Flatpak ({id})"));
                 }
                 if Path::new("/var/lib/dpkg/info/paperloom.list").is_file() {
-                    return (InstallKind::Deb, "dpkg has the paperloom package".into());
+                    let reason = if Path::new(APT_SOURCE_FILE).is_file() {
+                        "dpkg has the paperloom package, and the Paperloom apt repository is set up — your normal system updates (apt upgrade / Update Manager) install new versions"
+                    } else {
+                        "dpkg has the paperloom package"
+                    };
+                    return (InstallKind::Deb, reason.into());
                 }
                 let rpm_owned = std::process::Command::new("rpm").args(["-q", "paperloom"]).output().is_ok_and(|out| out.status.success());
                 if rpm_owned {
