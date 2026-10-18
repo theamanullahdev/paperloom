@@ -601,6 +601,31 @@ fn run_download(state: &Mutex<DownloadState>, cancel: &AtomicBool, checksums_url
         s.message = Some(if expected.is_some() { "Verified".into() } else { "Downloaded (no published checksum to verify against)".into() });
         s.finished = Some(Instant::now());
     });
+    prune_downloads(&path);
+}
+
+/// Keeps the updates folder small: the installer just downloaded (`keep`)
+/// and the newest one older than it (to go back to), nothing else.
+/// Leftover partial downloads go too. Files that aren't Paperloom
+/// installers are left alone.
+pub fn prune_downloads(keep: &Path) {
+    let Some(dir) = keep.parent() else { return };
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    let version_of = |name: &str| name.strip_prefix("paperloom-")?.split('-').next().and_then(Version::parse);
+    let Some(kept) = keep.file_name().and_then(|name| version_of(&name.to_string_lossy())) else { return };
+
+    let files: Vec<(PathBuf, String)> =
+        entries.flatten().map(|entry| (entry.path(), entry.file_name().to_string_lossy().into_owned())).filter(|(path, _)| path.is_file()).collect();
+    let previous = files.iter().filter(|(_, name)| !name.ends_with(".part")).filter_map(|(_, name)| version_of(name)).filter(|version| *version < kept).max();
+    for (path, name) in &files {
+        if path == keep || !name.starts_with("paperloom-") {
+            continue;
+        }
+        let stale = name.ends_with(".part") || version_of(name).is_some_and(|version| Some(&version) != previous.as_ref());
+        if stale {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 fn fail(state: &Mutex<DownloadState>, message: String) {
@@ -689,33 +714,89 @@ pub enum AfterLaunch {
     /// Windows: the installer must replace our running executables, so the
     /// app (and engine) should exit now.
     ExitApp,
-    /// The installer runs alongside; the new version applies on next start.
+    /// The installer opened in its own window; the new version applies once
+    /// the user finishes there and restarts Paperloom.
     KeepRunning,
+    /// Linux: the package is installed (after the system password prompt);
+    /// restarting Paperloom switches to it.
+    Installed,
 }
 
-/// Opens the downloaded installer with the platform's own installer UI.
-pub fn launch_installer(path: &Path) -> std::io::Result<AfterLaunch> {
+/// Installs the downloaded update. On Linux that's the system's own
+/// password prompt (polkit, via `pkexec`) and then the package manager,
+/// without opening a separate installer app; elsewhere (or if that isn't
+/// possible) the platform's installer UI. Blocks until a Linux install
+/// finishes, so run it off the UI thread.
+pub fn launch_installer(path: &Path) -> Result<AfterLaunch, String> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let spawn = |program: &str, args: &[&std::ffi::OsStr]| {
+        std::process::Command::new(program).args(args).spawn().map(|_| ()).map_err(|err| format!("couldn't start {program}: {err}"))
+    };
     match InstallKind::of_asset(&name) {
         Some(InstallKind::WindowsSetup) => {
-            std::process::Command::new(path).spawn()?;
+            std::process::Command::new(path).spawn().map_err(|err| format!("couldn't start the installer: {err}"))?;
             Ok(AfterLaunch::ExitApp)
         }
         Some(InstallKind::WindowsMsi) => {
-            std::process::Command::new("msiexec").arg("/i").arg(path).spawn()?;
+            spawn("msiexec", &["/i".as_ref(), path.as_os_str()])?;
             Ok(AfterLaunch::ExitApp)
         }
         Some(InstallKind::MacDmg) => {
-            std::process::Command::new("open").arg(path).spawn()?;
+            spawn("open", &[path.as_os_str()])?;
             Ok(AfterLaunch::KeepRunning)
         }
-        _ => {
-            // .deb / .rpm: the desktop's package installer (GDebi, Software
-            // Manager, GNOME Software, Discover…) asks for the password.
-            std::process::Command::new("xdg-open").arg(path).spawn()?;
-            Ok(AfterLaunch::KeepRunning)
-        }
+        kind => match install_with_password_prompt(kind, path) {
+            Some(result) => result.map(|()| AfterLaunch::Installed),
+            None => {
+                // No pkexec / package manager / polkit agent: the desktop's
+                // package installer (GDebi, Software Manager…) instead.
+                spawn("xdg-open", &[path.as_os_str()])?;
+                Ok(AfterLaunch::KeepRunning)
+            }
+        },
     }
+}
+
+/// `pkexec <package manager> install <file>`. `None` when this can't work
+/// here (nothing to ask for the password, no known package manager), so the
+/// caller falls back to the desktop's installer app.
+fn install_with_password_prompt(kind: Option<InstallKind>, path: &Path) -> Option<Result<(), String>> {
+    let on_path = |program: &str| std::env::var_os("PATH").is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(program).is_file()));
+    if !on_path("pkexec") {
+        return None;
+    }
+    let file = path.as_os_str();
+    let command: Vec<&std::ffi::OsStr> = match kind {
+        Some(InstallKind::Deb) if on_path("apt-get") => vec!["apt-get".as_ref(), "install".as_ref(), "-y".as_ref(), "--allow-downgrades".as_ref(), file],
+        Some(InstallKind::Deb) if on_path("dpkg") => vec!["dpkg".as_ref(), "-i".as_ref(), file],
+        Some(InstallKind::Rpm) if on_path("dnf") => vec!["dnf".as_ref(), "install".as_ref(), "-y".as_ref(), file],
+        Some(InstallKind::Rpm) if on_path("zypper") => {
+            vec!["zypper".as_ref(), "--non-interactive".as_ref(), "install".as_ref(), "--allow-unsigned-rpm".as_ref(), file]
+        }
+        Some(InstallKind::Rpm) if on_path("rpm") => vec!["rpm".as_ref(), "-U".as_ref(), "--force".as_ref(), file],
+        _ => return None,
+    };
+    let output = match std::process::Command::new("pkexec").args(&command).stdin(std::process::Stdio::null()).output() {
+        Ok(output) => output,
+        Err(_) => return None,
+    };
+    if output.status.success() {
+        return Some(Ok(()));
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("authentication agent") {
+        return None; // No password dialog available on this desktop.
+    }
+    // pkexec: 126 = the password prompt was dismissed, 127 = not authorized.
+    Some(Err(match output.status.code() {
+        Some(126) => "the password prompt was cancelled".into(),
+        Some(127) => "not authorized to install software".into(),
+        _ => {
+            let tail: Vec<&str> = stderr.lines().filter(|line| !line.trim().is_empty()).collect();
+            let tail = tail[tail.len().saturating_sub(3)..].join(" / ");
+            format!("{} failed: {}", command[0].to_string_lossy(), if tail.is_empty() { output.status.to_string() } else { tail })
+        }
+    }))
 }
 
 /// Opens a URL (release page) in the default browser.
@@ -810,5 +891,28 @@ mod tests {
         let body = "aaaa  other.deb\n0123456789abcdef0123456789abcdef0123456789abcdef0123456789ABCDEF *paperloom.msi\n";
         assert_eq!(parse_checksums(body, "paperloom.msi").as_deref(), Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"));
         assert_eq!(parse_checksums(body, "missing"), None);
+    }
+
+    #[test]
+    fn prune_keeps_the_new_installer_and_the_one_before() {
+        let dir = std::env::temp_dir().join(format!("paperloom-prune-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let names = [
+            "paperloom-0.2.0-linux-x86_64.deb",
+            "paperloom-0.3.0-linux-x86_64.deb",
+            "paperloom-0.3.1-linux-x86_64.deb",
+            "paperloom-0.4.0-linux-x86_64.deb",
+            "paperloom-0.3.9-linux-x86_64.deb.part",
+            "notes.txt",
+        ];
+        for name in names {
+            fs::write(dir.join(name), b"x").unwrap();
+        }
+        prune_downloads(&dir.join("paperloom-0.4.0-linux-x86_64.deb"));
+        let mut left: Vec<String> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        assert_eq!(left, ["notes.txt", "paperloom-0.3.1-linux-x86_64.deb", "paperloom-0.4.0-linux-x86_64.deb"]);
+        let _ = fs::remove_dir_all(&dir);
     }
 }
