@@ -82,9 +82,16 @@ mod imp {
     /// a per-user, per-session socket (cleared on logout, not
     /// world-readable); falls back to the data dir if it's unset, which
     /// happens in some minimal environments and always on macOS.
+    ///
+    /// Inside Flatpak each `flatpak run` gets its own private runtime dir;
+    /// only `$XDG_RUNTIME_DIR/app/<app id>` is shared between instances of
+    /// the app (e.g. the engine started at login and a GUI opened later).
     pub fn socket_path() -> PathBuf {
         match std::env::var_os("XDG_RUNTIME_DIR") {
-            Some(dir) if !dir.is_empty() => PathBuf::from(dir).join("paperloom-engine.sock"),
+            Some(dir) if !dir.is_empty() => match std::env::var("FLATPAK_ID") {
+                Ok(app_id) => PathBuf::from(dir).join("app").join(app_id).join("paperloom-engine.sock"),
+                Err(_) => PathBuf::from(dir).join("paperloom-engine.sock"),
+            },
             _ => crate::paths::library_dir().parent().expect("library_dir always has a parent").join("engine.sock"),
         }
     }
@@ -293,6 +300,29 @@ mod tests {
         assert_eq!(Command::decode(&Command::Stop.encode()), Some(Command::Stop));
         assert_eq!(Command::decode(&Command::Quit.encode()), Some(Command::Quit));
         assert_eq!(Command::decode("STOP\r\n"), Some(Command::Stop));
+    }
+
+    /// The real transport: bind, send from a client, accept non-blockingly.
+    #[cfg(unix)]
+    #[test]
+    fn unix_listener_round_trips() {
+        let dir = std::env::temp_dir().join(format!("paperloom-ipc-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Only this test reads XDG_RUNTIME_DIR in this process.
+        std::env::set_var("XDG_RUNTIME_DIR", &dir);
+        std::env::remove_var("FLATPAK_ID");
+
+        let mut listener = Listener::bind().unwrap();
+        assert_eq!(listener.accept_command().unwrap(), None, "nothing pending yet");
+
+        let play = Command::Play(PathBuf::from("/tmp/a b.mp4"));
+        send(&play).unwrap();
+        assert_eq!(listener.accept_command().unwrap(), Some(play));
+        send(&Command::Quit).unwrap();
+        assert_eq!(listener.accept_command().unwrap(), Some(Command::Quit));
+
+        drop(listener);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

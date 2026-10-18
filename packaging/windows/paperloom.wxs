@@ -1,0 +1,56 @@
+<!--
+  Paperloom .msi (WiX Toolset v5: `wix build`). Built by
+  .github/workflows/package.yml from a staging folder holding both
+  executables plus the bundled libmpv-2.dll and ffmpeg.exe:
+
+    wix build paperloom.wxs -arch x64 -d Version=0.2.0 -d Stage=C:\stage -o paperloom.msi
+
+  Per-machine install into Program Files. The UpgradeCode must never
+  change: it's what lets a newer .msi replace an older one (MajorUpgrade).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Paperloom"
+      Manufacturer="Amanullah Behlim"
+      Version="$(var.Version)"
+      UpgradeCode="c2a6d36c-980e-4b52-9cdb-5475ceada200"
+      Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Paperloom is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="PaperloomIcon" SourceFile="paperloom.ico" />
+    <Property Id="ARPPRODUCTICON" Value="PaperloomIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/theamanullahdev/paperloom" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Paperloom" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component>
+        <File Source="$(var.Stage)\paperloom-gui.exe" KeyPath="yes">
+          <Shortcut Name="Paperloom" Description="Live video wallpapers" Directory="ProgramMenuFolder"
+                    WorkingDirectory="INSTALLFOLDER" Icon="PaperloomIcon" Advertise="yes" />
+        </File>
+      </Component>
+      <Component>
+        <File Source="$(var.Stage)\paperloom-engine.exe" KeyPath="yes" />
+      </Component>
+      <Component>
+        <File Source="$(var.Stage)\libmpv-2.dll" KeyPath="yes" />
+      </Component>
+      <Component>
+        <File Source="$(var.Stage)\ffmpeg.exe" KeyPath="yes" />
+      </Component>
+      <Component>
+        <File Source="$(var.Stage)\LICENSE.txt" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="AppFiles" />
+    </Feature>
+  </Package>
+</Wix>

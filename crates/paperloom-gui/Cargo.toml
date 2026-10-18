@@ -3,7 +3,8 @@ name = "paperloom-gui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Live video wallpapers for Linux — play MP4 loops as your desktop background."
+description = "Live video wallpapers — play MP4 loops as your desktop background."
+homepage = "https://github.com/theamanullahdev/paperloom"
 authors = ["Amanullah Behlim <theamanullahdev@gmail.com>"]
 
 [dependencies]
@@ -28,6 +29,9 @@ license-file = ["../../LICENSE"]
 # whatever shared libraries they really link against (libmpv2, libc, etc.)
 # — don't hand-maintain that list, it'll drift from reality.
 depends = "$auto"
+# Hover previews in the library are extracted with ffmpeg; without it the
+# gallery falls back to plain tiles.
+recommends = "ffmpeg"
 section = "video"
 priority = "optional"
 extended-description = """\
@@ -40,6 +44,30 @@ configurable)."""
 assets = [
     ["target/release/paperloom-gui", "usr/bin/", "755"],
     ["target/release/paperloom-engine", "usr/bin/", "755"],
-    ["../../packaging/paperloom.desktop", "usr/share/applications/paperloom.desktop", "644"],
+    ["../../packaging/linux/paperloom.desktop", "usr/share/applications/paperloom.desktop", "644"],
     ["../../packaging/icon.png", "usr/share/icons/hicolor/512x512/apps/paperloom.png", "644"],
 ]
+
+# cargo-generate-rpm (`cargo generate-rpm -p crates/paperloom-gui`) builds
+# the .rpm from the same release binaries. Its automatic dependency scan
+# needs rpm's own tooling, which the Ubuntu CI runner lacks, so the one
+# real runtime library is named by hand: libmpv.so.2 (Fedora's mpv-libs).
+[package.metadata.generate-rpm]
+name = "paperloom"
+summary = "Live video wallpapers"
+license = "GPL-3.0-or-later"
+url = "https://github.com/theamanullahdev/paperloom"
+auto-req = "disabled"
+assets = [
+    { source = "target/release/paperloom-gui", dest = "/usr/bin/paperloom-gui", mode = "755" },
+    { source = "target/release/paperloom-engine", dest = "/usr/bin/paperloom-engine", mode = "755" },
+    { source = "packaging/linux/paperloom.desktop", dest = "/usr/share/applications/paperloom.desktop", mode = "644" },
+    { source = "packaging/icon.png", dest = "/usr/share/icons/hicolor/512x512/apps/paperloom.png", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/licenses/paperloom/LICENSE", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.requires]
+mpv-libs = "*"
+
+[package.metadata.generate-rpm.recommends]
+ffmpeg-free = "*"
