@@ -217,14 +217,14 @@ impl Library {
 
     /// Imports `source` per `mode` and persists the updated manifest.
     pub fn import(&mut self, source: &Path, mode: ImportMode) -> std::io::Result<()> {
-        self.import_into(&paths::library_dir(), source, mode, None, None)?;
+        self.import_into(&paths::wallpapers_dir(), source, mode, None, None)?;
         self.save()
     }
 
     /// Like `import`, for a file that has a better human name than its
     /// file name and a known online origin (see `LibraryEntry::source_id`).
     pub fn import_named(&mut self, source: &Path, mode: ImportMode, display_name: &str, source_id: &str) -> std::io::Result<()> {
-        self.import_into(&paths::library_dir(), source, mode, Some(display_name.to_string()), Some(source_id.to_string()))?;
+        self.import_into(&paths::wallpapers_dir(), source, mode, Some(display_name.to_string()), Some(source_id.to_string()))?;
         self.save()
     }
 

@@ -102,8 +102,10 @@ pub struct SourceSetting {
     /// Empty for sources that don't need one. Stored in the config file
     /// (made owner-readable only), not a keyring — see `config_store::save`.
     pub api_key: String,
-    /// Page URL for a user-added source ("{q}" is replaced with the search
-    /// text if present); unused for built-ins.
+    /// Search page URL for page-reading sources (user-added ones and the
+    /// built-in site presets): "{q}" is the search text ("{q=abstract}"
+    /// gives a default for browsing with no search), "{page}" the page
+    /// number. Unused for MotionBGs, Pexels and Pixabay.
     pub url: String,
     pub builtin: bool,
 }
@@ -129,12 +131,19 @@ fn builtin_sources() -> Vec<SourceSetting> {
         url: String::new(),
         builtin: true,
     };
+    let site = |id: &str, name: &str, url: &str| SourceSetting { url: url.to_string(), ..make(id, name, true) };
     vec![
         make(SOURCE_MOTIONBGS, "MotionBGs", true),
         // Off until the user adds a key, so a fresh install doesn't show
         // "needs API key" errors for sources they never asked for.
         make(SOURCE_PEXELS, "Pexels (videos)", false),
         make(SOURCE_PIXABAY, "Pixabay (videos)", false),
+        // Sites read by the general page reader (`paperloom-fetch`'s
+        // `generic.rs`): their search pages, then each wallpaper's page.
+        site("moewalls.com", "MoeWalls", "https://moewalls.com/page/{page}/?s={q}"),
+        site("mylivewallpapers.com", "MyLiveWallpapers", "https://mylivewallpapers.com/page/{page}/?s={q}"),
+        site("wallpaperwaves.com", "Wallpaper Waves", "https://wallpaperwaves.com/page/{page}/?s={q}"),
+        site("mixkit.co", "Mixkit (stock video)", "https://mixkit.co/free-stock-video/{q=abstract}/?page={page}"),
     ]
 }
 
@@ -170,6 +179,9 @@ pub struct Settings {
     pub updates: UpdateSettings,
     /// How the Library page lays out wallpapers.
     pub library_view: LibraryView,
+    /// Where imported wallpapers are copied (any folder, e.g. on another
+    /// disk). `None`: `paths::library_dir()`.
+    pub library_folder: Option<std::path::PathBuf>,
 }
 
 /// The Library page's view: grid of cards or list of rows, in three sizes.
@@ -246,6 +258,7 @@ impl Default for Settings {
             tray_size: TraySize::default(),
             updates: UpdateSettings::default(),
             library_view: LibraryView::default(),
+            library_folder: None,
         }
     }
 }
