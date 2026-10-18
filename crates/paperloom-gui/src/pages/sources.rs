@@ -82,7 +82,7 @@ impl State {
         let can_add = !self.new_name.trim().is_empty() && !self.new_url.trim().is_empty();
         let add = column![
             text("Add your own source").size(15).color(t.foreground),
-            text("A web page or JSON API URL that lists links to MP4 files. Use {q} where the search text should go (optional). Paging isn't supported for custom sources.")
+            text("A site's search page, or a page / JSON API that links to MP4 files. Use {q} where the search text goes and {page} for the page number (both optional). Result cards on the page become wallpapers; the video is found on each one's page when you download it.")
                 .size(12)
                 .color(t.muted_foreground),
             text_input("Name", &self.new_name).on_input(Message::NewName).padding(8),
@@ -131,10 +131,14 @@ fn source_card<'a>(source: &'a SourceSetting, t: theme::Tokens) -> Element<'a, M
         paperloom_common::SOURCE_MOTIONBGS => Some("motionbgs.com — no key needed. Offers HD and 4K."),
         paperloom_common::SOURCE_PEXELS => Some("Free key at pexels.com/api. Offers HD and 4K."),
         paperloom_common::SOURCE_PIXABAY => Some("Free key at pixabay.com/api/docs. Offers HD and 4K where available."),
+        _ if source.builtin => Some("Read from the site's search pages; the video is found on each wallpaper's page when you download it."),
         _ => None,
     };
     if let Some(hint) = hint {
         content = content.push(text(hint).size(12).color(t.muted_foreground));
+    }
+    if source.builtin && !source.url.is_empty() {
+        content = content.push(text(source.url.clone()).size(11).color(t.muted_foreground));
     }
 
     if !source.builtin {

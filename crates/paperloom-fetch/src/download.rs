@@ -26,8 +26,10 @@ pub fn download(
     }
     let existing = part.metadata().map(|m| m.len()).unwrap_or(0);
 
+    // Page sources may hand over the wallpaper's page instead of its video.
+    let url = crate::generic::resolve_video(url)?;
     http::wait_turn(Lane::Download);
-    let mut request = http::agent().get(url);
+    let mut request = http::agent().get(&url);
     if existing > 0 {
         request = request.header("Range", format!("bytes={existing}-"));
     }

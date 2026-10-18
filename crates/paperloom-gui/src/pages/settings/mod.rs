@@ -55,6 +55,8 @@ pub enum Message {
     LowBatteryChanged(u8),
     TrayStyleSelected(TrayStyle),
     TraySizeSelected(TraySize),
+    ChooseLibraryFolder,
+    DefaultLibraryFolder,
     /// Handled by the app (it owns navigation).
     OpenUpdates,
     /// Ticks only while `highlight_fade` is actually animating — see
@@ -111,7 +113,8 @@ impl State {
                     | SettingId::LowBatteryPercent
                     | SettingId::Updates
                     | SettingId::TrayStyle
-                    | SettingId::TraySize => {}
+                    | SettingId::TraySize
+                    | SettingId::LibraryFolder => {}
                 }
                 self.flash(id);
                 let _ = paperloom_common::save(settings);
@@ -127,6 +130,19 @@ impl State {
                 let _ = paperloom_common::save(settings);
             }
             Message::OpenUpdates => {}
+            Message::ChooseLibraryFolder => {
+                let start = paperloom_common::wallpapers_dir();
+                if let Some(folder) = rfd::FileDialog::new().set_title("Folder for your wallpapers").set_directory(&start).pick_folder() {
+                    settings.library_folder = Some(folder);
+                    self.flash(SettingId::LibraryFolder);
+                    let _ = paperloom_common::save(settings);
+                }
+            }
+            Message::DefaultLibraryFolder => {
+                settings.library_folder = None;
+                self.flash(SettingId::LibraryFolder);
+                let _ = paperloom_common::save(settings);
+            }
             Message::TrayStyleSelected(style) => {
                 settings.tray_style = style;
                 self.flash(SettingId::TrayStyle);
@@ -248,20 +264,41 @@ impl State {
 
         let library = card(
             "Library",
-            "What happens to a video when you import it.",
-            item(
+            "What happens to a video when you import it, and where it goes.",
+            column![item(
                 SettingId::ImportMode,
                 column![
                     text("Import mode").size(13),
                     pick_list(IMPORT_MODE_OPTIONS, Some(settings.import_mode), Message::ImportModeSelected),
                     hint(match settings.import_mode {
                         ImportMode::ReferenceInPlace => "The video stays where it is; moving or deleting it breaks the wallpaper.",
-                        _ => "A copy goes into Paperloom's library folder, so the original can go anywhere.",
+                        _ => "A copy goes into the wallpaper folder below, so the original can go anywhere.",
                     }),
                 ]
                 .spacing(6)
                 .into(),
             ),
+            item(
+                SettingId::LibraryFolder,
+                column![
+                    text("Wallpaper folder").size(13),
+                    text(paperloom_common::wallpapers_dir().display().to_string()).size(12).color(t.foreground),
+                    row![
+                        button(crate::ui::label("Choose folder…").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::ChooseLibraryFolder),
+                        button(crate::ui::label("Use default").size(12))
+                            .style(button::text)
+                            .padding([4, 10])
+                            .on_press_maybe(settings.library_folder.is_some().then_some(Message::DefaultLibraryFolder)),
+                    ]
+                    .spacing(8)
+                    .wrap(),
+                    hint("Imports and downloads are copied here — any folder, on any disk. Wallpapers already imported stay where they are."),
+                ]
+                .spacing(6)
+                .into(),
+            )]
+            .spacing(2)
+            .into(),
             t,
         );
 
@@ -589,6 +626,7 @@ const ORDER: &[SettingId] = &[
     SettingId::PauseWindowCovering,
     SettingId::PauseScreenLock,
     SettingId::ImportMode,
+    SettingId::LibraryFolder,
     SettingId::PauseLowBattery,
     SettingId::LowBatteryPercent,
     SettingId::Autostart,

@@ -32,6 +32,12 @@ pub fn library_dir() -> PathBuf {
     project_dirs().data_dir().join("library")
 }
 
+/// Where imported wallpapers are copied: the folder chosen in Settings, or
+/// `library_dir()`. (The manifest itself always stays in `library_dir()`.)
+pub fn wallpapers_dir() -> PathBuf {
+    crate::load().library_folder.filter(|dir| !dir.as_os_str().is_empty()).unwrap_or_else(library_dir)
+}
+
 /// Generated preview-frame thumbnails for the library gallery. Separate
 /// from `library_dir()` so a `ReferenceInPlace` entry (whose source file
 /// lives elsewhere and isn't ours to touch) still gets a thumbnail we own
