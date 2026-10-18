@@ -49,8 +49,8 @@ modules:
   - name: libass
     buildsystem: meson
     config-opts:
-      - -Dtest=disabled
-      - -Dprofile=disabled
+      - -Dtest=false
+      - -Dprofile=false
       - -Dfontconfig=enabled
     sources:
       - type: archive

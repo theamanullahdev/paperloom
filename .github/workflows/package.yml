@@ -174,7 +174,7 @@ jobs:
           "$mount/Paperloom.app/Contents/MacOS/paperloom-engine" --preview /does-not-exist.mp4
           code=$?
           set -e
-          hdiutil detach "$mount"
+          hdiutil detach -force "$mount"
           echo "exit code: $code"
           [ "$code" = 1 ] || { echo "paperloom-engine failed to start"; exit 1; }
       - uses: actions/upload-artifact@v4
