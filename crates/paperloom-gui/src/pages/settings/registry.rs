@@ -21,6 +21,7 @@ pub enum SettingId {
     TrayIcon,
     TrayStyle,
     TraySize,
+    LibraryFolder,
 }
 
 pub struct Entry {
@@ -31,6 +32,12 @@ pub struct Entry {
 }
 
 pub const ENTRIES: &[Entry] = &[
+    Entry {
+        id: SettingId::LibraryFolder,
+        label: "Wallpaper folder",
+        section: "Library",
+        aliases: &["storage", "folder", "location", "disk", "drive", "where wallpapers are saved", "save location", "library path"],
+    },
     Entry {
         id: SettingId::Theme,
         label: "Theme",
