@@ -105,6 +105,9 @@ modules:
       env:
         CARGO_HOME: /run/build/paperloom/cargo
         PKG_CONFIG_PATH: /app/lib/pkgconfig
+        # libmpv was built into /app/lib by the mpv module above; the Rust
+        # linker doesn't search there on its own.
+        RUSTFLAGS: -L native=/app/lib
     build-commands:
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
       - cargo --offline build --release --workspace
