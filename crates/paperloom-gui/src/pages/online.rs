@@ -85,7 +85,7 @@ pub enum Message {
 
 /// Runs blocking work (HTTP) on its own thread and awaits the result, so
 /// the UI's async executor is never blocked on the network.
-fn blocking<T: Send + 'static, E: From<String> + Send + 'static>(
+pub(crate) fn blocking<T: Send + 'static, E: From<String> + Send + 'static>(
     work: impl FnOnce() -> Result<T, E> + Send + 'static,
 ) -> impl Future<Output = Result<T, E>> {
     let (sender, receiver) = iced::futures::channel::oneshot::channel();

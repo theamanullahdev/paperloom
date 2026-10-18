@@ -14,6 +14,7 @@ mod pixabay;
 mod queue;
 mod source;
 mod thumbs;
+pub mod update;
 
 pub use http::FetchError;
 pub use net::is_online;

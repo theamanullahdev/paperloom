@@ -1,13 +1,12 @@
-//! Talks to the `paperloom-engine` daemon over its IPC socket
-//! (`paperloom_common::ipc`). If the daemon isn't running yet, starts it —
+//! Talks to the `paperloom-engine` daemon over its IPC channel
+//! (`paperloom_common::ipc` — a Unix socket, or a named pipe on Windows). If the daemon isn't running yet, starts it —
 //! the user shouldn't have to know a separate process exists.
 
-use std::io::Write;
-use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use paperloom_common::ipc::{socket_path, Command};
+use paperloom_common::ipc::{self, Command};
+use paperloom_common::process;
 
 #[derive(Debug)]
 pub enum Error {
@@ -25,18 +24,21 @@ impl std::fmt::Display for Error {
 }
 
 pub fn play(path: &Path) -> Result<(), Error> {
-    let mut stream = connect_or_spawn()?;
-    stream.write_all(Command::Play(path.to_path_buf()).encode().as_bytes()).map_err(Error::Io)
+    send_or_spawn(&Command::Play(path.to_path_buf()))
 }
 
 /// Stops playback. Deliberately does *not* spawn the engine if it isn't
 /// already running — there's nothing to stop in that case, so silently
 /// succeeding is correct, not a bug swallowed.
 pub fn stop() -> Result<(), Error> {
-    let Ok(mut stream) = UnixStream::connect(socket_path()) else {
-        return Ok(());
-    };
-    stream.write_all(Command::Stop.encode().as_bytes()).map_err(Error::Io)
+    let _ = ipc::send(&Command::Stop);
+    Ok(())
+}
+
+/// Asks a running engine to exit (before an update replaces its binary).
+/// Not running is fine.
+pub fn quit() {
+    let _ = ipc::send(&Command::Quit);
 }
 
 /// Opens a full-screen preview window (`paperloom-engine --preview`). One
@@ -51,46 +53,44 @@ pub fn preview(path: &Path) -> Result<(), Error> {
             return Ok(());
         }
     }
-    let engine = sibling_binary("paperloom-engine").ok_or(Error::EngineNotFound)?;
-    let child = std::process::Command::new(engine).arg("--preview").arg(path).spawn().map_err(Error::Io)?;
+    let engine = process::sibling_binary("paperloom-engine").ok_or(Error::EngineNotFound)?;
+    let mut command = std::process::Command::new(engine);
+    process::hide_console(&mut command);
+    let child = command.arg("--preview").arg(path).spawn().map_err(Error::Io)?;
     *current = Some(child);
     Ok(())
 }
 
-fn connect_or_spawn() -> Result<UnixStream, Error> {
-    if let Ok(stream) = UnixStream::connect(socket_path()) {
-        return Ok(stream);
+fn send_or_spawn(command: &Command) -> Result<(), Error> {
+    if ipc::send(command).is_ok() {
+        return Ok(());
     }
 
     spawn_engine()?;
 
-    // Give the daemon a moment to stand up its window and bind the socket
+    // Give the daemon a moment to stand up its window and start listening
     // before giving up. This blocks the GUI's event loop briefly on a cold
     // start (acceptable here — same tradeoff as the blocking file-dialog
     // call elsewhere in this crate), but only the first time; the daemon
     // stays running after that.
+    let mut last_error = None;
     for _ in 0..20 {
-        if let Ok(stream) = UnixStream::connect(socket_path()) {
-            return Ok(stream);
-        }
         std::thread::sleep(Duration::from_millis(100));
+        match ipc::send(command) {
+            Ok(()) => return Ok(()),
+            Err(err) => last_error = Some(err),
+        }
     }
 
-    Err(Error::EngineNotFound)
+    Err(last_error.map(Error::Io).unwrap_or(Error::EngineNotFound))
 }
 
+/// The engine ships next to this executable in every layout (cargo's
+/// `target/<profile>/`, `/usr/bin`, the Windows install folder, a macOS
+/// bundle's `Contents/MacOS`) — see `paperloom_common::process`.
 fn spawn_engine() -> Result<(), Error> {
-    let engine_path = sibling_binary("paperloom-engine").ok_or(Error::EngineNotFound)?;
-    std::process::Command::new(engine_path).spawn().map(|_| ()).map_err(Error::Io)
-}
-
-/// Looks for a binary next to our own executable: true during development
-/// (cargo puts every workspace binary in the same `target/debug/` dir) and
-/// also true for a typical installed layout (same `bin/` directory) — no
-/// packaging story exists yet, but this doesn't need to change when one
-/// does, as long as both binaries still ship to the same directory.
-fn sibling_binary(name: &str) -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let candidate = exe.parent()?.join(name);
-    candidate.is_file().then_some(candidate)
+    let engine_path = process::sibling_binary("paperloom-engine").ok_or(Error::EngineNotFound)?;
+    let mut command = std::process::Command::new(engine_path);
+    process::hide_console(&mut command);
+    command.spawn().map(|_| ()).map_err(Error::Io)
 }

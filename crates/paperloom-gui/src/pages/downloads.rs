@@ -222,11 +222,11 @@ fn job_row<'a>(job: Job, bytes_per_second: f64, dragging: Option<&str>, t: theme
     .into()
 }
 
-fn megabytes(bytes: u64) -> String {
+pub(crate) fn megabytes(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / 1_048_576.0)
 }
 
-fn duration(seconds: f64) -> String {
+pub(crate) fn duration(seconds: f64) -> String {
     let seconds = seconds.max(0.0) as u64;
     match seconds {
         0..=59 => format!("{seconds}s"),
