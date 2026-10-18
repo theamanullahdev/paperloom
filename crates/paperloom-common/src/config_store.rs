@@ -21,7 +21,18 @@ pub fn save(settings: &Settings) -> std::io::Result<()> {
 
     let contents = toml::to_string_pretty(settings).expect("Settings always serializes");
     fs::write(&path, contents)?;
-    // The file can hold API keys: owner read/write only.
+    restrict_to_owner(&path)
+}
+
+/// The file can hold API keys: owner read/write only. On Windows the
+/// per-user AppData folder it lives in is already private to the user.
+#[cfg(unix)]
+fn restrict_to_owner(path: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn restrict_to_owner(_path: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
 }

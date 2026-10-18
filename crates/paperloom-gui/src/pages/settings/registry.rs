@@ -14,6 +14,9 @@ pub enum SettingId {
     ImportMode,
     Theme,
     Muted,
+    LowBatteryPercent,
+    Autostart,
+    Updates,
 }
 
 pub struct Entry {
@@ -65,6 +68,24 @@ pub const ENTRIES: &[Entry] = &[
         label: "Mute wallpaper audio",
         section: "Playback",
         aliases: &["sound", "audio", "volume", "unmute", "silent"],
+    },
+    Entry {
+        id: SettingId::LowBatteryPercent,
+        label: "Low battery level",
+        section: "Performance & idle behavior",
+        aliases: &["battery", "threshold", "percent", "power saver", "low battery"],
+    },
+    Entry {
+        id: SettingId::Autostart,
+        label: "Start Paperloom when I log in",
+        section: "Startup",
+        aliases: &["autostart", "login", "boot", "startup", "reboot", "launch at login", "run at startup"],
+    },
+    Entry {
+        id: SettingId::Updates,
+        label: "Updates",
+        section: "About",
+        aliases: &["update", "upgrade", "new version", "release", "version", "changelog", "about"],
     },
 ];
 

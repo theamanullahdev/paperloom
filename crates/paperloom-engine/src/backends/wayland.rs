@@ -23,16 +23,13 @@
 
 use std::error::Error;
 use std::ffi::c_void;
-use std::io::{BufRead, BufReader};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use khronos_egl as egl;
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2::Mpv;
-use paperloom_common::ipc::Command;
+use paperloom_common::ipc::Listener;
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState, FrameCallbackData};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
@@ -52,12 +49,10 @@ use wayland_client::{backend::WaylandError, Connection, Proxy, QueueHandle};
 /// since resolving a GL function is just `eglGetProcAddress`.
 type Egl = Arc<egl::DynamicInstance<egl::EGL1_4>>;
 
+use crate::player::{self, Flow};
+
 pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
-    if let Some(path) = initial_path {
-        if !Path::new(path).is_file() {
-            return Err(format!("no such video file: {path}").into());
-        }
-    }
+    player::validate_cli_path(initial_path)?;
 
     let conn = Connection::connect_to_env()?;
     let (globals, mut event_queue) = registry_queue_init(&conn)?;
@@ -93,12 +88,9 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     let egl_context = egl.create_context(egl_display, egl_config, None, &context_attribs)?;
 
     let mpv: &'static Mpv = Box::leak(Box::new(Mpv::new()?));
-    apply_mute_from_settings(mpv)?;
-    mpv.set_property("loop-file", "inf".to_string())?;
-    mpv.set_property("panscan", 1.0)?;
+    player::configure_wallpaper(mpv)?;
 
-    let listener = bind_ipc_socket()?;
-    listener.set_nonblocking(true)?;
+    let mut listener = Listener::bind()?;
 
     let mut state = State {
         registry_state: RegistryState::new(&globals),
@@ -116,7 +108,7 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
         wl_egl_surface: None,
         width: 0,
         height: 0,
-        initial_path: initial_path.map(|p| p.to_string()),
+        initial_path: player::startup_wallpaper(initial_path),
         is_paused: false,
         last_pause_check: Instant::now(),
         exit: false,
@@ -136,10 +128,8 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
         }
         event_queue.flush()?;
 
-        match listener.accept() {
-            Ok((stream, _addr)) => handle_connection(stream, state.mpv),
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(err) => eprintln!("paperloom-engine: ipc accept error: {err}"),
+        if player::poll_ipc(&mut listener, state.mpv) == Flow::Quit {
+            return Ok(());
         }
 
         if state.exit {
@@ -211,9 +201,7 @@ impl State {
         self.render_ctx = Some(render_ctx);
 
         if let Some(path) = self.initial_path.take() {
-            if let Err(err) = self.mpv.command("loadfile", &[&path]) {
-                eprintln!("paperloom-engine: failed to load initial file {path}: {err}");
-            }
+            player::play(self.mpv, &path);
         }
 
         self.render_current_frame();
@@ -261,13 +249,11 @@ impl State {
         // arbitrary clients). `pause_on_fullscreen_app` and
         // `pause_on_window_covering_desktop` simply have no effect here.
         let should_pause = (settings.pause_on_screen_lock && crate::pause::screen_is_locked())
-            || (settings.pause_on_low_battery && crate::pause::battery_critically_low());
+            || (settings.pause_on_low_battery && crate::pause::battery_low(settings.low_battery_percent));
 
         if should_pause != self.is_paused {
             self.is_paused = should_pause;
-            if let Err(err) = self.mpv.set_property("pause", self.is_paused) {
-                eprintln!("paperloom-engine: failed to set pause state: {err}");
-            }
+            player::set_paused(self.mpv, self.is_paused);
         }
     }
 }
@@ -347,48 +333,3 @@ impl ProvidesRegistryState for State {
 }
 
 smithay_client_toolkit::delegate_dispatch2!(State);
-
-fn bind_ipc_socket() -> std::io::Result<UnixListener> {
-    let path = paperloom_common::ipc::socket_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let _ = std::fs::remove_file(&path);
-    UnixListener::bind(path)
-}
-
-fn handle_connection(stream: UnixStream, mpv: &Mpv) {
-    let mut line = String::new();
-    if let Err(err) = BufReader::new(stream).read_line(&mut line) {
-        eprintln!("paperloom-engine: ipc read error: {err}");
-        return;
-    }
-
-    match Command::decode(&line) {
-        Some(Command::Play(path)) => {
-            if !path.is_file() {
-                eprintln!("paperloom-engine: ipc Play for missing file: {}", path.display());
-                return;
-            }
-            if let Err(err) = apply_mute_from_settings(mpv) {
-                eprintln!("paperloom-engine: failed to apply settings: {err}");
-            }
-            let path = path.to_string_lossy().into_owned();
-            if let Err(err) = mpv.command("loadfile", &[path.as_str()]) {
-                eprintln!("paperloom-engine: failed to play {path}: {err}");
-            }
-        }
-        Some(Command::Stop) => {
-            if let Err(err) = mpv.command("stop", &[]) {
-                eprintln!("paperloom-engine: failed to stop: {err}");
-            }
-        }
-        None => eprintln!("paperloom-engine: bad ipc command: {}", line.trim()),
-    }
-}
-
-fn apply_mute_from_settings(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
-    let settings = paperloom_common::load();
-    mpv.set_property("mute", settings.muted)?;
-    Ok(())
-}
