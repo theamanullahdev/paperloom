@@ -78,12 +78,19 @@ impl App {
             search: String::new(),
             search_open: false,
         };
+        // Opened from the tray menu's "Tray icon settings…".
+        let start = if std::env::args().any(|arg| arg == "--tray-settings") {
+            app.page = Page::Settings;
+            app.settings_page.update(&mut app.settings, settings::Message::ResultSelected(settings::SettingId::TrayIcon)).map(Message::Settings)
+        } else {
+            Task::none()
+        };
         let check = if app.settings.updates.check_on_startup {
             app.updates_page.start_check(&app.settings).map(Message::Updates)
         } else {
             Task::none()
         };
-        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check]))
+        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check, start]))
     }
 
     fn effective_theme(&self) -> paperloom_common::ThemeMode {
