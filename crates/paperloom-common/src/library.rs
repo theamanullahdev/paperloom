@@ -7,6 +7,10 @@ use crate::{paths, ImportMode};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LibraryEntry {
+    /// Stable identity (collections refer to wallpapers by it; positions
+    /// change on every removal). Assigned on load for older manifests.
+    #[serde(default)]
+    pub id: u64,
     pub display_name: String,
     pub path: PathBuf,
     pub mode: ImportMode,
@@ -34,6 +38,25 @@ pub struct LibraryEntry {
     /// can mark them "In library".
     #[serde(default)]
     pub source_id: Option<String>,
+    /// Hidden from the library and collections (shown only under Hidden),
+    /// without deleting anything.
+    #[serde(default)]
+    pub hidden: bool,
+    /// When it was imported (Unix seconds; 0 for older entries).
+    #[serde(default)]
+    pub added: u64,
+}
+
+/// A named group of wallpapers. Members are wallpaper ids — a link, never a
+/// copy — and a wallpaper can be in any number of collections.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Collection {
+    pub id: u64,
+    pub name: String,
+    #[serde(default)]
+    pub members: Vec<u64>,
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 /// The user's wallpaper library: what's been imported and where it actually
@@ -43,6 +66,8 @@ pub struct LibraryEntry {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Library {
     pub entries: Vec<LibraryEntry>,
+    #[serde(default)]
+    pub collections: Vec<Collection>,
 }
 
 fn manifest_file() -> PathBuf {
@@ -55,7 +80,7 @@ impl Library {
     /// changed, so this only pays the `ffmpeg` cost once per entry.
     pub fn load() -> Self {
         let mut library = Self::load_from(&manifest_file());
-        let mut changed = false;
+        let mut changed = library.assign_ids();
         for entry in &mut library.entries {
             if entry.preview_version < PREVIEW_VERSION {
                 for old in &entry.preview_frames {
@@ -73,11 +98,109 @@ impl Library {
         library
     }
 
+    /// The manifest as saved, without regenerating anything (for read-only
+    /// views such as the Settings page's statistics).
+    pub fn load_manifest() -> Self {
+        let mut library = Self::load_from(&manifest_file());
+        library.assign_ids();
+        library
+    }
+
     fn load_from(path: &Path) -> Self {
         fs::read_to_string(path)
             .ok()
             .and_then(|contents| toml::from_str(&contents).ok())
             .unwrap_or_default()
+    }
+
+    /// Gives every entry without one (older manifests) a unique id; also
+    /// drops collection links to wallpapers that no longer exist. Returns
+    /// whether anything changed.
+    fn assign_ids(&mut self) -> bool {
+        let mut changed = false;
+        let mut seen = std::collections::HashSet::new();
+        for index in 0..self.entries.len() {
+            if self.entries[index].id == 0 || !seen.insert(self.entries[index].id) {
+                let id = self.next_id();
+                self.entries[index].id = id;
+                seen.insert(id);
+                changed = true;
+            }
+        }
+        for collection in &mut self.collections {
+            let before = collection.members.len();
+            collection.members.retain(|member| seen.contains(member));
+            collection.members.dedup();
+            changed |= collection.members.len() != before;
+        }
+        changed
+    }
+
+    fn next_id(&self) -> u64 {
+        let entries = self.entries.iter().map(|entry| entry.id);
+        let collections = self.collections.iter().map(|collection| collection.id);
+        entries.chain(collections).max().unwrap_or(0) + 1
+    }
+
+    pub fn entry(&self, id: u64) -> Option<&LibraryEntry> {
+        self.entries.iter().find(|entry| entry.id == id)
+    }
+
+    pub fn collection(&self, id: u64) -> Option<&Collection> {
+        self.collections.iter().find(|collection| collection.id == id)
+    }
+
+    /// Hides or shows a wallpaper.
+    pub fn set_hidden(&mut self, id: u64, hidden: bool) -> std::io::Result<()> {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
+            entry.hidden = hidden;
+        }
+        self.save()
+    }
+
+    /// Creates an empty collection and returns its id.
+    pub fn create_collection(&mut self, name: &str) -> std::io::Result<u64> {
+        let id = self.next_id();
+        self.collections.push(Collection { id, name: name.trim().to_string(), members: Vec::new(), hidden: false });
+        self.save().map(|()| id)
+    }
+
+    pub fn rename_collection(&mut self, id: u64, name: &str) -> std::io::Result<()> {
+        if let Some(collection) = self.collections.iter_mut().find(|collection| collection.id == id) {
+            collection.name = name.trim().to_string();
+        }
+        self.save()
+    }
+
+    pub fn set_collection_hidden(&mut self, id: u64, hidden: bool) -> std::io::Result<()> {
+        if let Some(collection) = self.collections.iter_mut().find(|collection| collection.id == id) {
+            collection.hidden = hidden;
+        }
+        self.save()
+    }
+
+    /// Deletes the collection only; its wallpapers stay in the library.
+    pub fn delete_collection(&mut self, id: u64) -> std::io::Result<()> {
+        self.collections.retain(|collection| collection.id != id);
+        self.save()
+    }
+
+    /// Adds the wallpaper to the collection, or takes it out.
+    pub fn set_in_collection(&mut self, collection: u64, entry: u64, member: bool) -> std::io::Result<()> {
+        if let Some(collection) = self.collections.iter_mut().find(|c| c.id == collection) {
+            let present = collection.members.contains(&entry);
+            if member && !present {
+                collection.members.push(entry);
+            } else if !member && present {
+                collection.members.retain(|id| *id != entry);
+            }
+        }
+        self.save()
+    }
+
+    /// The collections a wallpaper belongs to.
+    pub fn collections_of(&self, entry: u64) -> impl Iterator<Item = &Collection> {
+        self.collections.iter().filter(move |collection| collection.members.contains(&entry))
     }
 
     fn save(&self) -> std::io::Result<()> {
@@ -138,15 +261,34 @@ impl Library {
         let preview_frames = generate_preview_frames(&path);
         let thumbnail = preview_frames.first().cloned();
 
-        self.entries.push(LibraryEntry { display_name, path, mode, thumbnail, preview_frames, preview_version: PREVIEW_VERSION, source_id });
+        let id = self.next_id();
+        let added = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        self.entries.push(LibraryEntry {
+            id,
+            display_name,
+            path,
+            mode,
+            thumbnail,
+            preview_frames,
+            preview_version: PREVIEW_VERSION,
+            source_id,
+            hidden: false,
+            added,
+        });
         Ok(())
     }
 
-    /// Removes the entry at `index`. If it was copied into the managed
-    /// library folder, deletes that copy too; a `ReferenceInPlace` entry's
-    /// original file is left untouched — we don't own it.
-    pub fn remove(&mut self, index: usize) -> std::io::Result<()> {
-        self.remove_entry(index)?;
+    /// Removes the wallpaper with this id (and its collection links). If
+    /// it was copied into the managed library folder, deletes that copy
+    /// too; a `ReferenceInPlace` entry's original file is left untouched —
+    /// we don't own it.
+    pub fn remove(&mut self, id: u64) -> std::io::Result<()> {
+        if let Some(index) = self.entries.iter().position(|entry| entry.id == id) {
+            self.remove_entry(index)?;
+        }
+        for collection in &mut self.collections {
+            collection.members.retain(|member| *member != id);
+        }
         self.save()
     }
 
@@ -365,10 +507,50 @@ mod tests {
             preview_frames: Vec::new(),
             preview_version: PREVIEW_VERSION,
             source_id: Some("motionbgs.com:1".into()),
+            id: 7,
+            hidden: true,
+            added: 1,
         });
+        library.collections.push(Collection { id: 8, name: "Rainy".into(), members: vec![7], hidden: false });
         library.save_to(&manifest_path).unwrap();
 
         let loaded = Library::load_from(&manifest_path);
         assert_eq!(loaded, library);
+    }
+
+    #[test]
+    fn ids_and_collections() {
+        let mut library = Library::default();
+        for name in ["a", "b", "c"] {
+            library.entries.push(LibraryEntry {
+                id: 0,
+                display_name: name.into(),
+                path: PathBuf::from(name),
+                mode: ImportMode::ReferenceInPlace,
+                thumbnail: None,
+                preview_frames: Vec::new(),
+                preview_version: PREVIEW_VERSION,
+                source_id: None,
+                hidden: false,
+                added: 0,
+            });
+        }
+        library.collections.push(Collection { id: 50, name: "Old".into(), members: vec![99], hidden: false });
+        assert!(library.assign_ids());
+        let ids: Vec<u64> = library.entries.iter().map(|e| e.id).collect();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.iter().all(|id| *id > 50), "new ids never reuse a collection's id");
+        assert!(library.collections[0].members.is_empty(), "links to missing wallpapers are dropped");
+        assert!(!library.assign_ids(), "stable once assigned");
+
+        library.collections[0].members = vec![ids[0], ids[1]];
+        library.collections.push(Collection { id: 60, name: "Two".into(), members: vec![ids[1]], hidden: false });
+        assert_eq!(library.collections_of(ids[1]).count(), 2);
+        // Removing a wallpaper (without touching disk) unlinks it everywhere.
+        let index = library.entries.iter().position(|e| e.id == ids[1]).unwrap();
+        library.remove_entry(index).unwrap();
+        library.assign_ids();
+        assert_eq!(library.collections[0].members, vec![ids[0]]);
+        assert!(library.collections[1].members.is_empty());
     }
 }

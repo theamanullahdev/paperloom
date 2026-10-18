@@ -14,7 +14,13 @@ const CARD_CHROME_HEIGHT: f32 = 76.0;
 /// folded in: `image_height = col_width / screen_ratio`, then
 /// `card_ratio = col_width / (image_height + chrome)`.
 pub fn card_ratio() -> f32 {
+    card_ratio_for(FLUID_COLUMN_WIDTH, CARD_CHROME_HEIGHT)
+}
+
+/// `card_ratio` for a grid of `column_width` columns whose cards have
+/// `chrome` pixels of title/buttons under the preview.
+pub fn card_ratio_for(column_width: f32, chrome: f32) -> f32 {
     let (screen_w, screen_h) = paperloom_common::primary_aspect_ratio();
-    let image_height = FLUID_COLUMN_WIDTH * screen_h as f32 / screen_w as f32;
-    FLUID_COLUMN_WIDTH / (image_height + CARD_CHROME_HEIGHT)
+    let image_height = column_width * screen_h as f32 / screen_w as f32;
+    column_width / (image_height + chrome)
 }
