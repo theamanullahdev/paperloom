@@ -101,7 +101,7 @@ pub const ENTRIES: &[Entry] = &[
         id: SettingId::TrayStyle,
         label: "Tray icon style",
         section: "Startup",
-        aliases: &["tray color", "colored", "monochrome", "black and white", "white icon", "black icon", "applet style", "symbolic"],
+        aliases: &["tray color", "colored", "monochrome", "black and white", "white icon", "black icon", "applet style", "symbolic", "match theme", "system theme icon", "adaptive"],
     },
     Entry {
         id: SettingId::TraySize,
