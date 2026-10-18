@@ -5,6 +5,9 @@
 //! than rendering wallpapers itself, so this window can be closed without
 //! stopping playback — see `engine_client`.
 
+// A GUI app: no console window on Windows.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod app;
 mod engine_client;
 mod icons;

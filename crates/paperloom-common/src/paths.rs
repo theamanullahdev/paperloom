@@ -11,6 +11,16 @@ pub fn config_file() -> PathBuf {
     project_dirs().config_dir().join("config.toml")
 }
 
+/// What the engine was last playing (`EngineState`).
+pub fn state_file() -> PathBuf {
+    project_dirs().data_dir().join("engine-state.toml")
+}
+
+/// Downloaded installers for app updates (see `paperloom-fetch::update`).
+pub fn updates_dir() -> PathBuf {
+    project_dirs().cache_dir().join("updates")
+}
+
 /// The app-managed library folder imported wallpapers are copied into
 /// (unless `ImportMode::ReferenceInPlace` is in use for a given file).
 pub fn library_dir() -> PathBuf {

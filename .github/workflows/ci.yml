@@ -1,50 +1,59 @@
 name: CI
 
-# Runs on every push and PR against main: build, lint, test, and build the
-# .deb as a downloadable artifact (not a GitHub Release — those only come
-# from version tags, see release.yml). This is the "every push" half of
-# what was asked for; the "release page" half is the other workflow.
+# Every push (any branch) and every PR: lint + test on Linux, then build
+# every installer on its real platform (package.yml). Nothing is published
+# here — the installers are downloadable from the run's "Artifacts" box;
+# publishing happens in release.yml.
 on:
   push:
-    branches: [main]
+    branches: ["**"]
+    tags-ignore: ["**"]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
+  test:
+    name: Lint & test
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
       - name: Install libmpv-dev
         run: sudo apt-get update && sudo apt-get install -y libmpv-dev
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
       - uses: Swatinem/rust-cache@v2
-
-      - name: Build (debug, all crates)
-        run: cargo build --workspace --verbose
-
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
-        run: cargo test --workspace --verbose
+        run: cargo test --workspace --locked
 
-      - name: Build release binaries
-        run: cargo build --release --workspace
-
-      - name: Install cargo-deb
-        run: cargo install cargo-deb --locked
-
-      - name: Build .deb
-        run: cargo deb -p paperloom-gui
-
-      - name: Upload .deb as a build artifact
-        uses: actions/upload-artifact@v4
+  # Native clippy on Windows and macOS: their backends are cfg-gated, so
+  # Linux clippy never sees them.
+  clippy-other:
+    name: Clippy (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          name: paperloom-deb
-          path: target/debian/*.deb
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # Clippy doesn't link, so libmpv isn't needed here.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  package:
+    name: Package
+    uses: ./.github/workflows/package.yml

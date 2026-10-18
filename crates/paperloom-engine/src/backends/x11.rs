@@ -8,18 +8,15 @@
 //! directly into it.
 //!
 //! This process stays running as a daemon: after setting up the window and
-//! an initial file (if one was passed on the CLI), it listens on the IPC
+//! an initial file (the CLI path, or the last wallpaper), it listens on the IPC
 //! socket (see `paperloom_common::ipc`) for `paperloom-gui` to tell it what
 //! to play next.
 
 use std::error::Error;
-use std::io::{BufRead, BufReader};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::Path;
 use std::time::Duration;
 
 use libmpv2::Mpv;
-use paperloom_common::ipc::Command;
+use paperloom_common::ipc::Listener;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
     ConfigureWindowAux, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, StackMode, WindowClass,
@@ -27,18 +24,10 @@ use x11rb::protocol::xproto::{
 use x11rb::wrapper::ConnectionExt as _;
 
 use crate::pause::PauseDetector;
+use crate::player::{self, Flow};
 
 pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
-    // Fail loudly before touching the display: a bad path otherwise shows
-    // up as a silent black screen (mpv accepts `loadfile` synchronously
-    // and only fails to actually play asynchronously), which is confusing
-    // when running this directly during development. Doesn't catch every
-    // failure mode (corrupt file, unsupported codec) — only "no such file".
-    if let Some(path) = initial_path {
-        if !Path::new(path).is_file() {
-            return Err(format!("no such video file: {path}").into());
-        }
-    }
+    player::validate_cli_path(initial_path)?;
 
     let (conn, screen_num) = x11rb::connect(None)?;
     let screen = conn.setup().roots[screen_num].clone();
@@ -73,27 +62,13 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
         Ok(())
     })?;
 
-    // Wallpaper defaults: loops forever, no on-screen controller, doesn't
-    // try to grab keyboard/mouse input.
-    mpv.set_property("loop-file", "inf".to_string())?;
-    mpv.set_property("osc", false)?;
-    mpv.set_property("input-default-bindings", false)?;
-    mpv.set_property("input-vo-keyboard", false)?;
-    mpv.set_property("cursor-autohide", "no".to_string())?;
-    // A wallpaper should fill the screen like CSS `background-size: cover`,
-    // not letterbox/pillarbox like a video player when the clip's aspect
-    // ratio doesn't match the display's (e.g. a 16:9 clip on a 16:10
-    // screen). panscan=1.0 tells mpv to crop-to-fill instead of showing
-    // black bars.
-    mpv.set_property("panscan", 1.0)?;
-    apply_mute_from_settings(&mpv)?;
+    player::configure_wallpaper(&mpv)?;
 
-    if let Some(path) = initial_path {
-        mpv.command("loadfile", &[path])?;
+    if let Some(path) = player::startup_wallpaper(initial_path) {
+        player::play(&mpv, &path);
     }
 
-    let listener = bind_ipc_socket()?;
-    listener.set_nonblocking(true)?;
+    let mut listener = Listener::bind()?;
 
     let pause_detector = PauseDetector::new(&conn, screen.root)?;
     let mut is_paused = false;
@@ -106,10 +81,8 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     loop {
         while conn.poll_for_event()?.is_some() {}
 
-        match listener.accept() {
-            Ok((stream, _addr)) => handle_connection(stream, &mpv),
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(err) => eprintln!("paperloom-engine: ipc accept error: {err}"),
+        if player::poll_ipc(&mut listener, &mpv) == Flow::Quit {
+            return Ok(());
         }
 
         tick += 1;
@@ -119,9 +92,7 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
                 pause_detector.should_pause(&conn, screen.width_in_pixels, screen.height_in_pixels, window, &settings);
             if should_be_paused != is_paused {
                 is_paused = should_be_paused;
-                if let Err(err) = mpv.set_property("pause", is_paused) {
-                    eprintln!("paperloom-engine: failed to set pause state: {err}");
-                }
+                player::set_paused(&mpv, is_paused);
             }
 
             // Nemo's desktop-icons window is also tagged `_NET_WM_WINDOW_TYPE_DESKTOP`,
@@ -137,57 +108,6 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
 
         std::thread::sleep(Duration::from_millis(200));
     }
-}
-
-/// Binds the IPC socket, clearing out a stale one left behind by a
-/// previous run that didn't exit cleanly (e.g. SIGKILL) — otherwise
-/// `bind` fails with `AddrInUse` even though nothing is actually
-/// listening anymore.
-fn bind_ipc_socket() -> std::io::Result<UnixListener> {
-    let path = paperloom_common::ipc::socket_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let _ = std::fs::remove_file(&path);
-    UnixListener::bind(path)
-}
-
-fn handle_connection(stream: UnixStream, mpv: &Mpv) {
-    let mut line = String::new();
-    if let Err(err) = BufReader::new(stream).read_line(&mut line) {
-        eprintln!("paperloom-engine: ipc read error: {err}");
-        return;
-    }
-
-    match Command::decode(&line) {
-        Some(Command::Play(path)) => {
-            if !path.is_file() {
-                eprintln!("paperloom-engine: ipc Play for missing file: {}", path.display());
-                return;
-            }
-            // Re-read settings on every Play so a mute change takes effect
-            // on the next wallpaper without needing a restart.
-            if let Err(err) = apply_mute_from_settings(mpv) {
-                eprintln!("paperloom-engine: failed to apply settings: {err}");
-            }
-            let path = path.to_string_lossy().into_owned();
-            if let Err(err) = mpv.command("loadfile", &[path.as_str()]) {
-                eprintln!("paperloom-engine: failed to play {path}: {err}");
-            }
-        }
-        Some(Command::Stop) => {
-            if let Err(err) = mpv.command("stop", &[]) {
-                eprintln!("paperloom-engine: failed to stop: {err}");
-            }
-        }
-        None => eprintln!("paperloom-engine: bad ipc command: {}", line.trim()),
-    }
-}
-
-fn apply_mute_from_settings(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
-    let settings = paperloom_common::load();
-    mpv.set_property("mute", settings.muted)?;
-    Ok(())
 }
 
 /// Explicitly stacks `window` below every other window, including Nemo's

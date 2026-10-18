@@ -3,7 +3,7 @@
 Living document. Update this as decisions are made — don't let it drift from reality. For current implementation status (what's actually built vs. stubbed), see `AGENTS.md` — this file is requirements/decisions, not a build log.
 
 ## 1. Pitch
-A live wallpaper application for Linux, primarily targeting Linux Mint Cinnamon, generally compatible with Ubuntu and other Mint editions. Plays looping MP4 video files as the desktop background, the way Wallpaper Engine / Lively Wallpaper do on Windows.
+A live wallpaper application, primarily targeting Linux Mint Cinnamon, generally compatible with Ubuntu and other Mint editions — and, since 2026-10-18, also Windows and macOS (user decision: "Windows/macOS is a real goal"). Plays looping MP4 video files as the desktop background, the way Wallpaper Engine / Lively Wallpaper do on Windows.
 
 ## 2. Hard requirements (non-negotiable)
 - **GUI only.** No CLI-driven workflow. The app must be usable entirely through a graphical interface.
@@ -11,7 +11,7 @@ A live wallpaper application for Linux, primarily targeting Linux Mint Cinnamon,
 - **Modern UI.** Clean, contemporary design — macOS-style polish as the bar, not stock GTK defaults.
 - **Input format:** must play arbitrary MP4 files the user supplies (e.g. downloaded from live-wallpaper sites), typically short (3-4s) seamless loops.
 - **Target DE:** primary = Linux Mint Cinnamon. Secondary = Ubuntu (GNOME) and other Mint flavors (XFCE, MATE) on a best-effort basis.
-- **Distribution goal:** public GitHub repo; later packaged as a Flatpak.
+- **Distribution goal:** public GitHub repo with fully automatic GitHub Releases carrying `.deb`, `.rpm`, `.flatpak` (Linux), `.msi` + setup `.exe` (Windows) and `.dmg` (macOS); Flathub submission when ready. No AppImage (user decision). The app updates itself from those releases (Settings → Updates).
 
 ## 3. Likely feature set (draft — confirm/expand)
 - Browse/pick an MP4 and set it as the live wallpaper.
@@ -31,8 +31,8 @@ Resolved (see Section 5 for rationale):
 - [x] Idle/pause triggers → all of them, but user-configurable (see Section 6).
 
 Still open (not blocking stack choice, decide before v1 feature-freeze):
-- [x] Packaging scope for v1 → **.deb**, built via `cargo-deb` (see README §Packaging). Not a reversal of the Flatpak end-goal — .deb was what was actually achievable and fully buildable in this dev environment (no Wayland-style "can't verify" caveat here: `cargo deb` either produces a real, installable package or it doesn't). Flatpak still needs its Cargo dependency tree vendored offline (`flatpak-cargo-generator`), real work, left for closer to public release.
-- [ ] **License — still genuinely unresolved, blocks any public release.** Not something to pick unilaterally; ask the user. No `LICENSE` file exists yet; `cargo deb`/`cargo-deb` metadata currently omits the `license-file` field rather than guess.
+- [x] Packaging → **.deb, .rpm, .flatpak, .msi, setup .exe, .dmg** (user decision 2026-10-18; no AppImage), all built in CI by `.github/workflows/package.yml` and published automatically by `release.yml` (version from Conventional Commits). Unsigned for now — code signing (Apple Developer ID / Windows certificate) is a later decision that needs the user's accounts.
+- [x] License → GPL-3.0-or-later (`LICENSE`).
 - [ ] Multi-monitor: required for v1 or later? (Note: X11's current implementation already *happens* to mirror across every monitor, as a side effect of the root window spanning the whole X11 screen — not a deliberate per-monitor feature. Wayland's `backends::wayland.rs` does not do this — it binds to a single output only, a known limitation noted in that file.)
 - [ ] Audio support in MP4s: muted always, user-toggleable, or per-wallpaper setting? → Leaning confirmed and **implemented**: muted by default (`Settings.muted`), global toggle in the Settings page, read by the engine on startup and on every `Play`. Not yet per-wallpaper (global only).
 Resolved (continued):
@@ -89,5 +89,4 @@ Because of that tradeoff, this is a **setting, not a mandate** — per the philo
 - Need to confirm how Cinnamon/Mint expects a "wallpaper" to be set (root window vs. compositor layer) to validate the X11 integration path above.
 
 ## 9. Non-goals (for now — confirm)
-- Windows/macOS support.
 - Image/GIF/shader-based wallpapers (unless later requested) — MP4 is the explicit initial format.

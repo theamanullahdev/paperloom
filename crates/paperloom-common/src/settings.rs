@@ -105,6 +105,8 @@ pub struct Settings {
     pub pause_on_screen_lock: bool,
     pub pause_on_low_battery: bool,
     pub pause_on_window_covering_desktop: bool,
+    /// "Low battery" means at or below this charge, while discharging.
+    pub low_battery_percent: u8,
     pub import_mode: ImportMode,
     pub theme: ThemeMode,
     /// Whether wallpaper playback is muted. Defaults to muted — matches
@@ -113,6 +115,27 @@ pub struct Settings {
     /// usually unwanted.
     pub muted: bool,
     pub sources: Vec<SourceSetting>,
+    pub updates: UpdateSettings,
+}
+
+/// App self-update preferences (Settings → Updates).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateSettings {
+    /// Look for a new release each time the app starts.
+    pub check_on_startup: bool,
+    /// Also offer GitHub pre-releases.
+    pub include_prereleases: bool,
+    /// A version the user chose to skip; not offered again (a newer one still is).
+    pub ignored_version: Option<String>,
+    /// Unix seconds of the last successful check, for display.
+    pub last_checked: Option<u64>,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self { check_on_startup: true, include_prereleases: false, ignored_version: None, last_checked: None }
+    }
 }
 
 impl Settings {
@@ -135,10 +158,12 @@ impl Default for Settings {
             pause_on_screen_lock: true,
             pause_on_low_battery: true,
             pause_on_window_covering_desktop: true,
+            low_battery_percent: 20,
             import_mode: ImportMode::default(),
             theme: ThemeMode::default(),
             muted: true,
             sources: builtin_sources(),
+            updates: UpdateSettings::default(),
         }
     }
 }

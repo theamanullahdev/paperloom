@@ -4,3 +4,4 @@ pub mod library;
 pub mod online;
 pub mod settings;
 pub mod sources;
+pub mod updates;

@@ -4,8 +4,11 @@
 //! paused?"; the caller is responsible for polling it and toggling mpv's
 //! `pause` property on change.
 //!
+//! Linux only — Windows and macOS have their own equivalents next to their
+//! backends (`backends::windows`, `backends::macos`).
+//!
 //! Checked at a low frequency (see `backends::x11`), not every event-loop
-//! tick: two of the four checks shell out to `gdbus`/`upower`, and none of
+//! tick: the lock check shells out to `gdbus`, and none of
 //! lock state, battery level, or what's fullscreen change fast enough to
 //! need checking faster than every couple of seconds. That keeps this
 //! consistent with "near-zero idle cost" even though it isn't literally
@@ -51,7 +54,7 @@ impl PauseDetector {
             || (settings.pause_on_window_covering_desktop
                 && self.a_window_covers_desktop(conn, screen_width, screen_height, our_window).unwrap_or(false))
             || (settings.pause_on_screen_lock && screen_is_locked())
-            || (settings.pause_on_low_battery && battery_critically_low())
+            || (settings.pause_on_low_battery && battery_low(settings.low_battery_percent))
     }
 
     fn active_window_is_fullscreen(&self, conn: &impl Connection) -> Result<bool, Box<dyn Error>> {
@@ -143,7 +146,7 @@ fn get_property_u32_list(conn: &impl Connection, window: Window, property: Atom)
 /// `pub(crate)`: also used directly by `backends::wayland`, which can't use
 /// `PauseDetector` as a whole (its fullscreen/window-covering checks are
 /// X11-specific, no portable Wayland equivalent exists) but can still use
-/// this one and `battery_critically_low` below, since both are
+/// this one and `battery_low` below, since both are
 /// windowing-system-independent.
 pub(crate) fn screen_is_locked() -> bool {
     Command::new("gdbus")
@@ -162,16 +165,41 @@ pub(crate) fn screen_is_locked() -> bool {
         .unwrap_or(false)
 }
 
-/// Pauses on an actual critically-low battery, not merely "unplugged": a
+/// Pauses on an actual low battery, not merely "unplugged": a
 /// `powerprofilesctl get` check (the original implementation) reports
-/// `power-saver` the instant you unplug on this machine, regardless of
-/// charge level, which meant the wallpaper paused every single time it
-/// ran on battery — not what "battery saver" should mean. Threshold
-/// chosen to match typical OS low-battery warnings (~20%), not configurable
-/// yet (see AGENTS.md open questions if that changes).
-const LOW_BATTERY_PERCENT: u8 = 20;
+/// `power-saver` the instant you unplug on some machines, regardless of
+/// charge level, which meant the wallpaper paused every single time it ran
+/// on battery — not what "battery saver" should mean. The threshold is a
+/// setting (`Settings::low_battery_percent`, default 20%).
+///
+/// Reads the kernel's `/sys/class/power_supply` directly (what `upower`
+/// itself reads): no process spawn every couple of seconds, and it works
+/// inside the Flatpak sandbox, where the `upower` binary doesn't exist.
+/// Falls back to `upower` if sysfs reports no battery at all.
+pub(crate) fn battery_low(threshold_percent: u8) -> bool {
+    match sysfs_battery() {
+        Some((percent, discharging)) => discharging && percent <= threshold_percent,
+        None => upower_battery_low(threshold_percent),
+    }
+}
 
-pub(crate) fn battery_critically_low() -> bool {
+/// `(capacity %, discharging?)` of the first battery in sysfs.
+fn sysfs_battery() -> Option<(u8, bool)> {
+    let entries = std::fs::read_dir("/sys/class/power_supply").ok()?;
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        let read = |name: &str| std::fs::read_to_string(dir.join(name)).map(|value| value.trim().to_string()).ok();
+        if read("type").as_deref() != Some("Battery") {
+            continue;
+        }
+        let Some(percent) = read("capacity").and_then(|value| value.parse::<u8>().ok()) else { continue };
+        let discharging = read("status").as_deref() == Some("Discharging");
+        return Some((percent, discharging));
+    }
+    None
+}
+
+fn upower_battery_low(threshold_percent: u8) -> bool {
     let Some(device) = Command::new("upower")
         .arg("-e")
         .output()
@@ -187,10 +215,10 @@ pub(crate) fn battery_critically_low() -> bool {
     };
     let info = String::from_utf8_lossy(&info.stdout);
 
-    // A charging/fully-charged battery is never "critically low" even if
-    // the percentage briefly reads under the threshold right after
-    // plugging in. Exact match on the state value, not a substring check
-    // — "discharging" also contains "charging".
+    // A charging/fully-charged battery is never "low" even if the
+    // percentage briefly reads under the threshold right after plugging
+    // in. Exact match on the state value, not a substring check —
+    // "discharging" also contains "charging".
     let state = info.lines().find_map(|line| line.trim().strip_prefix("state:")).map(str::trim);
     if matches!(state, Some("charging") | Some("fully-charged")) {
         return false;
@@ -199,5 +227,5 @@ pub(crate) fn battery_critically_low() -> bool {
     info.lines()
         .find_map(|line| line.trim().strip_prefix("percentage:"))
         .and_then(|value| value.trim().trim_end_matches('%').parse::<u8>().ok())
-        .is_some_and(|percent| percent <= LOW_BATTERY_PERCENT)
+        .is_some_and(|percent| percent <= threshold_percent)
 }
