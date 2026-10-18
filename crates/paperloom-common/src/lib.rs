@@ -22,4 +22,4 @@ pub use display::primary_aspect_ratio;
 pub use library::{Library, LibraryEntry};
 pub use paths::{background_frames_dir, config_file, downloads_dir, library_dir, online_cache_dir, state_file, thumbnails_dir, updates_dir};
 pub use state::{EngineState, SavedSetting};
-pub use settings::{ImportMode, Settings, SourceSetting, ThemeMode, UpdateSettings, SOURCE_MOTIONBGS, SOURCE_PEXELS, SOURCE_PIXABAY};
+pub use settings::{ImportMode, Settings, SourceSetting, ThemeMode, TraySize, TrayStyle, UpdateSettings, SOURCE_MOTIONBGS, SOURCE_PEXELS, SOURCE_PIXABAY};

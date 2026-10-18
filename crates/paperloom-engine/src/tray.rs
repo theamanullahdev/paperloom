@@ -19,10 +19,13 @@ use ksni::blocking::{Handle, TrayMethods};
 use ksni::menu::StandardItem;
 use ksni::{Icon, MenuItem, ToolTip, Tray};
 use paperloom_common::ipc::{self, Command};
+use paperloom_common::{TraySize, TrayStyle};
 
 struct PaperloomTray {
     paused: bool,
     wallpaper: Option<String>,
+    style: TrayStyle,
+    size: TraySize,
 }
 
 static HANDLE: Mutex<Option<Handle<PaperloomTray>>> = Mutex::new(None);
@@ -30,8 +33,10 @@ static HANDLE: Mutex<Option<Handle<PaperloomTray>>> = Mutex::new(None);
 /// every tick, only once the setting is switched off and on again.
 static FAILED: AtomicBool = AtomicBool::new(false);
 
-/// Shows or hides the icon to match the setting (cheap when nothing changes).
-pub fn sync(show: bool) {
+/// Shows or hides the icon, and restyles it, to match the settings (cheap
+/// when nothing changed).
+pub fn sync(settings: &paperloom_common::Settings) {
+    let (show, style, size) = (settings.show_tray_icon, settings.tray_style, settings.tray_size);
     let mut handle = HANDLE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if !show {
         FAILED.store(false, Ordering::Relaxed);
@@ -41,7 +46,7 @@ pub fn sync(show: bool) {
             let wallpaper = paperloom_common::EngineState::load()
                 .current_wallpaper
                 .and_then(|path| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()));
-            let tray = PaperloomTray { paused: false, wallpaper };
+            let tray = PaperloomTray { paused: false, wallpaper, style, size };
             // Inside Flatpak the sandbox can't own the spec's well-known name.
             let sandboxed = std::env::var_os("FLATPAK_ID").is_some();
             // `assume_sni_available`: publish the item even if no tray host
@@ -58,6 +63,15 @@ pub fn sync(show: bool) {
         (false, true) => {
             if let Some(old) = handle.take() {
                 old.shutdown().wait();
+            }
+        }
+        (true, true) => {
+            if let Some(handle) = handle.as_ref() {
+                // ksni compares before/after and only re-sends what changed.
+                handle.update(|tray| {
+                    tray.style = style;
+                    tray.size = size;
+                });
             }
         }
         _ => {}
@@ -92,21 +106,49 @@ fn open_paperloom() {
     }
 }
 
-/// Pre-rendered ARGB32 icons (`assets/tray-N.argb`: big-endian width and
-/// height, then pixels), so the icon shows even when the desktop's icon
-/// theme doesn't have Paperloom's (dev builds, unusual installs).
-fn pixmaps() -> Vec<Icon> {
-    const FILES: [&[u8]; 4] = [
-        include_bytes!("../assets/tray-22.argb"),
-        include_bytes!("../assets/tray-32.argb"),
-        include_bytes!("../assets/tray-48.argb"),
-        include_bytes!("../assets/tray-64.argb"),
-    ];
-    FILES
+fn open_tray_settings() {
+    if let Err(err) = paperloom_common::process::command("paperloom-gui").arg("--tray-settings").spawn() {
+        eprintln!("paperloom-engine: couldn't open Paperloom: {err}");
+    }
+}
+
+/// Pre-rendered ARGB32 icons (`assets/tray/<art>-<fill>-<px>.argb`: big-endian
+/// width and height, then pixels), generated from the logo: the colored
+/// icon and a white outline glyph, each filling 70/85/100% of the canvas,
+/// at the pixel sizes panels ask for. Embedded, so the icon shows even when
+/// the desktop's icon theme doesn't have Paperloom's.
+macro_rules! tray_set {
+    ($art:literal, $fill:literal) => {
+        [
+            include_bytes!(concat!("../assets/tray/", $art, "-", $fill, "-22.argb")).as_slice(),
+            include_bytes!(concat!("../assets/tray/", $art, "-", $fill, "-32.argb")).as_slice(),
+            include_bytes!(concat!("../assets/tray/", $art, "-", $fill, "-48.argb")).as_slice(),
+            include_bytes!(concat!("../assets/tray/", $art, "-", $fill, "-64.argb")).as_slice(),
+        ]
+    };
+}
+
+fn pixmaps(style: TrayStyle, size: TraySize) -> Vec<Icon> {
+    let files: [&[u8]; 4] = match (style, size) {
+        (TrayStyle::Colored, TraySize::Small) => tray_set!("colored", "s"),
+        (TrayStyle::Colored, TraySize::Medium) => tray_set!("colored", "m"),
+        (TrayStyle::Colored, TraySize::Large) => tray_set!("colored", "l"),
+        (_, TraySize::Small) => tray_set!("glyph", "s"),
+        (_, TraySize::Medium) => tray_set!("glyph", "m"),
+        (_, TraySize::Large) => tray_set!("glyph", "l"),
+    };
+    files
         .iter()
         .map(|file| {
             let size = |at: usize| i32::from_be_bytes([file[at], file[at + 1], file[at + 2], file[at + 3]]);
-            Icon { width: size(0), height: size(4), data: file[8..].to_vec() }
+            let mut data = file[8..].to_vec();
+            if style == TrayStyle::Black {
+                // The glyph is white; black keeps its alpha, zeroes R, G, B.
+                for pixel in data.chunks_exact_mut(4) {
+                    pixel[1..].fill(0);
+                }
+            }
+            Icon { width: size(0), height: size(4), data }
         })
         .collect()
 }
@@ -120,12 +162,14 @@ impl Tray for PaperloomTray {
         "Paperloom".into()
     }
 
+    /// No theme icon name: most panels prefer a name over pixmaps, and the
+    /// style/size options only exist as pixmaps.
     fn icon_name(&self) -> String {
-        "paperloom".into()
+        String::new()
     }
 
     fn icon_pixmap(&self) -> Vec<Icon> {
-        pixmaps()
+        pixmaps(self.style, self.size)
     }
 
     fn tool_tip(&self) -> ToolTip {
@@ -172,6 +216,14 @@ impl Tray for PaperloomTray {
                 label: "Stop wallpaper".into(),
                 icon_name: "media-playback-stop".into(),
                 activate: Box::new(|_| send(Command::Stop)),
+                ..Default::default()
+            }
+            .into(),
+            MenuItem::Separator,
+            StandardItem {
+                label: "Tray icon settings…".into(),
+                icon_name: "preferences-system".into(),
+                activate: Box::new(|_| open_tray_settings()),
                 ..Default::default()
             }
             .into(),

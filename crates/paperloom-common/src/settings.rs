@@ -48,6 +48,46 @@ impl std::fmt::Display for ThemeMode {
     }
 }
 
+/// How the tray icon is drawn: the full-color logo, or a one-color outline
+/// that suits a dark (white) or light (black) panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TrayStyle {
+    #[default]
+    Colored,
+    White,
+    Black,
+}
+
+/// How much of the panel's icon slot the tray icon fills (the panel decides
+/// the slot's size).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TraySize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl std::fmt::Display for TrayStyle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            TrayStyle::Colored => "Colored",
+            TrayStyle::White => "White (dark panels)",
+            TrayStyle::Black => "Black (light panels)",
+        })
+    }
+}
+
+impl std::fmt::Display for TraySize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            TraySize::Small => "Small",
+            TraySize::Medium => "Medium",
+            TraySize::Large => "Large",
+        })
+    }
+}
+
 /// One online wallpaper source in the user's list. Built-in sources keep a
 /// fixed `id` (their domain); user-added ones get `custom-<n>` ids.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,6 +161,8 @@ pub struct Settings {
     pub allow_mature: bool,
     /// Show Paperloom's icon in the system tray while a wallpaper plays.
     pub show_tray_icon: bool,
+    pub tray_style: TrayStyle,
+    pub tray_size: TraySize,
     pub updates: UpdateSettings,
 }
 
@@ -171,6 +213,8 @@ impl Default for Settings {
             sources: builtin_sources(),
             allow_mature: false,
             show_tray_icon: true,
+            tray_style: TrayStyle::default(),
+            tray_size: TraySize::default(),
             updates: UpdateSettings::default(),
         }
     }
