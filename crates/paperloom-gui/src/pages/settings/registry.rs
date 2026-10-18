@@ -17,6 +17,8 @@ pub enum SettingId {
     LowBatteryPercent,
     Autostart,
     Updates,
+    AllowMature,
+    TrayIcon,
 }
 
 pub struct Entry {
@@ -80,6 +82,18 @@ pub const ENTRIES: &[Entry] = &[
         label: "Start Paperloom when I log in",
         section: "Startup",
         aliases: &["autostart", "login", "boot", "startup", "reboot", "launch at login", "run at startup"],
+    },
+    Entry {
+        id: SettingId::AllowMature,
+        label: "Allow 18+ content in online search",
+        section: "Content",
+        aliases: &["18+", "nsfw", "adult", "mature", "safe search", "safesearch", "explicit", "filter"],
+    },
+    Entry {
+        id: SettingId::TrayIcon,
+        label: "Show Paperloom in the system tray",
+        section: "Startup",
+        aliases: &["tray", "system tray", "applet", "panel", "indicator", "notification area", "icon"],
     },
     Entry {
         id: SettingId::Updates,

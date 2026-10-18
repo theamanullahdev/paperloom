@@ -242,6 +242,7 @@ impl State {
         self.last_pause_check = Instant::now();
 
         let settings = paperloom_common::load();
+        player::periodic(&settings);
         // Only the two platform-independent triggers apply here: there's
         // no portable Wayland way to ask "what's fullscreen" or "what's
         // covering the desktop" the way X11's EWMH properties allow (by

@@ -58,6 +58,30 @@ impl Lane {
     }
 }
 
+/// Like `wait_turn`, but one clock per *site*: the politeness gap is about
+/// not hammering one server, so a search fanned out to several sites (and
+/// several related keywords) doesn't queue Pexels behind MotionBGS. A slot
+/// is reserved under the lock and slept for outside it, so waiting on one
+/// host never blocks requests to another.
+pub fn wait_turn_for_host(lane: Lane, url: &str) {
+    use std::collections::HashMap;
+    static CLOCKS: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+
+    let host = url.split("://").nth(1).and_then(|rest| rest.split('/').next()).unwrap_or(url).to_string();
+    let slot = {
+        let mut clocks = CLOCKS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let clocks = clocks.get_or_insert_with(HashMap::new);
+        let now = Instant::now();
+        let slot = clocks.get(&host).map_or(now, |last| (*last + lane.gap()).max(now));
+        clocks.insert(host, slot);
+        slot
+    };
+    let now = Instant::now();
+    if slot > now {
+        std::thread::sleep(slot - now);
+    }
+}
+
 /// Blocks until at least the lane's gap has passed since the previous
 /// request on that lane.
 pub fn wait_turn(lane: Lane) {
@@ -115,7 +139,7 @@ pub fn get_text(url: &str) -> Result<(String, String), FetchError> {
 pub fn get_text_with(url: &str, headers: &[(&str, &str)]) -> Result<(String, String), FetchError> {
     use ureq::ResponseExt;
 
-    wait_turn(Lane::Page);
+    wait_turn_for_host(Lane::Page, url);
     let mut request = agent().get(url);
     for (name, value) in headers {
         request = request.header(*name, *value);

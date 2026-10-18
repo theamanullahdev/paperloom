@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use iced::widget::{button, column, container, grid, image, mouse_area, row, scrollable, svg, text, text_input, Space};
+use iced::widget::{button, column, container, grid, image, mouse_area, row, svg, text, Space};
 use iced::widget::image::Allocation;
 use iced::{Background, Border, Element, Length, Shadow, Subscription, Task};
 
@@ -219,32 +219,40 @@ impl State {
         self.library.contains_source(source_id)
     }
 
+    /// Shows only wallpapers whose name contains `filter` (set from the
+    /// global search; "" shows everything).
+    pub fn set_filter(&mut self, filter: String) {
+        self.search = filter;
+    }
+
+    /// `(index, name)` of every wallpaper, for the global search.
+    pub fn names(&self) -> impl Iterator<Item = (usize, &str)> {
+        self.library.entries.iter().enumerate().map(|(index, entry)| (index, entry.display_name.as_str()))
+    }
+
     pub fn header<'a>(&'a self) -> Element<'a, Message> {
-        row![
-            text_input("Search your library...", &self.search)
-                .on_input(Message::SearchChanged)
-                .padding(8)
-                .width(Length::Fixed(240.0)),
-            button(text("Import wallpapers...")).style(button::primary).on_press(Message::ImportClicked),
-            self.stop_controls(),
-        ]
-        .spacing(8)
-        .align_y(iced::Alignment::Center)
-        .into()
+        row![button(crate::ui::label("Import wallpapers...")).style(button::primary).on_press(Message::ImportClicked), self.stop_controls()]
+            .spacing(8)
+            .align_y(iced::Alignment::Center)
+            .wrap()
+            .vertical_spacing(8)
+            .into()
     }
 
     /// "Stop wallpaper", which turns into the choice between stopping only
     /// the wallpaper (Paperloom stays open) and stopping it and quitting.
     fn stop_controls<'a>(&self) -> Element<'a, Message> {
         if !self.confirm_stop {
-            return button(text("Stop wallpaper")).style(button::secondary).on_press(Message::StopClicked).into();
+            return button(crate::ui::label("Stop wallpaper")).style(button::secondary).on_press(Message::StopClicked).into();
         }
         row![
-            button(text("Stop wallpaper only")).style(button::secondary).on_press(Message::StopWallpaper),
-            button(text("Stop and quit Paperloom")).style(button::danger).on_press(Message::StopAndQuit),
-            button(text("Cancel")).style(button::text).on_press(Message::CancelStop),
+            button(crate::ui::label("Stop wallpaper only")).style(button::secondary).on_press(Message::StopWallpaper),
+            button(crate::ui::label("Stop and quit Paperloom")).style(button::danger).on_press(Message::StopAndQuit),
+            button(crate::ui::label("Cancel")).style(button::text).on_press(Message::CancelStop),
         ]
         .spacing(6)
+        .wrap()
+        .vertical_spacing(6)
         .into()
     }
 
@@ -276,10 +284,22 @@ impl State {
             .spacing(16)
             .height(grid::aspect_ratio(super::gallery::card_ratio(), 1.0));
 
-            scrollable(container(fluid).padding([4, 4])).into()
+            crate::ui::scroll_page(fluid).into()
         };
 
-        let mut content = column![body].spacing(16);
+        let mut content = column![].spacing(16);
+        if !self.search.is_empty() {
+            content = content.push(
+                row![
+                    text(format!("Wallpapers matching “{}”", self.search)).color(t.foreground),
+                    button(crate::ui::label("Show all").size(12)).style(button::text).padding([2, 6]).on_press(Message::SearchChanged(String::new())),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center)
+                .wrap(),
+            );
+        }
+        content = content.push(body);
 
         if let Some(status) = &self.status {
             content = content.push(
@@ -350,7 +370,7 @@ fn tile<'a>(
             container(kebab).padding(6),
             container(
                 container(
-                    button(text("Remove").size(13).color(t.destructive))
+                    button(crate::ui::label("Remove").size(13).color(t.destructive))
                         .style(button::text)
                         .padding([6, 10])
                         .on_press(Message::RemoveClicked(index)),
@@ -374,8 +394,8 @@ fn tile<'a>(
             column![
                 text("Remove this wallpaper?").color(iced::Color::WHITE).size(13),
                 row![
-                    button(text("Remove").size(13)).style(button::danger).on_press(Message::ConfirmRemoveClicked(index)),
-                    button(text("Cancel").size(13)).style(button::text).on_press(Message::CancelRemoveClicked),
+                    button(crate::ui::label("Remove").size(13)).style(button::danger).on_press(Message::ConfirmRemoveClicked(index)),
+                    button(crate::ui::label("Cancel").size(13)).style(button::text).on_press(Message::CancelRemoveClicked),
                 ]
                 .spacing(8),
             ]
@@ -409,7 +429,7 @@ fn tile<'a>(
     let chrome = column![
         text(entry.display_name.clone()).size(13).color(t.foreground),
         row![
-            button(text("Set as wallpaper").size(12)).style(button::primary).width(Length::Fill).on_press(Message::SetAsWallpaperClicked(index)),
+            button(crate::ui::label("Set as wallpaper").size(12)).style(button::primary).width(Length::Fill).on_press(Message::SetAsWallpaperClicked(index)),
         ]
         .spacing(8),
     ]
