@@ -18,6 +18,10 @@ on:
         description: Version to stamp into the build (defaults to Cargo.toml's)
         type: string
         default: ""
+      targets:
+        description: Which installers to build — "all", or any of linux,windows,macos,flatpak
+        type: string
+        default: all
   workflow_dispatch:
 
 env:
@@ -26,6 +30,7 @@ env:
 jobs:
   linux:
     name: Linux (.deb, .rpm)
+    if: inputs.targets == '' || inputs.targets == 'all' || contains(inputs.targets, 'linux')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +72,7 @@ jobs:
 
   windows:
     name: Windows (.msi, setup .exe)
+    if: inputs.targets == '' || inputs.targets == 'all' || contains(inputs.targets, 'windows')
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -152,6 +158,7 @@ jobs:
 
   macos:
     name: macOS ${{ matrix.arch }} (.dmg)
+    if: inputs.targets == '' || inputs.targets == 'all' || contains(inputs.targets, 'macos')
     strategy:
       fail-fast: false
       matrix:
@@ -202,6 +209,7 @@ jobs:
 
   flatpak-sources:
     name: Flatpak cargo sources
+    if: inputs.targets == '' || inputs.targets == 'all' || contains(inputs.targets, 'flatpak')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -231,6 +239,7 @@ jobs:
 
   flatpak:
     name: Flatpak bundle
+    if: inputs.targets == '' || inputs.targets == 'all' || contains(inputs.targets, 'flatpak')
     needs: flatpak-sources
     runs-on: ubuntu-24.04
     container:
