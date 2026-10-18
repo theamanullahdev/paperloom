@@ -1,0 +1,123 @@
+name: Apt repository
+
+# Publishes a signed apt repository on GitHub Pages, so Ubuntu / Mint /
+# Debian users get Paperloom updates through their normal `apt upgrade`
+# (Update Manager) instead of downloading each .deb:
+#
+#   https://theamanullahdev.github.io/paperloom/apt
+#
+# Runs after every release (called from release.yml) and on demand. It
+# takes the .deb of the latest GitHub Release, builds the repo with
+# apt-ftparchive, signs it with the APT_GPG_PRIVATE_KEY secret, and
+# force-pushes it as the only commit on the gh-pages branch (so old .debs
+# never pile up in git history).
+#
+# One-time setup — the signing key stays on your machine and in GitHub:
+#   gpg --batch --passphrase '' --quick-gen-key "Paperloom apt repository" rsa4096 sign never
+#   gpg --armor --export-secret-keys "Paperloom apt repository" | gh secret set APT_GPG_PRIVATE_KEY -R theamanullahdev/paperloom
+# Without that secret this workflow skips itself (the release still works).
+on:
+  workflow_call:
+    secrets:
+      APT_GPG_PRIVATE_KEY:
+        required: false
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apt-repo
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check for the signing key
+        id: key
+        env:
+          KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::warning::APT_GPG_PRIVATE_KEY isn't set, so the apt repository wasn't published. See the comment at the top of apt-repo.yml."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Import the signing key
+        if: steps.key.outputs.present == 'true'
+        id: gpg
+        env:
+          KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          echo "$KEY" | gpg --batch --import
+          fpr="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
+          echo "fingerprint=$fpr" >> "$GITHUB_OUTPUT"
+          echo "Signing with $fpr"
+
+      - name: Fetch the latest release's .deb
+        if: steps.key.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p site/apt/pool/main/p/paperloom
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern '*-linux-x86_64.deb' --dir site/apt/pool/main/p/paperloom
+          ls -l site/apt/pool/main/p/paperloom
+
+      - name: Build and sign the repository
+        if: steps.key.outputs.present == 'true'
+        working-directory: site/apt
+        env:
+          FPR: ${{ steps.gpg.outputs.fingerprint }}
+        run: |
+          mkdir -p dists/stable/main/binary-amd64
+          apt-ftparchive packages pool > dists/stable/main/binary-amd64/Packages
+          gzip -9 -k dists/stable/main/binary-amd64/Packages
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=Paperloom \
+            -o APT::FTPArchive::Release::Label=Paperloom \
+            -o APT::FTPArchive::Release::Suite=stable \
+            -o APT::FTPArchive::Release::Codename=stable \
+            -o APT::FTPArchive::Release::Architectures=amd64 \
+            -o APT::FTPArchive::Release::Components=main \
+            -o "APT::FTPArchive::Release::Description=Paperloom live wallpapers" \
+            release dists/stable > dists/stable/Release
+          gpg --batch --yes --local-user "$FPR" --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes --local-user "$FPR" --armor --detach-sign -o dists/stable/Release.gpg dists/stable/Release
+          gpg --armor --export "$FPR" > paperloom.asc
+          cat dists/stable/main/binary-amd64/Packages
+
+      - name: Verify it like apt would
+        if: steps.key.outputs.present == 'true'
+        working-directory: site/apt
+        run: |
+          gpg --dearmor < paperloom.asc > /tmp/paperloom.gpg
+          gpgv --keyring /tmp/paperloom.gpg dists/stable/InRelease
+          gpgv --keyring /tmp/paperloom.gpg dists/stable/Release.gpg dists/stable/Release
+
+      - name: Landing page
+        if: steps.key.outputs.present == 'true'
+        run: |
+          touch site/.nojekyll
+          cat > site/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8"><title>Paperloom apt repository</title>
+          <h1>Paperloom apt repository</h1>
+          <p>Install on Ubuntu, Linux Mint or Debian, and get updates with your normal system updates:</p>
+          <pre>sudo curl -fsSLo /usr/share/keyrings/paperloom.asc https://theamanullahdev.github.io/paperloom/apt/paperloom.asc
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/paperloom.asc] https://theamanullahdev.github.io/paperloom/apt stable main" | sudo tee /etc/apt/sources.list.d/paperloom.list
+          sudo apt update &amp;&amp; sudo apt install paperloom</pre>
+          <p><a href="https://github.com/theamanullahdev/paperloom">Paperloom on GitHub</a></p>
+          HTML
+
+      - name: Publish to gh-pages
+        if: steps.key.outputs.present == 'true'
+        working-directory: site
+        run: |
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "apt repository for $(ls apt/pool/main/p/paperloom)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages

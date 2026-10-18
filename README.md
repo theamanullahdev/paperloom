@@ -31,9 +31,21 @@ Download from the [Releases page](https://github.com/theamanullahdev/paperloom/r
 
 Once installed, Paperloom keeps itself current. **Settings → Updates** checks GitHub for new releases, downloads the right installer for your system (resumable, SHA-256 verified) and opens it. You can also skip a version there. Flatpak installs are updated by Flatpak instead.
 
-### Updating
+### Ubuntu / Linux Mint / Debian: install from the apt repository (recommended)
 
-**Settings → Updates** in the app downloads the newest installer and opens it in your system's package installer, where you confirm. The `.deb`/`.rpm` don't update silently in the background: they don't come from an apt/dnf repository. To update from a terminal instead, on Ubuntu / Mint / Debian:
+This gets you updates automatically with your normal system updates (Update Manager / `sudo apt upgrade`):
+
+```
+sudo curl -fsSLo /usr/share/keyrings/paperloom.asc https://theamanullahdev.github.io/paperloom/apt/paperloom.asc
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/paperloom.asc] https://theamanullahdev.github.io/paperloom/apt stable main" | sudo tee /etc/apt/sources.list.d/paperloom.list
+sudo apt update && sudo apt install paperloom
+```
+
+If you already installed a `.deb` by hand, run the same three lines: apt takes over that install and keeps it updated from then on. The repository is published by `.github/workflows/apt-repo.yml` on every release and signed with the `APT_GPG_PRIVATE_KEY` secret (setup is described at the top of that file).
+
+### Updating otherwise
+
+**Settings → Updates** in the app downloads the newest installer and opens it in your system's package installer, where you confirm. A `.deb`/`.rpm` downloaded by hand doesn't update in the background. To update one from a terminal:
 
 ```
 curl -fsSL https://api.github.com/repos/theamanullahdev/paperloom/releases/latest \
