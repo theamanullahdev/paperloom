@@ -26,6 +26,8 @@ mod desktop_background;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod pause;
 mod player;
+#[cfg(all(unix, not(target_os = "macos")))]
+mod tray;
 
 use std::env;
 use std::error::Error;

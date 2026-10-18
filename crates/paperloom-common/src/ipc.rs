@@ -20,6 +20,10 @@ pub enum Command {
     /// Exit the engine. Used before an update is installed (Windows can't
     /// replace a running executable) and is otherwise harmless.
     Quit,
+    /// Hold the wallpaper on its current frame until `Resume` (the tray's
+    /// Pause), regardless of the automatic pause triggers.
+    Pause,
+    Resume,
 }
 
 impl Command {
@@ -28,6 +32,8 @@ impl Command {
             Command::Play(path) => format!("PLAY {}\n", path.display()),
             Command::Stop => "STOP\n".to_string(),
             Command::Quit => "QUIT\n".to_string(),
+            Command::Pause => "PAUSE\n".to_string(),
+            Command::Resume => "RESUME\n".to_string(),
         }
     }
 
@@ -36,6 +42,8 @@ impl Command {
         match line {
             "STOP" => Some(Command::Stop),
             "QUIT" => Some(Command::Quit),
+            "PAUSE" => Some(Command::Pause),
+            "RESUME" => Some(Command::Resume),
             _ => line.strip_prefix("PLAY ").map(|path| Command::Play(PathBuf::from(path))),
         }
     }
@@ -299,6 +307,8 @@ mod tests {
     fn stop_and_quit_round_trip() {
         assert_eq!(Command::decode(&Command::Stop.encode()), Some(Command::Stop));
         assert_eq!(Command::decode(&Command::Quit.encode()), Some(Command::Quit));
+        assert_eq!(Command::decode(&Command::Pause.encode()), Some(Command::Pause));
+        assert_eq!(Command::decode(&Command::Resume.encode()), Some(Command::Resume));
         assert_eq!(Command::decode("STOP\r\n"), Some(Command::Stop));
     }
 

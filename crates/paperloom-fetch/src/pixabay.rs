@@ -11,6 +11,7 @@ const PER_PAGE: u32 = 24;
 
 pub struct Pixabay {
     pub key: String,
+    pub safe_search: bool,
 }
 
 #[derive(Deserialize)]
@@ -52,9 +53,10 @@ impl Source for Pixabay {
             return Err(FetchError::Permanent("add your Pixabay API key in Sources".into()));
         }
         let url = format!(
-            "https://pixabay.com/api/videos/?key={}&q={}&page={page}&per_page={PER_PAGE}",
+            "https://pixabay.com/api/videos/?key={}&q={}&page={page}&per_page={PER_PAGE}&safesearch={}",
             crate::motionbgs::url_encode(self.key.trim()),
-            crate::motionbgs::url_encode(query.trim())
+            crate::motionbgs::url_encode(query.trim()),
+            self.safe_search
         );
         let (body, _) = http::get_text(&url)?;
         parse(&body, page)

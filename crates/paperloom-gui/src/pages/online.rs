@@ -13,7 +13,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use iced::widget::{button, column, container, grid, image, row, scrollable, stack, svg, text, text_input, Space};
+use iced::widget::{button, column, container, grid, image, row, stack, svg, text, Space};
 use iced::{Background, Border, Element, Length, Shadow, Subscription, Task};
 
 use paperloom_common::Settings;
@@ -49,16 +49,37 @@ impl From<FetchError> for Failure {
     }
 }
 
-pub struct State {
-    queue: Queue,
-    search: String,
-    active_query: String,
-    items: Vec<OnlineItem>,
-    thumbs: HashMap<String, PathBuf>,
+/// How many related keywords a search also runs (on top of the query itself).
+const RELATED_SEARCHES: usize = 4;
+/// Keep loading further pages (up to `MAX_AUTO_ROUNDS` times) while a search
+/// shows fewer cards than this, so a narrow keyword still fills the page.
+const MIN_RESULTS: usize = 24;
+const MAX_AUTO_ROUNDS: u32 = 3;
+
+/// One keyword being searched across every enabled source: the query
+/// itself, or one of its related keywords.
+struct Stream {
+    query: String,
     page: u32,
     cursors: HashMap<String, Cursor>,
     has_more: bool,
     loading: bool,
+}
+
+impl Stream {
+    fn new(query: String) -> Self {
+        Self { query, page: 0, cursors: HashMap::new(), has_more: true, loading: false }
+    }
+}
+
+pub struct State {
+    queue: Queue,
+    /// What the user searched for ("" = latest wallpapers).
+    active_query: String,
+    /// `streams[0]` is the query itself; the rest are related keywords.
+    streams: Vec<Stream>,
+    items: Vec<OnlineItem>,
+    thumbs: HashMap<String, PathBuf>,
     failure: Option<Failure>,
     notices: Vec<String>,
     filter: QualityFilter,
@@ -66,16 +87,17 @@ pub struct State {
     /// query can't overwrite the results of a newer one.
     generation: u64,
     loaded_once: bool,
+    auto_rounds: u32,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    SearchChanged(String),
-    SearchSubmitted,
+    /// Search from the page itself (related-keyword chips, Clear).
+    Search(String),
     Reload,
     LoadMore,
     SetFilter(QualityFilter),
-    Loaded { generation: u64, page: u32, result: Result<Page, Failure> },
+    Loaded { generation: u64, stream: usize, page: u32, result: Result<Page, Failure> },
     ThumbLoaded(String, Result<PathBuf, String>),
     Download(String, &'static str),
     Retry(String),
@@ -99,19 +121,16 @@ impl State {
     pub fn new() -> Self {
         Self {
             queue: Queue::start(),
-            search: String::new(),
             active_query: String::new(),
+            streams: Vec::new(),
             items: Vec::new(),
             thumbs: HashMap::new(),
-            page: 1,
-            cursors: HashMap::new(),
-            has_more: false,
-            loading: false,
             failure: None,
             notices: Vec::new(),
             filter: QualityFilter::All,
             generation: 0,
             loaded_once: false,
+            auto_rounds: 0,
         }
     }
 
@@ -119,87 +138,105 @@ impl State {
         &self.queue
     }
 
+    fn loading(&self) -> bool {
+        self.streams.iter().any(|stream| stream.loading)
+    }
+
+    fn has_more(&self) -> bool {
+        self.streams.iter().any(|stream| stream.has_more)
+    }
+
     /// While offline and on this tab, quietly re-check every few seconds
     /// and reload as soon as the connection is back.
     pub fn subscription(&self, active: bool) -> Subscription<Message> {
-        if active && !self.loading && matches!(self.failure, Some(Failure::Offline)) {
+        if active && !self.loading() && matches!(self.failure, Some(Failure::Offline)) {
             iced::time::every(Duration::from_secs(4)).map(|_| Message::Recheck)
         } else {
             Subscription::none()
         }
     }
 
-    /// Loads the first page the first time the tab is opened.
+    /// Loads the latest wallpapers the first time the tab is opened.
     pub fn ensure_loaded(&mut self, settings: &Settings) -> Task<Message> {
-        if self.loaded_once || self.loading {
+        if self.loaded_once || self.loading() {
             Task::none()
         } else {
-            self.load(settings, 1)
+            self.search(settings, String::new())
         }
     }
 
-    fn reset_results(&mut self) {
-        self.items.clear();
-        self.cursors.clear();
-        self.notices.clear();
-        self.page = 1;
-        self.has_more = false;
-    }
-
-    fn load(&mut self, settings: &Settings, page: u32) -> Task<Message> {
-        self.loading = true;
+    /// Starts a new search: the query itself plus a few related keywords,
+    /// all at once; results are merged as each one comes back.
+    pub fn search(&mut self, settings: &Settings, query: String) -> Task<Message> {
+        self.active_query = query.trim().to_string();
+        self.generation += 1;
         self.loaded_once = true;
+        self.items.clear();
+        self.notices.clear();
         self.failure = None;
-        if page == 1 {
-            self.generation += 1;
+        self.auto_rounds = 0;
+        self.streams = std::iter::once(self.active_query.clone())
+            .chain(paperloom_fetch::keywords::related_queries(&self.active_query, RELATED_SEARCHES))
+            .map(Stream::new)
+            .collect();
+        Task::batch((0..self.streams.len()).map(|index| self.load(settings, index)).collect::<Vec<_>>())
+    }
+
+    /// The next page of one stream.
+    fn load(&mut self, settings: &Settings, index: usize) -> Task<Message> {
+        let Some(stream) = self.streams.get_mut(index) else { return Task::none() };
+        if stream.loading || !stream.has_more {
+            return Task::none();
         }
+        stream.loading = true;
         let generation = self.generation;
-        let query = self.active_query.clone();
-        let cursors = self.cursors.clone();
+        let page = stream.page + 1;
+        let query = stream.query.clone();
+        let cursors = stream.cursors.clone();
         let sources = settings.sources.clone();
+        let allow_mature = settings.allow_mature;
 
         Task::perform(
-            blocking(move || paperloom_fetch::fetch_page(&sources, &query, page, &cursors).map_err(Failure::from)),
-            move |result| Message::Loaded { generation, page, result },
+            blocking(move || paperloom_fetch::fetch_page(&sources, &query, page, &cursors, allow_mature).map_err(Failure::from)),
+            move |result| Message::Loaded { generation, stream: index, page, result },
         )
+    }
+
+    fn load_more(&mut self, settings: &Settings) -> Task<Message> {
+        self.failure = None;
+        Task::batch((0..self.streams.len()).map(|index| self.load(settings, index)).collect::<Vec<_>>())
     }
 
     pub fn update(&mut self, settings: &Settings, message: Message) -> Task<Message> {
         match message {
-            Message::SearchChanged(value) => self.search = value,
-            Message::SearchSubmitted => {
-                self.active_query = self.search.trim().to_string();
-                self.reset_results();
-                return self.load(settings, 1);
-            }
+            Message::Search(query) => return self.search(settings, query),
             Message::Reload | Message::Recheck => {
-                if !self.loading {
-                    self.reset_results();
-                    return self.load(settings, 1);
+                if !self.loading() {
+                    return self.search(settings, self.active_query.clone());
                 }
             }
             Message::LoadMore => {
-                if self.has_more && !self.loading {
-                    return self.load(settings, self.page + 1);
-                }
+                self.auto_rounds = MAX_AUTO_ROUNDS; // the user is in charge now
+                return self.load_more(settings);
             }
             Message::SetFilter(filter) => self.filter = filter,
-            Message::Loaded { generation, page, result } => {
+            Message::Loaded { generation, stream, page, result } => {
                 if generation != self.generation {
                     return Task::none();
                 }
-                self.loading = false;
+                let Some(state) = self.streams.get_mut(stream) else { return Task::none() };
+                state.loading = false;
+                let mut fetches = Vec::new();
                 match result {
                     Ok(listing) => {
-                        self.page = page;
-                        self.has_more = listing.has_more;
-                        self.cursors = listing.cursors;
-                        self.notices = listing.notices;
-                        if page == 1 {
-                            self.items.clear();
+                        state.page = page;
+                        state.has_more = listing.has_more;
+                        state.cursors = listing.cursors;
+                        for notice in listing.notices {
+                            if !self.notices.contains(&notice) {
+                                self.notices.push(notice);
+                            }
                         }
-
-                        let mut fetches = Vec::new();
                         for item in listing.items {
                             let key = item.key();
                             if self.items.iter().any(|existing| existing.key() == key) {
@@ -214,10 +251,28 @@ impl State {
                             }
                             self.items.push(item);
                         }
-                        return Task::batch(fetches);
                     }
-                    Err(failure) => self.failure = Some(failure),
+                    Err(failure) => {
+                        state.has_more = false;
+                        // A related keyword failing isn't worth a banner;
+                        // the query itself failing (or being offline) is.
+                        if stream == 0 || matches!(failure, Failure::Offline) {
+                            self.failure = Some(failure);
+                        }
+                    }
                 }
+
+                // Too few cards for this search? Quietly fetch more pages.
+                if !self.loading()
+                    && self.failure.is_none()
+                    && self.visible().count() < MIN_RESULTS
+                    && self.has_more()
+                    && self.auto_rounds < MAX_AUTO_ROUNDS
+                {
+                    self.auto_rounds += 1;
+                    fetches.push(self.load_more(settings));
+                }
+                return Task::batch(fetches);
             }
             Message::ThumbLoaded(key, result) => {
                 if let Ok(path) = result {
@@ -239,25 +294,15 @@ impl State {
         let active = self.queue.snapshot().iter().filter(|job| job.status != Status::Failed).count();
 
         let chip = |label: &'static str, filter: QualityFilter| {
-            button(text(label).size(13))
+            button(crate::ui::label(label).size(13))
                 .style(if self.filter == filter { button::primary } else { button::secondary })
                 .padding([6, 10])
                 .on_press(Message::SetFilter(filter))
         };
 
-        let mut header = row![
-            text_input("Search all sources...", &self.search)
-                .on_input(Message::SearchChanged)
-                .on_submit(Message::SearchSubmitted)
-                .padding(8)
-                .width(Length::Fixed(240.0)),
-            button(text("Search")).style(button::primary).on_press(Message::SearchSubmitted),
-            chip("All", QualityFilter::All),
-            chip("4K", QualityFilter::FourK),
-            chip("HD", QualityFilter::HdOnly),
-        ]
-        .spacing(8)
-        .align_y(iced::Alignment::Center);
+        let mut header = row![chip("All", QualityFilter::All), chip("4K", QualityFilter::FourK), chip("HD", QualityFilter::HdOnly)]
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
 
         if active > 0 {
             header = header.push(text(format!("{active} downloading")).size(13).color(t.muted_foreground));
@@ -295,13 +340,13 @@ impl State {
             .spacing(16)
             .height(grid::aspect_ratio(super::gallery::card_ratio(), 1.0));
 
-        let mut page = column![].spacing(12);
+        let mut page = column![self.search_summary(t)].spacing(12);
         for notice in &self.notices {
             page = page.push(text(notice.clone()).size(12).color(t.muted_foreground));
         }
         page = page.push(container(fluid).padding([4, 4]));
 
-        if self.loading {
+        if self.loading() {
             page = page.push(text("Loading more...").color(t.muted_foreground));
         } else if let Some(failure) = &self.failure {
             let message = match failure {
@@ -309,15 +354,42 @@ impl State {
                 Failure::Other(err) => format!("Couldn't load more: {err}"),
             };
             page = page.push(
-                row![text(message).color(t.muted_foreground), button(text("Try again")).style(button::secondary).on_press(Message::LoadMore)]
+                row![text(message).color(t.muted_foreground), button(crate::ui::label("Try again")).style(button::secondary).on_press(Message::LoadMore)]
                     .spacing(12)
                     .align_y(iced::Alignment::Center),
             );
-        } else if self.has_more {
-            page = page.push(button(text("Load more")).style(button::secondary).on_press(Message::LoadMore));
+        } else if self.has_more() {
+            page = page.push(button(crate::ui::label("Load more")).style(button::secondary).on_press(Message::LoadMore));
         }
 
-        scrollable(container(page).padding([0, 4])).into()
+        crate::ui::scroll_page(page).into()
+    }
+
+    /// "Results for X" plus the related keywords that were searched too
+    /// (each one clickable on its own), so it's clear where results come
+    /// from. Browsing (no query) shows nothing here.
+    fn search_summary<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        if self.active_query.is_empty() {
+            return Space::new().height(0).into();
+        }
+        let mut line = row![
+            text(format!("Results for “{}”", self.active_query)).size(15).color(t.foreground),
+            button(crate::ui::label("Clear").size(12)).style(button::text).padding([2, 6]).on_press(Message::Search(String::new())),
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center);
+        if self.streams.len() > 1 {
+            line = line.push(text("also searching:").size(12).color(t.muted_foreground));
+            for stream in &self.streams[1..] {
+                line = line.push(
+                    button(crate::ui::label(stream.query.clone()).size(12))
+                        .style(button::secondary)
+                        .padding([2, 8])
+                        .on_press(Message::Search(stream.query.clone())),
+                );
+            }
+        }
+        line.wrap().vertical_spacing(6).into()
     }
 
     fn empty_state<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
@@ -327,7 +399,7 @@ impl State {
                     svg(icons::wifi_off()).width(40).height(40).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) }),
                     text("You're offline").size(18).color(t.foreground),
                     text("Connect to the internet — this reloads by itself when you're back.").color(t.muted_foreground),
-                    button(text("Try again")).style(button::primary).on_press(Message::Reload),
+                    button(crate::ui::label("Try again")).style(button::primary).on_press(Message::Reload),
                 ]
                 .spacing(12)
                 .align_x(iced::Alignment::Center),
@@ -337,14 +409,14 @@ impl State {
             .into();
         }
 
-        let mut content = column![].spacing(12);
-        if self.loading {
+        let mut content = column![self.search_summary(t)].spacing(12);
+        if self.loading() {
             content = content.push(text("Searching...").color(t.muted_foreground));
         } else if let Some(Failure::Other(err)) = &self.failure {
             content = content.push(text(format!("Couldn't load wallpapers: {err}")).color(t.muted_foreground));
-            content = content.push(button(text("Try again")).style(button::primary).on_press(Message::Reload));
+            content = content.push(button(crate::ui::label("Try again")).style(button::primary).on_press(Message::Reload));
         } else if self.items.is_empty() {
-            content = content.push(text("No wallpapers found.").color(t.muted_foreground));
+            content = content.push(text("No wallpapers found. Try a broader word, or one of the related searches above.").color(t.muted_foreground));
         } else {
             content = content.push(text("Nothing matches this quality filter.").color(t.muted_foreground));
         }
@@ -382,7 +454,7 @@ fn card<'a>(item: &'a OnlineItem, thumb: Option<&'a PathBuf>, job: Option<&Job>,
         match job {
             None => {
                 let pick = |label: &'static str, quality: &'static str| {
-                    button(text(label).size(12).center())
+                    button(crate::ui::label(label).size(12).center())
                         .style(button::primary)
                         .width(Length::Fill)
                         .on_press(Message::Download(key.clone(), quality))
@@ -416,7 +488,7 @@ fn card<'a>(item: &'a OnlineItem, thumb: Option<&'a PathBuf>, job: Option<&Job>,
 /// One-line status for a queued job plus the buttons that apply to it. The
 /// full detail lives on the Downloads page.
 fn job_status<'a>(job: &Job, t: theme::Tokens) -> Element<'a, Message> {
-    let small = |label: &'static str, message: Message| button(text(label).size(12)).style(button::text).padding([2, 6]).on_press(message);
+    let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(button::text).padding([2, 6]).on_press(message);
 
     let (label, buttons): (String, Vec<Element<'a, Message>>) = match job.status {
         Status::Queued if job.last_error.is_some() => ("Waiting for connection".into(), vec![small("Cancel", Message::Cancel(job.id.clone())).into()]),

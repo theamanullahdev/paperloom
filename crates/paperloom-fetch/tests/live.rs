@@ -14,17 +14,17 @@ use paperloom_fetch::{fetch_page, Queue, Status};
 fn browse_search_paginate_and_download_with_resume() {
     let sources = Settings::default().with_builtin_sources().sources;
 
-    let latest = fetch_page(&sources, "", 1, &HashMap::new()).expect("latest page 1");
+    let latest = fetch_page(&sources, "", 1, &HashMap::new(), false).expect("latest page 1");
     assert!(latest.items.len() >= 10, "got {} items", latest.items.len());
     assert!(latest.has_more);
     assert!(latest.items.iter().any(|item| item.has_4k()), "some wallpapers offer 4K");
-    let page2 = fetch_page(&sources, "", 2, &latest.cursors).expect("latest page 2");
+    let page2 = fetch_page(&sources, "", 2, &latest.cursors, false).expect("latest page 2");
     assert_ne!(latest.items[0].key(), page2.items[0].key());
 
-    let rain = fetch_page(&sources, "rain", 1, &HashMap::new()).expect("search");
+    let rain = fetch_page(&sources, "rain", 1, &HashMap::new(), false).expect("search");
     assert!(!rain.items.is_empty());
     assert!(rain.has_more);
-    let rain2 = fetch_page(&sources, "rain", 2, &rain.cursors).expect("search page 2");
+    let rain2 = fetch_page(&sources, "rain", 2, &rain.cursors, false).expect("search page 2");
     assert!(!rain2.items.is_empty());
 
     let thumb = paperloom_fetch::fetch_thumbnail(&latest.items[0].thumb_url).expect("thumbnail");

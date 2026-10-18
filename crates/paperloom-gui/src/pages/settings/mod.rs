@@ -2,12 +2,11 @@ mod registry;
 
 use std::time::{Duration, Instant};
 
-use iced::widget::{button, column, container, mouse_area, pick_list, row, scrollable, slider, text, text_input, toggler, Space};
+use iced::widget::{button, column, container, pick_list, row, slider, text, toggler, Space};
 use iced::{Animation, Background, Border, Element, Length, Subscription, Task};
 
 use paperloom_common::{ImportMode, Settings, ThemeMode};
-pub use registry::SettingId;
-use registry::ENTRIES;
+pub use registry::{matches, Entry, SettingId, ENTRIES};
 
 use crate::theme;
 
@@ -19,7 +18,6 @@ const IMPORT_MODE_OPTIONS: &[ImportMode] = &[
 ];
 
 pub struct State {
-    search: String,
     /// The setting a search result most recently jumped to, *or* the one
     /// just toggled — both cases reuse the same fade as feedback (jump:
     /// "here it is", toggle: "that registered"), rather than tracking two
@@ -35,7 +33,6 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
-            search: String::new(),
             highlighted: None,
             highlight_fade: Animation::new(false).quick(),
             autostart: paperloom_common::autostart::is_enabled(),
@@ -46,7 +43,7 @@ impl Default for State {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    SearchChanged(String),
+    /// Jump to (and flash) a setting — sent by the global search.
     ResultSelected(SettingId),
     Toggle(SettingId, bool),
     ImportModeSelected(ImportMode),
@@ -83,11 +80,7 @@ impl State {
 
     pub fn update(&mut self, settings: &mut Settings, message: Message) -> Task<Message> {
         match message {
-            Message::SearchChanged(value) => self.search = value,
-            Message::ResultSelected(id) => {
-                self.search.clear();
-                self.flash(id);
-            }
+            Message::ResultSelected(id) => self.flash(id),
             Message::Tick => {}
             Message::Toggle(id, value) => {
                 match id {
@@ -102,6 +95,8 @@ impl State {
                         self.autostart_error = paperloom_common::autostart::set_enabled(value).err().map(|err| err.to_string());
                         self.autostart = paperloom_common::autostart::is_enabled();
                     }
+                    SettingId::AllowMature => settings.allow_mature = value,
+                    SettingId::TrayIcon => settings.show_tray_icon = value,
                     SettingId::ImportMode | SettingId::Theme | SettingId::LowBatteryPercent | SettingId::Updates => {}
                 }
                 self.flash(id);
@@ -127,46 +122,10 @@ impl State {
         Task::none()
     }
 
-    pub fn header<'a>(&'a self) -> Element<'a, Message> {
-        text_input("Search settings... try \"dark mode\"", &self.search)
-            .on_input(Message::SearchChanged)
-            .padding(8)
-            .width(Length::Fixed(280.0))
-            .into()
-    }
-
     /// `update_summary`: one line from the Updates page ("Up to date",
     /// "Version 0.3.0 available", ...) shown on its entry here.
     pub fn body<'a>(&'a self, settings: &'a Settings, update_summary: String, t: theme::Tokens) -> Element<'a, Message> {
-        if self.search.is_empty() {
-            scrollable(self.full_list(settings, update_summary, t)).into()
-        } else {
-            scrollable(self.search_results(t)).into()
-        }
-    }
-
-    /// Clicking a search result that lives on its own page goes there.
-    fn result_message(id: SettingId) -> Message {
-        if id == SettingId::Updates {
-            Message::OpenUpdates
-        } else {
-            Message::ResultSelected(id)
-        }
-    }
-
-    fn search_results<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let results: Vec<_> = ENTRIES.iter().filter(|entry| registry::matches(entry, &self.search)).collect();
-
-        if results.is_empty() {
-            return text("No matching settings.").into();
-        }
-
-        let mut list = column![].spacing(6);
-        for entry in results {
-            let row = card(text(format!("{}  ·  {}", entry.section, entry.label)).into(), t);
-            list = list.push(mouse_area(row).on_press(Self::result_message(entry.id)));
-        }
-        list.into()
+        crate::ui::scroll_page(self.full_list(settings, update_summary, t)).into()
     }
 
     fn full_list<'a>(&'a self, settings: &'a Settings, update_summary: String, t: theme::Tokens) -> Element<'a, Message> {
@@ -213,7 +172,7 @@ impl State {
                 SettingId::LowBatteryPercent,
                 column![
                     text(format!("Low battery means {}% or less, while unplugged", settings.low_battery_percent)),
-                    slider(5..=50, settings.low_battery_percent, Message::LowBatteryChanged).step(1u8).width(Length::Fixed(280.0)),
+                    container(slider(5..=50, settings.low_battery_percent, Message::LowBatteryChanged).step(1u8)).max_width(280.0),
                 ]
                 .spacing(6)
                 .into(),
@@ -245,6 +204,19 @@ impl State {
                 SettingId::Muted,
                 toggler(settings.muted).label("Mute wallpaper audio").on_toggle(|v| Message::Toggle(SettingId::Muted, v)).into(),
             ),
+            section_title("Content", t),
+            row(SettingId::AllowMature, {
+                column![
+                    toggler(settings.allow_mature)
+                        .label("Allow 18+ content in online search")
+                        .on_toggle(|v| Message::Toggle(SettingId::AllowMature, v)),
+                    text("Off: 18+ searches return nothing, 18+ titles are hidden, and sources' own safe search stays on.")
+                        .size(12)
+                        .color(t.muted_foreground),
+                ]
+                .spacing(6)
+                .into()
+            }),
             section_title("Startup", t),
             row(SettingId::Autostart, {
                 let mut content = column![
@@ -261,6 +233,18 @@ impl State {
                 }
                 content.into()
             }),
+            row(SettingId::TrayIcon, {
+                column![
+                    toggler(settings.show_tray_icon)
+                        .label("Show Paperloom in the system tray")
+                        .on_toggle(|v| Message::Toggle(SettingId::TrayIcon, v)),
+                    text("While a wallpaper plays: click to open Paperloom; right-click to pause, resume or stop the wallpaper.")
+                        .size(12)
+                        .color(t.muted_foreground),
+                ]
+                .spacing(6)
+                .into()
+            }),
             section_title("About", t),
             row(
                 SettingId::Updates,
@@ -271,7 +255,7 @@ impl State {
                     ]
                     .spacing(4),
                     Space::new().width(Length::Fill),
-                    button(text("Updates")).style(button::secondary).on_press(Message::OpenUpdates),
+                    button(crate::ui::label("Updates")).style(button::secondary).on_press(Message::OpenUpdates),
                 ]
                 .align_y(iced::Alignment::Center)
                 .into(),
