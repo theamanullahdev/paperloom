@@ -365,25 +365,27 @@ fn tile<'a>(
         .padding(4)
         .on_press(Message::MenuToggled(index));
 
+    // The menu hangs below the button. (Not a `stack`: a stack is only as
+    // big as its first layer, so the menu would be squeezed to nothing.)
     let kebab_corner: Element<'a, Message> = if menu_open {
-        iced::widget::stack![
-            container(kebab).padding(6),
+        column![
+            kebab,
             container(
-                container(
-                    button(crate::ui::label("Remove").size(13).color(t.destructive))
-                        .style(button::text)
-                        .padding([6, 10])
-                        .on_press(Message::RemoveClicked(index)),
-                )
-                .style(move |_theme| container::Style {
-                    background: Some(Background::Color(t.surface)),
-                    border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
-                    shadow: Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.3), offset: iced::Vector::new(0.0, 2.0), blur_radius: 8.0 },
-                    ..container::Style::default()
-                }),
+                button(crate::ui::label("Remove").size(13).color(t.destructive))
+                    .style(button::text)
+                    .padding([6, 10])
+                    .on_press(Message::RemoveClicked(index)),
             )
-            .padding([38, 6])
+            .style(move |_theme| container::Style {
+                background: Some(Background::Color(t.surface)),
+                border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
+                shadow: Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.3), offset: iced::Vector::new(0.0, 2.0), blur_radius: 8.0 },
+                ..container::Style::default()
+            }),
         ]
+        .spacing(4)
+        .align_x(iced::Alignment::End)
+        .padding(6)
         .into()
     } else {
         container(kebab).padding(6).into()

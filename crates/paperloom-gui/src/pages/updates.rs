@@ -32,17 +32,24 @@ pub struct State {
     /// Smoothed transfer speed: (bytes at last sample, when, bytes/s).
     speed: Option<(u64, Instant, f64)>,
     log: Vec<(u64, String)>,
+    /// The package manager is installing the download (password prompt).
+    installing: bool,
+    /// Installed by this session; restarting switches to it.
+    installed: Option<Version>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     /// Handled by the app (navigation).
     Back,
+    /// Handled by the app: restart into the installed version.
+    Restart,
     CheckNow,
     Checked(Result<Box<CheckReport>, String>),
     Download { version: String, asset: String },
     CancelDownload,
     Install,
+    Installed(Result<AfterLaunch, String>),
     OpenFolder,
     OpenUrl(String),
     Ignore(String),
@@ -59,7 +66,7 @@ fn now_unix() -> u64 {
 impl State {
     pub fn new() -> Self {
         let (kind, kind_reason) = InstallKind::detect_with_reason();
-        Self { kind, kind_reason, check: Check::NotYet, download: None, speed: None, log: Vec::new() }
+        Self { kind, kind_reason, check: Check::NotYet, download: None, speed: None, log: Vec::new(), installing: false, installed: None }
     }
 
     fn note(&mut self, message: impl Into<String>) {
@@ -67,6 +74,11 @@ impl State {
         if self.log.len() > 200 {
             self.log.remove(0);
         }
+    }
+
+    /// The version this session installed, waiting for a restart.
+    pub fn installed(&self) -> Option<&Version> {
+        self.installed.as_ref()
     }
 
     pub fn is_downloading(&self) -> bool {
@@ -112,7 +124,7 @@ impl State {
 
     pub fn update(&mut self, settings: &mut Settings, message: Message) -> Task<Message> {
         match message {
-            Message::Back | Message::Tick => self.sample_speed(),
+            Message::Back | Message::Restart | Message::Tick => self.sample_speed(),
             Message::CheckNow => return self.start_check(settings),
             Message::Checked(Ok(report)) => {
                 settings.updates.last_checked = Some(now_unix());
@@ -155,18 +167,34 @@ impl State {
                 }
             }
             Message::Install => {
-                if let Some(download) = &self.download {
-                    let path = download.snapshot().path;
-                    self.note(format!("Opening installer {}", path.display()));
-                    match update::launch_installer(&path) {
-                        Ok(AfterLaunch::ExitApp) => {
-                            // The installer replaces both executables: let it.
-                            crate::engine_client::quit();
-                            std::process::exit(0);
-                        }
-                        Ok(AfterLaunch::KeepRunning) => self.note("Installer opened — finish there, then restart Paperloom"),
-                        Err(err) => self.note(format!("Couldn't open the installer: {err}")),
+                let Some(download) = &self.download else { return Task::none() };
+                if self.installing {
+                    return Task::none();
+                }
+                let path = download.snapshot().path;
+                self.installing = true;
+                self.note(if cfg!(target_os = "linux") {
+                    format!("Installing {} — your system asks for your password", path.display())
+                } else {
+                    format!("Opening installer {}", path.display())
+                });
+                return Task::perform(crate::pages::online::blocking(move || update::launch_installer(&path)), Message::Installed);
+            }
+            Message::Installed(result) => {
+                self.installing = false;
+                match result {
+                    Ok(AfterLaunch::ExitApp) => {
+                        // The installer replaces both executables: let it.
+                        crate::engine_client::quit();
+                        std::process::exit(0);
                     }
+                    Ok(AfterLaunch::KeepRunning) => self.note("Installer opened — finish there, then restart Paperloom"),
+                    Ok(AfterLaunch::Installed) => {
+                        let version = self.download.as_ref().map(|download| download.snapshot().version);
+                        self.note(format!("Installed{} — restart Paperloom to use it", version.as_ref().map(|v| format!(" version {v}")).unwrap_or_default()));
+                        self.installed = version;
+                    }
+                    Err(error) => self.note(format!("Not installed: {error}")),
                 }
             }
             Message::OpenFolder => {
@@ -376,6 +404,8 @@ impl State {
             Phase::Downloading => ("Downloading", t.primary),
             Phase::Retrying => ("Will retry", t.primary_hover),
             Phase::Verifying => ("Verifying checksum", t.primary),
+            Phase::Ready if self.installed.as_ref() == Some(&s.version) => ("Installed — restart to use it", t.success),
+            Phase::Ready if self.installing => ("Installing…", t.primary),
             Phase::Ready => ("Ready to install", t.success),
             Phase::Failed => ("Failed", t.destructive),
             Phase::Cancelled => ("Cancelled", t.muted_foreground),
@@ -424,9 +454,17 @@ impl State {
         let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(button::secondary).padding([4, 10]).on_press(message);
         let mut actions = column![].spacing(6).align_x(Alignment::End);
         match s.phase {
+            Phase::Ready if self.installed.as_ref() == Some(&s.version) => {
+                actions = actions.push(button(crate::ui::label("Restart Paperloom").size(12)).padding([4, 10]).on_press(Message::Restart));
+                actions = actions.push(small("Show in folder", Message::OpenFolder));
+            }
             Phase::Ready => {
-                let label = if cfg!(windows) { "Install and restart" } else { "Install" };
-                actions = actions.push(button(crate::ui::label(label).size(12)).padding([4, 10]).on_press(Message::Install));
+                let label = match (self.installing, cfg!(windows)) {
+                    (true, _) => "Installing…",
+                    (false, true) => "Install and restart",
+                    (false, false) => "Install",
+                };
+                actions = actions.push(button(crate::ui::label(label).size(12)).padding([4, 10]).on_press_maybe((!self.installing).then_some(Message::Install)));
                 actions = actions.push(small("Show in folder", Message::OpenFolder));
             }
             Phase::Downloading | Phase::Retrying | Phase::Verifying => actions = actions.push(small("Cancel", Message::CancelDownload)),

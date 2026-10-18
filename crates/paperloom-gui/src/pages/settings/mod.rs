@@ -11,7 +11,7 @@ pub use registry::{matches, Entry, SettingId, ENTRIES};
 use crate::theme;
 
 const THEME_OPTIONS: &[ThemeMode] = &[ThemeMode::System, ThemeMode::Light, ThemeMode::Dark];
-const TRAY_STYLE_OPTIONS: &[TrayStyle] = &[TrayStyle::Colored, TrayStyle::White, TrayStyle::Black];
+const TRAY_STYLE_OPTIONS: &[TrayStyle] = &[TrayStyle::Auto, TrayStyle::Colored, TrayStyle::White, TrayStyle::Black];
 const TRAY_SIZE_OPTIONS: &[TraySize] = &[TraySize::Small, TraySize::Medium, TraySize::Large];
 const IMPORT_MODE_OPTIONS: &[ImportMode] = &[
     ImportMode::CopyAndOptimize,
@@ -272,7 +272,7 @@ impl State {
                 column![
                     text("Tray icon style"),
                     pick_list(TRAY_STYLE_OPTIONS, Some(settings.tray_style), Message::TrayStyleSelected),
-                    text("Colored is the logo; white and black are a one-color outline that blends with dark or light panels.")
+                    text("Match system theme uses a one-color outline, white on dark panels and black on light ones, and follows theme changes. Colored is the full logo.")
                         .size(12)
                         .color(t.muted_foreground),
                 ]
