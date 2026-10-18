@@ -8,14 +8,18 @@ name: Release
 #                 breaking → major, minor while 0.x). Docs-only pushes, or a
 #                 commit message containing [skip release], release nothing.
 #   2. test     — clippy + tests.
-#   3. package  — every installer, with that version stamped in.
-#   4. publish  — once tests passed and at least the Linux packages built:
-#                 commit the version bump, tag vX.Y.Z, push, and create the
-#                 Release with every installer that did build, SHA256SUMS.txt
-#                 and notes. A platform whose job failed is simply left out
-#                 of that release (and named in its notes) instead of
-#                 blocking everyone else; it ships in the next release once
-#                 fixed.
+#   3. package  — every installer, with that version stamped in: the Linux
+#                 packages (a couple of minutes) and the rest (Windows,
+#                 macOS, Flatpak — up to ~15 minutes) as separate groups.
+#   4. publish  — as soon as tests pass and the Linux packages exist: commit
+#                 the version bump, tag vX.Y.Z, push, create the Release
+#                 with the .deb/.rpm, and refresh the apt repository + the
+#                 release list on GitHub Pages. apt users get the update
+#                 within minutes instead of waiting for the slowest build.
+#   5. attach   — when the other builds finish, add whichever succeeded to
+#                 the same Release (checksums and notes updated), and refresh
+#                 Pages again. A failed platform is left out and named in the
+#                 notes; it ships in the next release once fixed.
 #
 # Run it by hand from the Actions tab ("Run workflow") to force a
 # patch/minor/major release.
@@ -87,20 +91,26 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
 
-  package:
+  package-linux:
     needs: plan
     if: needs.plan.outputs.version != ''
     uses: ./.github/workflows/package.yml
     with:
       ref: ${{ github.sha }}
       version: ${{ needs.plan.outputs.version }}
+      targets: linux
+
+  package-rest:
+    needs: plan
+    if: needs.plan.outputs.version != ''
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ github.sha }}
+      version: ${{ needs.plan.outputs.version }}
+      targets: windows,macos,flatpak
 
   publish:
-    needs: [plan, test, package]
-    # `package` is one reusable workflow, so a single failed platform marks
-    # it failed — publish anyway (always()) as long as the tests passed;
-    # the "Check what built" step below decides whether there's enough.
-    if: always() && needs.plan.outputs.version != '' && needs.test.result == 'success'
+    needs: [plan, test, package-linux]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -108,16 +118,8 @@ jobs:
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          pattern: packages-*
+          name: packages-linux
           path: dist
-          merge-multiple: true
-      - name: Check what built
-        run: |
-          ls -l dist || true
-          if ! ls dist/paperloom-*-linux-x86_64.deb >/dev/null 2>&1; then
-            echo "::error::The Linux .deb didn't build — not publishing a release without it."
-            exit 1
-          fi
       - name: Checksums
         working-directory: dist
         run: |
@@ -139,40 +141,7 @@ jobs:
           # next release computes its version from tags, not from main).
           git push origin "HEAD:main" || echo "::warning::main moved on during the release; v$VERSION's bump commit is only on the tag."
       - name: Release notes
-        env:
-          VERSION: ${{ needs.plan.outputs.version }}
-        run: |
-          previous="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -vx "v$VERSION" | head -n1)"
-          range="${previous:+$previous..}HEAD"
-          {
-            echo "## Download"
-            echo
-            echo "| System | File |"
-            echo "|---|---|"
-            row() { # $1 = label, $2 = file name
-              if [ -f "dist/$2" ]; then echo "| $1 | \`$2\` |"; else missing+=("$1"); fi
-            }
-            missing=()
-            row "Windows (installer)" "paperloom-$VERSION-windows-x86_64-setup.exe"
-            row "Windows (MSI, for managed installs)" "paperloom-$VERSION-windows-x86_64.msi"
-            row "macOS, Apple Silicon" "paperloom-$VERSION-macos-aarch64.dmg"
-            row "macOS, Intel" "paperloom-$VERSION-macos-x86_64.dmg"
-            row "Ubuntu / Linux Mint / Debian" "paperloom-$VERSION-linux-x86_64.deb"
-            row "Fedora / openSUSE" "paperloom-$VERSION-linux-x86_64.rpm"
-            row "Any Linux (Flatpak bundle)" "paperloom-$VERSION-linux-x86_64.flatpak"
-            echo
-            if [ "${#missing[@]}" -gt 0 ]; then
-              echo "Not in this release (that build failed; it will be in the next one): $(IFS=,; echo "${missing[*]}" | sed 's/,/, /g')."
-              echo
-            fi
-            echo "Already installed? Paperloom offers this update itself under **Settings → Updates**."
-            echo "The installers aren't code-signed yet, so Windows SmartScreen and macOS Gatekeeper warn on first launch — see the README for how to get past that."
-            echo
-            echo "## Changes"
-            echo
-            git log --format='- %s (%h)' "$range" --invert-grep --grep='^chore(release):'
-          } > notes.md
-          cat notes.md
+        run: scripts/release-notes.sh "${{ needs.plan.outputs.version }}" dist early | tee notes.md
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.plan.outputs.version }}
@@ -183,9 +152,47 @@ jobs:
             dist/SHA256SUMS.txt
           fail_on_unmatched_files: true
 
-  # Refresh the apt repository (GitHub Pages) with the new .deb, so apt
-  # users get this release through their normal system updates.
-  apt:
+  # apt repository + release list on GitHub Pages, right away for Linux.
+  pages-early:
     needs: publish
+    uses: ./.github/workflows/apt-repo.yml
+    secrets: inherit
+
+  attach:
+    needs: [plan, publish, package-rest]
+    # Runs whether or not every platform built (always()), as long as the
+    # release itself exists.
+    if: always() && needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+      - name: Add the other installers, checksums and final notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          git fetch --tags --force
+          ls -l dist
+          others=$(ls dist/paperloom-* | grep -v -- '-linux-x86_64\.\(deb\|rpm\)$' || true)
+          if [ -n "$others" ]; then
+            gh release upload "v$VERSION" $others --clobber
+          fi
+          (cd dist && sha256sum paperloom-* > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          gh release upload "v$VERSION" dist/SHA256SUMS.txt --clobber
+          scripts/release-notes.sh "$VERSION" dist final | tee notes.md
+          gh release edit "v$VERSION" --notes-file notes.md
+
+  # Pages again, so the release list (read by the in-app updater on Windows
+  # and macOS) includes the installers attached above.
+  pages-final:
+    needs: attach
+    if: always() && needs.attach.result == 'success'
     uses: ./.github/workflows/apt-repo.yml
     secrets: inherit

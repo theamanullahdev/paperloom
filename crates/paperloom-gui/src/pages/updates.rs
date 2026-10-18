@@ -102,7 +102,7 @@ impl State {
             return Task::none();
         }
         self.check = Check::Running(Instant::now());
-        self.note(format!("Checking {}", update::releases_api_url()));
+        self.note(format!("Checking {} (falls back to {})", update::releases_mirror_url(), update::releases_api_url()));
         let include_prereleases = settings.updates.include_prereleases;
         Task::perform(
             crate::pages::online::blocking(move || update::check(include_prereleases).map(Box::new).map_err(|err| err.to_string())),
@@ -251,7 +251,8 @@ impl State {
                 detail("Installed as", format!("{} — {}", self.kind.label(), self.kind_reason), t),
                 detail("Executable", exe, t),
                 detail("Update files", paperloom_common::updates_dir().display().to_string(), t),
-                detail("Releases API", update::releases_api_url(), t),
+                detail("Release list", update::releases_mirror_url(), t),
+                detail("Fallback", update::releases_api_url(), t),
             ]
             .spacing(3)
             .into(),
@@ -271,6 +272,10 @@ impl State {
         let mut details = column![].spacing(3);
         details = details.push(detail("Last checked", settings.updates.last_checked.map(format_unix).unwrap_or_else(|| "never".into()), t));
         if let Check::Done(report) = &self.check {
+            details = details.push(detail("Answered by", report.api_url.clone(), t));
+            if let Some(error) = &report.mirror_error {
+                details = details.push(detail("Mirror failed", error.clone(), t));
+            }
             details = details.push(detail("HTTP status", report.http_status.to_string(), t));
             details = details.push(detail("Took", format!("{} ms", report.took.as_millis()), t));
             details = details.push(detail(
@@ -278,7 +283,7 @@ impl State {
                 match (&report.rate_limit_remaining, report.rate_limit_reset) {
                     (Some(left), Some(reset)) => format!("{left} requests (resets {})", format_unix(reset)),
                     (Some(left), None) => format!("{left} requests"),
-                    _ => "unknown".into(),
+                    _ => "not used (static release list)".into(),
                 },
                 t,
             ));
