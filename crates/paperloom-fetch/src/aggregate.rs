@@ -25,9 +25,24 @@ pub struct Page {
     pub has_more: bool,
 }
 
+/// Shown instead of results when a search is 18+ and the setting is off.
+pub const MATURE_BLOCKED_NOTICE: &str = "That search is 18+. Turn on \"Allow 18+ content\" in Settings → Content to see results.";
+
 /// Fetches page `page` of `query` from all enabled sources in parallel.
 /// `cursors` is the previous page's `Page::cursors` (empty for page 1).
-pub fn fetch_page(sources: &[SourceSetting], query: &str, page: u32, cursors: &HashMap<String, Cursor>) -> Result<Page, FetchError> {
+/// Unless `allow_mature`, an 18+ query returns nothing (with a notice
+/// saying why), 18+ titles are dropped, and sources' own safe-search is on.
+pub fn fetch_page(
+    sources: &[SourceSetting],
+    query: &str,
+    page: u32,
+    cursors: &HashMap<String, Cursor>,
+    allow_mature: bool,
+) -> Result<Page, FetchError> {
+    if !allow_mature && crate::keywords::is_mature(query) {
+        return Ok(Page { notices: vec![MATURE_BLOCKED_NOTICE.to_string()], ..Page::default() });
+    }
+
     // One cheap check up front, so "offline" is reported immediately
     // instead of after every source times out.
     if !crate::net::is_online() {
@@ -49,7 +64,7 @@ pub fn fetch_page(sources: &[SourceSetting], query: &str, page: u32, cursors: &H
             .map(|setting| {
                 let base = cursors.get(&setting.id).and_then(|cursor| cursor.base.clone());
                 scope.spawn(move || {
-                    let source = source::build(setting);
+                    let source = source::build(setting, !allow_mature);
                     (setting.id.clone(), setting.name.clone(), source.fetch(query, page, base.as_deref()))
                 })
             })
@@ -87,6 +102,9 @@ pub fn fetch_page(sources: &[SourceSetting], query: &str, page: u32, cursors: &H
     for index in 0..longest {
         for list in &lists {
             if let Some(item) = list.get(index) {
+                if !allow_mature && crate::keywords::is_mature(&item.title) {
+                    continue;
+                }
                 if seen.insert(item.key()) {
                     merged.items.push(item.clone());
                 }

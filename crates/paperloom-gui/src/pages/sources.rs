@@ -3,7 +3,7 @@
 //! saved on every change; the Online tab reads it fresh each time it
 //! loads, so changes apply to the next search.
 
-use iced::widget::{button, column, container, row, scrollable, text, text_input, toggler, Space};
+use iced::widget::{button, column, container, row, text, text_input, toggler, Space};
 use iced::{Background, Border, Element, Length, Task};
 
 use paperloom_common::{Settings, SourceSetting};
@@ -90,13 +90,13 @@ impl State {
             text_input("API key (optional)", &self.new_key).on_input(Message::NewKey).secure(true).padding(8),
             row![
                 Space::new().width(Length::Fill),
-                button(text("Add source")).style(button::primary).on_press_maybe(can_add.then_some(Message::Add)),
+                button(crate::ui::label("Add source")).style(button::primary).on_press_maybe(can_add.then_some(Message::Add)),
             ],
         ]
         .spacing(8);
         list = list.push(card(add.into(), t));
 
-        scrollable(container(list).padding([4, 4])).into()
+        crate::ui::scroll_page(list).into()
     }
 }
 
@@ -159,7 +159,7 @@ fn source_card<'a>(source: &'a SourceSetting, t: theme::Tokens) -> Element<'a, M
     if !source.builtin {
         content = content.push(row![
             Space::new().width(Length::Fill),
-            button(text("Remove").size(12)).style(button::danger).padding([4, 10]).on_press(Message::Remove(source.id.clone())),
+            button(crate::ui::label("Remove").size(12)).style(button::danger).padding([4, 10]).on_press(Message::Remove(source.id.clone())),
         ]);
     }
 

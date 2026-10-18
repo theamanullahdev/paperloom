@@ -6,6 +6,7 @@
 
 use std::error::Error;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use libmpv2::Mpv;
 use paperloom_common::ipc::{Command, Listener};
@@ -66,7 +67,10 @@ pub fn play(mpv: &Mpv, path: &str) {
     }
     remember(Some(path));
     #[cfg(all(unix, not(target_os = "macos")))]
-    crate::desktop_background::show_frame_of_in_background(path);
+    {
+        crate::desktop_background::show_frame_of_in_background(path);
+        crate::tray::set_wallpaper(path);
+    }
 }
 
 fn remember(path: Option<&str>) {
@@ -78,10 +82,31 @@ fn remember(path: Option<&str>) {
     }
 }
 
-pub fn set_paused(mpv: &Mpv, paused: bool) {
+/// What the automatic triggers (fullscreen app, lock, battery…) want, and
+/// whether the user paused from the tray. The wallpaper is paused if
+/// either says so.
+static AUTO_PAUSED: AtomicBool = AtomicBool::new(false);
+static USER_PAUSED: AtomicBool = AtomicBool::new(false);
+
+fn apply_pause(mpv: &Mpv) {
+    let paused = AUTO_PAUSED.load(Ordering::Relaxed) || USER_PAUSED.load(Ordering::Relaxed);
     if let Err(err) = mpv.set_property("pause", paused) {
         eprintln!("paperloom-engine: failed to set pause state: {err}");
     }
+}
+
+/// Called by the backends with the automatic pause triggers' verdict.
+pub fn set_paused(mpv: &Mpv, paused: bool) {
+    AUTO_PAUSED.store(paused, Ordering::Relaxed);
+    apply_pause(mpv);
+}
+
+/// Housekeeping on the backends' ~2s tick (with freshly loaded settings):
+/// show or hide the tray icon to match the setting.
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(unused_variables))]
+pub fn periodic(settings: &paperloom_common::Settings) {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    crate::tray::sync(settings.show_tray_icon);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +148,13 @@ pub fn poll_ipc(listener: &mut Listener, mpv: &Mpv) -> Flow {
         // Quit (before an update) keeps the current wallpaper remembered,
         // so the updated engine picks it back up.
         Command::Quit => return Flow::Quit,
+        Command::Pause | Command::Resume => {
+            let paused = command == Command::Pause;
+            USER_PAUSED.store(paused, Ordering::Relaxed);
+            apply_pause(mpv);
+            #[cfg(all(unix, not(target_os = "macos")))]
+            crate::tray::set_paused(paused);
+        }
     }
     Flow::Continue
 }

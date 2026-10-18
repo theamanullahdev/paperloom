@@ -35,6 +35,9 @@ smithay-client-toolkit = "0.21"
 # session here to find out whether it's actually needed yet.
 khronos-egl = { version = "6", features = ["dynamic"] }
 wayland-egl = "0.32"
+# System tray icon (StatusNotifierItem over D-Bus): the small async-io
+# backend rather than tokio, to keep the always-on engine light.
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
