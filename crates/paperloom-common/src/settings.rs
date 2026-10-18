@@ -115,6 +115,12 @@ pub struct Settings {
     /// usually unwanted.
     pub muted: bool,
     pub sources: Vec<SourceSetting>,
+    /// Allow 18+ searches and results in the online library (off by
+    /// default: mature searches return nothing, mature titles are hidden,
+    /// and sources' own safe-search is on).
+    pub allow_mature: bool,
+    /// Show Paperloom's icon in the system tray while a wallpaper plays.
+    pub show_tray_icon: bool,
     pub updates: UpdateSettings,
 }
 
@@ -163,6 +169,8 @@ impl Default for Settings {
             theme: ThemeMode::default(),
             muted: true,
             sources: builtin_sources(),
+            allow_mature: false,
+            show_tray_icon: true,
             updates: UpdateSettings::default(),
         }
     }

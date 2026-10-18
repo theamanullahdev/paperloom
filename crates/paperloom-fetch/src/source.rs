@@ -63,11 +63,12 @@ pub trait Source: Send + Sync {
     fn fetch(&self, query: &str, page: u32, base: Option<&str>) -> Result<Listing, FetchError>;
 }
 
-pub fn build(setting: &SourceSetting) -> Box<dyn Source> {
+/// `safe_search`: ask sources that support it to leave out adult results.
+pub fn build(setting: &SourceSetting, safe_search: bool) -> Box<dyn Source> {
     match setting.id.as_str() {
         SOURCE_MOTIONBGS => Box::new(crate::motionbgs::MotionBgs),
         SOURCE_PEXELS => Box::new(crate::pexels::Pexels { key: setting.api_key.clone() }),
-        SOURCE_PIXABAY => Box::new(crate::pixabay::Pixabay { key: setting.api_key.clone() }),
+        SOURCE_PIXABAY => Box::new(crate::pixabay::Pixabay { key: setting.api_key.clone(), safe_search }),
         _ => Box::new(crate::generic::PageSource {
             id: setting.id.clone(),
             name: setting.name.clone(),

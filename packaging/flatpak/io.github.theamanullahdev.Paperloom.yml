@@ -28,6 +28,7 @@ finish-args:
   - --filesystem=xdg-videos:ro # import from ~/Videos without a portal round trip
   - --filesystem=xdg-config/autostart:create # "Start Paperloom when I log in"
   - --talk-name=org.cinnamon.ScreenSaver # "pause when locked" on Cinnamon
+  - --talk-name=org.kde.StatusNotifierWatcher # tray icon
 
 # H.264/HEVC decoding: the runtime's own FFmpeg is patent-free only.
 add-extensions:
@@ -114,7 +115,7 @@ modules:
       - install -Dm755 target/release/paperloom-gui /app/bin/paperloom-gui
       - install -Dm755 target/release/paperloom-engine /app/bin/paperloom-engine
       - install -Dm644 packaging/linux/paperloom.desktop /app/share/applications/io.github.theamanullahdev.Paperloom.desktop
-      - desktop-file-edit --set-icon=io.github.theamanullahdev.Paperloom /app/share/applications/io.github.theamanullahdev.Paperloom.desktop
+      - desktop-file-edit --set-icon=io.github.theamanullahdev.Paperloom --set-key=StartupWMClass --set-value=io.github.theamanullahdev.Paperloom /app/share/applications/io.github.theamanullahdev.Paperloom.desktop
       - install -Dm644 packaging/icon.png /app/share/icons/hicolor/512x512/apps/io.github.theamanullahdev.Paperloom.png
       - install -Dm644 packaging/flatpak/io.github.theamanullahdev.Paperloom.metainfo.xml /app/share/metainfo/io.github.theamanullahdev.Paperloom.metainfo.xml
     sources:

@@ -88,6 +88,7 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
         tick += 1;
         if tick.is_multiple_of(10) {
             let settings = paperloom_common::load();
+            player::periodic(&settings);
             let should_be_paused =
                 pause_detector.should_pause(&conn, screen.width_in_pixels, screen.height_in_pixels, window, &settings);
             if should_be_paused != is_paused {

@@ -8,7 +8,7 @@
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use iced::widget::{button, column, container, progress_bar, row, scrollable, text, toggler, Space};
+use iced::widget::{button, column, container, progress_bar, row, text, toggler, Space};
 use iced::{Alignment, Background, Border, Element, Length, Task};
 
 use paperloom_common::Settings;
@@ -223,7 +223,7 @@ impl State {
     }
 
     pub fn header<'a>(&'a self) -> Element<'a, Message> {
-        button(text("Back to Settings")).style(button::secondary).on_press(Message::Back).into()
+        button(crate::ui::label("Back to Settings")).style(button::secondary).on_press(Message::Back).into()
     }
 
     pub fn body<'a>(&'a self, settings: &'a Settings, t: theme::Tokens) -> Element<'a, Message> {
@@ -238,7 +238,7 @@ impl State {
             page = page.push(all_releases(report, t));
         }
         page = page.push(self.log_card(t));
-        scrollable(container(page).padding([4, 4])).into()
+        crate::ui::scroll_page(page).into()
     }
 
     fn this_copy<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
@@ -287,7 +287,7 @@ impl State {
             details = details.push(
                 row![
                     detail("Skipping", format!("version {version}"), t),
-                    button(text("Stop skipping").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::StopIgnoring),
+                    button(crate::ui::label("Stop skipping").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::StopIgnoring),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -299,7 +299,7 @@ impl State {
                 row![
                     heading("Check for updates", t),
                     Space::new().width(Length::Fill),
-                    button(text(if checking { "Checking…" } else { "Check now" })).on_press_maybe((!checking).then_some(Message::CheckNow)),
+                    button(crate::ui::label(if checking { "Checking…" } else { "Check now" })).on_press_maybe((!checking).then_some(Message::CheckNow)),
                 ]
                 .align_y(Alignment::Center),
                 text(status).size(14).color(color),
@@ -318,9 +318,9 @@ impl State {
         let ignored = settings.updates.ignored_version.as_deref().and_then(Version::parse).as_ref() == Some(&release.version);
         let preferred = release.asset_for(self.kind).map(|asset| asset.name.clone());
 
-        let mut actions = row![button(text("Release page")).style(button::secondary).on_press(Message::OpenUrl(release.page_url.clone()))].spacing(8);
+        let mut actions = row![button(crate::ui::label("Release page")).style(button::secondary).on_press(Message::OpenUrl(release.page_url.clone()))].spacing(8);
         if !ignored {
-            actions = actions.push(button(text("Skip this version")).style(button::secondary).on_press(Message::Ignore(version.clone())));
+            actions = actions.push(button(crate::ui::label("Skip this version")).style(button::secondary).on_press(Message::Ignore(version.clone())));
         }
 
         let mut body = column![
@@ -416,12 +416,12 @@ impl State {
             details = details.push(detail("Last message", message.clone(), t));
         }
 
-        let small = |label: &'static str, message: Message| button(text(label).size(12)).style(button::secondary).padding([4, 10]).on_press(message);
+        let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(button::secondary).padding([4, 10]).on_press(message);
         let mut actions = column![].spacing(6).align_x(Alignment::End);
         match s.phase {
             Phase::Ready => {
                 let label = if cfg!(windows) { "Install and restart" } else { "Install" };
-                actions = actions.push(button(text(label).size(12)).padding([4, 10]).on_press(Message::Install));
+                actions = actions.push(button(crate::ui::label(label).size(12)).padding([4, 10]).on_press(Message::Install));
                 actions = actions.push(small("Show in folder", Message::OpenFolder));
             }
             Phase::Downloading | Phase::Retrying | Phase::Verifying => actions = actions.push(small("Cancel", Message::CancelDownload)),
@@ -458,10 +458,10 @@ impl State {
             list = list.push(text("Nothing yet.").size(12).color(t.muted_foreground));
         }
         for (at, message) in self.log.iter().rev() {
-            list = list.push(row![
-                text(format_unix(*at)).size(11).color(t.muted_foreground).width(Length::Fixed(150.0)),
-                text(message.clone()).size(11).color(t.foreground)
-            ]);
+            list = list.push(
+                row![text(format_unix(*at)).size(11).color(t.muted_foreground).width(Length::Fixed(150.0)), text(message.clone()).size(11).color(t.foreground)]
+                    .wrap(),
+            );
         }
         card(list.into(), t)
     }
@@ -469,7 +469,7 @@ impl State {
 
 fn asset_row<'a>(version: &str, asset: &'a update::Asset, matches_install: bool, busy: bool, t: theme::Tokens) -> Element<'a, Message> {
     let download = Message::Download { version: version.to_string(), asset: asset.name.clone() };
-    let mut button = button(text("Download").size(12)).padding([4, 10]);
+    let mut button = button(crate::ui::label("Download").size(12)).padding([4, 10]);
     if !matches_install {
         button = button.style(button::secondary);
     }
@@ -520,7 +520,8 @@ fn all_releases<'a>(report: &'a CheckReport, t: theme::Tokens) -> Element<'a, Me
             text(date).size(12).color(t.muted_foreground).width(Length::Fixed(100.0)),
             text(relation).size(12).color(if relation == "newer" { t.primary } else { t.muted_foreground }).width(Length::Fixed(100.0)),
             text(format!("{} files{}", release.assets.len(), if release.prerelease { ", pre-release" } else { "" })).size(12).color(t.muted_foreground),
-        ]);
+        ]
+        .wrap());
     }
     card(list.into(), t)
 }
@@ -530,7 +531,7 @@ fn heading<'a>(label: &str, t: theme::Tokens) -> Element<'a, Message> {
 }
 
 fn detail<'a>(label: &'static str, value: String, t: theme::Tokens) -> Element<'a, Message> {
-    row![text(label).size(11).color(t.muted_foreground).width(Length::Fixed(120.0)), text(value).size(11).color(t.foreground)].into()
+    row![text(label).size(11).color(t.muted_foreground).width(Length::Fixed(120.0)), text(value).size(11).color(t.foreground)].wrap().into()
 }
 
 fn card<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Message> {

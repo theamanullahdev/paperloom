@@ -127,7 +127,9 @@ fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Fl
             if unsafe { IsWindow(window) } == 0 {
                 return Flow::Continue;
             }
-            let should_pause = should_pause(&paperloom_common::load(), window);
+            let settings = paperloom_common::load();
+            player::periodic(&settings);
+            let should_pause = should_pause(&settings, window);
             if should_pause != is_paused {
                 is_paused = should_pause;
                 player::set_paused(mpv, is_paused);

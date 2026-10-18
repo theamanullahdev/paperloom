@@ -133,7 +133,9 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
         }
         if last_check.elapsed() >= Duration::from_secs(2) {
             last_check = Instant::now();
-            let should_pause = should_pause(&paperloom_common::load(), mtm);
+            let settings = paperloom_common::load();
+            player::periodic(&settings);
+            let should_pause = should_pause(&settings, mtm);
             if should_pause != is_paused {
                 is_paused = should_pause;
                 player::set_paused(&mpv, is_paused);

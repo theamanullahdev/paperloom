@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use iced::widget::{button, column, container, mouse_area, progress_bar, row, scrollable, svg, text, Space};
+use iced::widget::{button, column, container, mouse_area, progress_bar, row, svg, text, Space};
 use iced::{Background, Border, Element, Length, Task};
 
 use paperloom_fetch::{Job, Queue, Status};
@@ -89,7 +89,7 @@ impl State {
     }
 
     pub fn header<'a>(&'a self) -> Element<'a, Message> {
-        button(text("Back to Online")).style(button::secondary).on_press(Message::Back).into()
+        button(crate::ui::label("Back to Online")).style(button::secondary).on_press(Message::Back).into()
     }
 
     pub fn body<'a>(&'a self, t: theme::Tokens, jobs: Vec<Job>) -> Element<'a, Message> {
@@ -103,7 +103,7 @@ impl State {
             let speed = self.speeds.get(&job.id).map(|s| s.bytes_per_second).unwrap_or(0.0);
             list = list.push(job_row(job, speed, self.dragging.as_deref(), t));
         }
-        scrollable(container(list).padding([4, 4])).into()
+        crate::ui::scroll_page(list).into()
     }
 }
 
@@ -156,7 +156,7 @@ fn job_row<'a>(job: Job, bytes_per_second: f64, dragging: Option<&str>, t: theme
     }
 
     let detail = |label: &'static str, value: String| -> Element<'a, Message> {
-        row![text(label).size(11).color(t.muted_foreground).width(Length::Fixed(86.0)), text(value).size(11).color(t.foreground)].into()
+        row![text(label).size(11).color(t.muted_foreground).width(Length::Fixed(86.0)), text(value).size(11).color(t.foreground)].wrap().into()
     };
 
     let mut details = column![
@@ -173,7 +173,7 @@ fn job_row<'a>(job: Job, bytes_per_second: f64, dragging: Option<&str>, t: theme
         details = details.push(detail("Last message", error.clone()));
     }
 
-    let small = |label: &'static str, message: Message| button(text(label).size(12)).style(button::secondary).padding([4, 10]).on_press(message);
+    let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(button::secondary).padding([4, 10]).on_press(message);
     let mut actions = column![].spacing(6).align_x(iced::Alignment::End);
     if reorderable {
         actions = actions.push(

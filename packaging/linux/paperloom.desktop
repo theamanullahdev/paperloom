@@ -8,3 +8,5 @@ Icon=paperloom
 Terminal=false
 Categories=Utility;
 StartupNotify=true
+StartupWMClass=paperloom
+Keywords=wallpaper;live;video;background;desktop;
