@@ -27,6 +27,15 @@ use crate::http::{self, classify_status, classify_transport, FetchError};
 
 pub const REPOSITORY: &str = "theamanullahdev/paperloom";
 
+/// The release list mirrored onto GitHub Pages by `apt-repo.yml` after
+/// every release — the same JSON as the API, but a static file, so it isn't
+/// subject to the API's 60-requests-an-hour-per-network limit (which a
+/// busy network, or a few clicks of "Check now", can use up).
+pub fn releases_mirror_url() -> String {
+    let (owner, repo) = REPOSITORY.split_once('/').expect("owner/repo");
+    format!("https://{owner}.github.io/{repo}/releases.json")
+}
+
 pub fn releases_api_url() -> String {
     format!("https://api.github.com/repos/{REPOSITORY}/releases?per_page=30")
 }
@@ -185,9 +194,13 @@ pub struct CheckReport {
     /// Published releases (drafts never; pre-releases only if asked for),
     /// newest first.
     pub releases: Vec<Release>,
+    /// Where the release list came from (the Pages mirror, or the API).
     pub api_url: String,
     pub http_status: u16,
-    /// GitHub's unauthenticated API allows 60 requests an hour per IP.
+    /// Why the mirror wasn't used, when the API answered instead.
+    pub mirror_error: Option<String>,
+    /// GitHub's unauthenticated API allows 60 requests an hour per IP
+    /// (unknown when the mirror answered).
     pub rate_limit_remaining: Option<String>,
     pub rate_limit_reset: Option<u64>,
     pub took: Duration,
@@ -207,10 +220,48 @@ impl CheckReport {
     }
 }
 
+/// Fetches the release list: the Pages mirror first, the API if the mirror
+/// is missing or broken.
 pub fn check(include_prereleases: bool) -> Result<CheckReport, FetchError> {
     if !crate::net::is_online() {
         return Err(FetchError::Offline);
     }
+    let started = Instant::now();
+    let mirror_error = match fetch_mirror(include_prereleases) {
+        Ok((url, releases)) => {
+            return Ok(CheckReport {
+                current: Version::current(),
+                releases,
+                api_url: url,
+                http_status: 200,
+                mirror_error: None,
+                rate_limit_remaining: None,
+                rate_limit_reset: None,
+                took: started.elapsed(),
+            });
+        }
+        Err(err) => err.to_string(),
+    };
+    let mut report = check_api(include_prereleases)?;
+    report.mirror_error = Some(mirror_error);
+    report.took = started.elapsed();
+    Ok(report)
+}
+
+fn fetch_mirror(include_prereleases: bool) -> Result<(String, Vec<Release>), FetchError> {
+    // A changing query string gets past any proxy cache in between.
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let url = releases_mirror_url();
+    let mut response = http::agent().get(&format!("{url}?t={secs}")).call().map_err(classify_transport)?;
+    if let Some(err) = classify_status(response.status().as_u16()) {
+        return Err(err);
+    }
+    let body = response.body_mut().read_to_string().map_err(classify_transport)?;
+    let releases = parse_releases(&body, include_prereleases).map_err(|err| FetchError::Permanent(format!("unreadable release list: {err}")))?;
+    Ok((url, releases))
+}
+
+fn check_api(include_prereleases: bool) -> Result<CheckReport, FetchError> {
     let started = Instant::now();
     let url = releases_api_url();
     let mut response = http::agent()
@@ -240,6 +291,7 @@ pub fn check(include_prereleases: bool) -> Result<CheckReport, FetchError> {
         releases,
         api_url: url,
         http_status: status,
+        mirror_error: None,
         rate_limit_remaining,
         rate_limit_reset,
         took: started.elapsed(),
@@ -743,6 +795,7 @@ mod tests {
             releases: parse_releases(SAMPLE, false).unwrap(),
             api_url: String::new(),
             http_status: 200,
+            mirror_error: None,
             rate_limit_remaining: None,
             rate_limit_reset: None,
             took: Duration::ZERO,

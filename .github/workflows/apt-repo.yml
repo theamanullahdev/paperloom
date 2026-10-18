@@ -1,10 +1,12 @@
 name: Apt repository
 
-# Publishes a signed apt repository on GitHub Pages, so Ubuntu / Mint /
-# Debian users get Paperloom updates through their normal `apt upgrade`
-# (Update Manager) instead of downloading each .deb:
+# Publishes Paperloom's GitHub Pages site (gh-pages branch):
 #
-#   https://theamanullahdev.github.io/paperloom/apt
+#   /releases.json — the release list the in-app updater reads (the GitHub
+#                    API's own answer, saved as a static file, so updates
+#                    don't depend on the API's 60-requests-an-hour limit).
+#   /apt           — a signed apt repository, so Ubuntu / Mint / Debian
+#                    users get updates through their normal `apt upgrade`.
 #
 # Runs after every release (called from release.yml) and on demand. It
 # takes the .deb of the latest GitHub Release, builds the repo with
@@ -15,7 +17,7 @@ name: Apt repository
 # One-time setup — the signing key stays on your machine and in GitHub:
 #   gpg --batch --passphrase '' --quick-gen-key "Paperloom apt repository" rsa4096 sign never
 #   gpg --armor --export-secret-keys "Paperloom apt repository" | gh secret set APT_GPG_PRIVATE_KEY -R theamanullahdev/paperloom
-# Without that secret this workflow skips itself (the release still works).
+# Without that secret only the apt part is skipped (with a warning).
 on:
   workflow_call:
     secrets:
@@ -40,11 +42,19 @@ jobs:
           KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "::warning::APT_GPG_PRIVATE_KEY isn't set, so the apt repository wasn't published. See the comment at the top of apt-repo.yml."
+            echo "::warning::APT_GPG_PRIVATE_KEY isn't set, so the apt repository isn't published (the release list still is). See the comment at the top of apt-repo.yml."
             echo "present=false" >> "$GITHUB_OUTPUT"
           else
             echo "present=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Release list for the in-app updater
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p site
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" > site/releases.json
+          python3 -c "import json; r = json.load(open('site/releases.json')); print(len(r), 'releases:', [x['tag_name'] for x in r][:5])"
 
       - name: Import the signing key
         if: steps.key.outputs.present == 'true'
@@ -98,7 +108,6 @@ jobs:
           gpgv --keyring /tmp/paperloom.gpg dists/stable/Release.gpg dists/stable/Release
 
       - name: Landing page
-        if: steps.key.outputs.present == 'true'
         run: |
           touch site/.nojekyll
           cat > site/index.html <<'HTML'
@@ -112,12 +121,11 @@ jobs:
           HTML
 
       - name: Publish to gh-pages
-        if: steps.key.outputs.present == 'true'
         working-directory: site
         run: |
           git init -q -b gh-pages
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -q -m "apt repository for $(ls apt/pool/main/p/paperloom)"
+          git commit -q -m "Pages: release list + apt repository ($(ls apt/pool/main/p/paperloom 2>/dev/null || echo 'no apt'))"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
