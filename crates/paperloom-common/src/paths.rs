@@ -16,6 +16,11 @@ pub fn state_file() -> PathBuf {
     project_dirs().data_dir().join("engine-state.toml")
 }
 
+/// Still frames the engine hands to the desktop as its background.
+pub fn background_frames_dir() -> PathBuf {
+    project_dirs().data_dir().join("background")
+}
+
 /// Downloaded installers for app updates (see `paperloom-fetch::update`).
 pub fn updates_dir() -> PathBuf {
     project_dirs().cache_dir().join("updates")

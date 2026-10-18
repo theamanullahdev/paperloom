@@ -34,6 +34,8 @@ pub struct State {
     /// per frame guarantees it draws immediately; playback only starts
     /// once every frame of the tile is allocated.
     preview_cache: HashMap<usize, Vec<Option<Allocation>>>,
+    /// The Stop button was clicked and the choice is showing.
+    confirm_stop: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +47,11 @@ pub enum Message {
     ConfirmRemoveClicked(usize),
     CancelRemoveClicked,
     SetAsWallpaperClicked(usize),
+    /// Opens the "stop wallpaper / stop and quit" choice.
     StopClicked,
+    StopWallpaper,
+    StopAndQuit,
+    CancelStop,
     PreviewTick,
     TileHovered(usize),
     TileUnhovered(usize),
@@ -61,6 +67,7 @@ impl State {
             status: None,
             confirm_remove: None,
             menu_open: None,
+            confirm_stop: false,
             hovered: None,
             preview_tick: 0,
             preview_cache: HashMap::new(),
@@ -137,11 +144,20 @@ impl State {
                     };
                 }
             }
-            Message::StopClicked => {
+            Message::StopClicked => self.confirm_stop = true,
+            Message::CancelStop => self.confirm_stop = false,
+            // The engine exits on Stop, which brings the normal desktop
+            // background back (see paperloom-engine's player).
+            Message::StopWallpaper => {
+                self.confirm_stop = false;
                 self.status = match crate::engine_client::stop() {
-                    Ok(()) => Some("Wallpaper stopped.".to_string()),
-                    Err(err) => Some(format!("Couldn't stop playback: {err}")),
+                    Ok(()) => Some("Wallpaper stopped — your normal desktop background is back.".to_string()),
+                    Err(err) => Some(format!("Couldn't stop the wallpaper: {err}")),
                 };
+            }
+            Message::StopAndQuit => {
+                let _ = crate::engine_client::stop();
+                return iced::exit();
             }
             Message::PreviewTick => self.preview_tick = self.preview_tick.wrapping_add(1),
             Message::TileHovered(index) => {
@@ -210,9 +226,25 @@ impl State {
                 .padding(8)
                 .width(Length::Fixed(240.0)),
             button(text("Import wallpapers...")).style(button::primary).on_press(Message::ImportClicked),
-            button(text("Stop wallpaper")).style(button::secondary).on_press(Message::StopClicked),
+            self.stop_controls(),
         ]
         .spacing(8)
+        .align_y(iced::Alignment::Center)
+        .into()
+    }
+
+    /// "Stop wallpaper", which turns into the choice between stopping only
+    /// the wallpaper (Paperloom stays open) and stopping it and quitting.
+    fn stop_controls<'a>(&self) -> Element<'a, Message> {
+        if !self.confirm_stop {
+            return button(text("Stop wallpaper")).style(button::secondary).on_press(Message::StopClicked).into();
+        }
+        row![
+            button(text("Stop wallpaper only")).style(button::secondary).on_press(Message::StopWallpaper),
+            button(text("Stop and quit Paperloom")).style(button::danger).on_press(Message::StopAndQuit),
+            button(text("Cancel")).style(button::text).on_press(Message::CancelStop),
+        ]
+        .spacing(6)
         .into()
     }
 

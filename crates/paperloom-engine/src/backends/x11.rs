@@ -19,7 +19,7 @@ use libmpv2::Mpv;
 use paperloom_common::ipc::Listener;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
-    ConfigureWindowAux, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, StackMode, WindowClass,
+    AtomEnum, ConfigureWindowAux, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, StackMode, WindowClass,
 };
 use x11rb::wrapper::ConnectionExt as _;
 
@@ -134,6 +134,21 @@ fn mark_as_desktop_window(conn: &impl Connection, window: u32) -> Result<(), Box
         net_wm_window_type,
         x11rb::protocol::xproto::AtomEnum::ATOM,
         &[net_wm_window_type_desktop],
+    )?;
+
+    // On every workspace, not just the one the engine started on — without
+    // this, switching workspace showed the plain system background.
+    // `_NET_WM_DESKTOP = 0xFFFFFFFF` is EWMH's "all desktops"; STICKY says
+    // the same through the state list, and the SKIP_* states keep the
+    // window out of the taskbar, Alt+Tab and pagers.
+    let atom = |name: &[u8]| -> Result<u32, Box<dyn Error>> { Ok(conn.intern_atom(false, name)?.reply()?.atom) };
+    conn.change_property32(PropMode::REPLACE, window, atom(b"_NET_WM_DESKTOP")?, AtomEnum::CARDINAL, &[0xFFFF_FFFF])?;
+    conn.change_property32(
+        PropMode::REPLACE,
+        window,
+        atom(b"_NET_WM_STATE")?,
+        AtomEnum::ATOM,
+        &[atom(b"_NET_WM_STATE_STICKY")?, atom(b"_NET_WM_STATE_SKIP_TASKBAR")?, atom(b"_NET_WM_STATE_SKIP_PAGER")?, atom(b"_NET_WM_STATE_BELOW")?],
     )?;
 
     Ok(())
