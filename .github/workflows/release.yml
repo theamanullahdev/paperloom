@@ -9,9 +9,13 @@ name: Release
 #                 commit message containing [skip release], release nothing.
 #   2. test     — clippy + tests.
 #   3. package  — every installer, with that version stamped in.
-#   4. publish  — only once all of the above passed: commit the version
-#                 bump, tag vX.Y.Z, push, and create the Release with every
-#                 installer, SHA256SUMS.txt and notes from the commit list.
+#   4. publish  — once tests passed and at least the Linux packages built:
+#                 commit the version bump, tag vX.Y.Z, push, and create the
+#                 Release with every installer that did build, SHA256SUMS.txt
+#                 and notes. A platform whose job failed is simply left out
+#                 of that release (and named in its notes) instead of
+#                 blocking everyone else; it ships in the next release once
+#                 fixed.
 #
 # Run it by hand from the Actions tab ("Run workflow") to force a
 # patch/minor/major release.
@@ -93,6 +97,10 @@ jobs:
 
   publish:
     needs: [plan, test, package]
+    # `package` is one reusable workflow, so a single failed platform marks
+    # it failed — publish anyway (always()) as long as the tests passed;
+    # the "Check what built" step below decides whether there's enough.
+    if: always() && needs.plan.outputs.version != '' && needs.test.result == 'success'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -103,6 +111,13 @@ jobs:
           pattern: packages-*
           path: dist
           merge-multiple: true
+      - name: Check what built
+        run: |
+          ls -l dist || true
+          if ! ls dist/paperloom-*-linux-x86_64.deb >/dev/null 2>&1; then
+            echo "::error::The Linux .deb didn't build — not publishing a release without it."
+            exit 1
+          fi
       - name: Checksums
         working-directory: dist
         run: |
@@ -134,14 +149,22 @@ jobs:
             echo
             echo "| System | File |"
             echo "|---|---|"
-            echo "| Windows (installer) | \`paperloom-$VERSION-windows-x86_64-setup.exe\` |"
-            echo "| Windows (MSI, for managed installs) | \`paperloom-$VERSION-windows-x86_64.msi\` |"
-            echo "| macOS, Apple Silicon | \`paperloom-$VERSION-macos-aarch64.dmg\` |"
-            echo "| macOS, Intel | \`paperloom-$VERSION-macos-x86_64.dmg\` |"
-            echo "| Ubuntu / Linux Mint / Debian | \`paperloom-$VERSION-linux-x86_64.deb\` |"
-            echo "| Fedora / openSUSE | \`paperloom-$VERSION-linux-x86_64.rpm\` |"
-            echo "| Any Linux (Flatpak bundle) | \`paperloom-$VERSION-linux-x86_64.flatpak\` |"
+            row() { # $1 = label, $2 = file name
+              if [ -f "dist/$2" ]; then echo "| $1 | \`$2\` |"; else missing+=("$1"); fi
+            }
+            missing=()
+            row "Windows (installer)" "paperloom-$VERSION-windows-x86_64-setup.exe"
+            row "Windows (MSI, for managed installs)" "paperloom-$VERSION-windows-x86_64.msi"
+            row "macOS, Apple Silicon" "paperloom-$VERSION-macos-aarch64.dmg"
+            row "macOS, Intel" "paperloom-$VERSION-macos-x86_64.dmg"
+            row "Ubuntu / Linux Mint / Debian" "paperloom-$VERSION-linux-x86_64.deb"
+            row "Fedora / openSUSE" "paperloom-$VERSION-linux-x86_64.rpm"
+            row "Any Linux (Flatpak bundle)" "paperloom-$VERSION-linux-x86_64.flatpak"
             echo
+            if [ "${#missing[@]}" -gt 0 ]; then
+              echo "Not in this release (that build failed; it will be in the next one): $(IFS=,; echo "${missing[*]}" | sed 's/,/, /g')."
+              echo
+            fi
             echo "Already installed? Paperloom offers this update itself under **Settings → Updates**."
             echo "The installers aren't code-signed yet, so Windows SmartScreen and macOS Gatekeeper warn on first launch — see the README for how to get past that."
             echo

@@ -97,7 +97,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force C:\stage | Out-Null
-          Copy-Item target\release\paperloom-gui.exe, target\release\paperloom-engine.exe, C:\mpv\libmpv-2.dll, C:\mpv\ffmpeg.exe C:\stage
+          Copy-Item target\release\paperloom-gui.exe, target\release\paperloom-engine.exe, C:\mpv\libmpv-2.dll, C:\mpv\vulkan-1.dll, C:\mpv\ffmpeg.exe C:\stage
           Copy-Item LICENSE C:\stage\LICENSE.txt
           Get-ChildItem C:\stage
       - name: Smoke test (engine loads libmpv)
@@ -110,6 +110,7 @@ jobs:
             Write-Host "== $bin imports:"
             dumpbin /dependents "C:\stage\$bin" | Select-String '\.dll' | ForEach-Object {
               $dll = $_.Line.Trim()
+              if ($dll -like "api-ms-win-*" -or $dll -like "Dump of file*") { return }
               $found = (Test-Path "C:\stage\$dll") -or (Test-Path "$env:WINDIR\System32\$dll")
               Write-Host ("   {0} {1}" -f $(if ($found) { "ok     " } else { "MISSING" }), $dll)
             }

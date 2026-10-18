@@ -42,6 +42,9 @@
         <File Source="$(var.Stage)\libmpv-2.dll" KeyPath="yes" />
       </Component>
       <Component>
+        <File Source="$(var.Stage)\vulkan-1.dll" KeyPath="yes" />
+      </Component>
+      <Component>
         <File Source="$(var.Stage)\ffmpeg.exe" KeyPath="yes" />
       </Component>
       <Component>
