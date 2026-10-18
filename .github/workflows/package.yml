@@ -102,10 +102,26 @@ jobs:
           Get-ChildItem C:\stage
       - name: Smoke test (engine loads libmpv)
         shell: pwsh
+        timeout-minutes: 5
         run: |
-          # A missing/broken DLL fails at process start (0xC0000135), before
+          # What every shipped binary imports, so a missing DLL is named in
+          # the log rather than guessed at.
+          foreach ($bin in "paperloom-engine.exe", "paperloom-gui.exe", "libmpv-2.dll") {
+            Write-Host "== $bin imports:"
+            dumpbin /dependents "C:\stage\$bin" | Select-String '\.dll' | ForEach-Object {
+              $dll = $_.Line.Trim()
+              $found = (Test-Path "C:\stage\$dll") -or (Test-Path "$env:WINDIR\System32\$dll")
+              Write-Host ("   {0} {1}" -f $(if ($found) { "ok     " } else { "MISSING" }), $dll)
+            }
+          }
+          # A missing/broken DLL fails at process start (0xC0000135) — or, for
+          # a GUI-subsystem exe, can sit on a "DLL not found" dialog — before
           # main runs; a healthy engine reaches main and rejects the path (1).
-          $p = Start-Process C:\stage\paperloom-engine.exe -ArgumentList "--preview","C:\does-not-exist.mp4" -Wait -PassThru
+          $p = Start-Process C:\stage\paperloom-engine.exe -ArgumentList "--preview","C:\does-not-exist.mp4" -PassThru
+          if (-not $p.WaitForExit(60000)) {
+            Stop-Process -Id $p.Id -Force
+            throw "paperloom-engine.exe hung at startup (likely a DLL-load error dialog)"
+          }
           Write-Host "exit code: $($p.ExitCode)"
           if ($p.ExitCode -ne 1) { throw "paperloom-engine.exe failed to start (exit $($p.ExitCode))" }
       - name: Build .msi
@@ -217,7 +233,7 @@ jobs:
     needs: flatpak-sources
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
       options: --privileged
     steps:
       - uses: actions/checkout@v4
