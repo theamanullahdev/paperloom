@@ -52,7 +52,10 @@ impl std::fmt::Display for ThemeMode {
 /// that suits a dark (white) or light (black) panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum TrayStyle {
+    /// White or black outline, picked from the desktop's panel theme (and
+    /// re-picked when it changes).
     #[default]
+    Auto,
     Colored,
     White,
     Black,
@@ -71,6 +74,7 @@ pub enum TraySize {
 impl std::fmt::Display for TrayStyle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            TrayStyle::Auto => "Match system theme",
             TrayStyle::Colored => "Colored",
             TrayStyle::White => "White (dark panels)",
             TrayStyle::Black => "Black (light panels)",

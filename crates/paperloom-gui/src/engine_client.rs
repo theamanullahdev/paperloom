@@ -41,6 +41,33 @@ pub fn quit() {
     let _ = ipc::send(&Command::Quit);
 }
 
+/// Restarts a running engine so it runs the newly installed binary: asks
+/// it to quit (it keeps the remembered wallpaper), waits until it's gone,
+/// and starts the new one, which picks the wallpaper back up. Not running
+/// is fine: nothing to restart.
+pub fn restart_engine() {
+    if ipc::send(&Command::Quit).is_err() {
+        return;
+    }
+    for _ in 0..30 {
+        std::thread::sleep(Duration::from_millis(100));
+        if ipc::send(&Command::Quit).is_err() {
+            break;
+        }
+    }
+    let _ = spawn_engine();
+}
+
+/// Restarts Paperloom into the newly installed version: the engine, then a
+/// fresh window, then this process exits.
+pub fn restart_app() -> ! {
+    restart_engine();
+    if let Some(exe) = process::current_exe() {
+        let _ = std::process::Command::new(exe).spawn();
+    }
+    std::process::exit(0)
+}
+
 /// Opens a full-screen preview window (`paperloom-engine --preview`). One
 /// at a time: if the previous preview is still open, does nothing.
 pub fn preview(path: &Path) -> Result<(), Error> {

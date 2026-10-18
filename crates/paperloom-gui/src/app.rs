@@ -27,6 +27,10 @@ pub struct App {
     /// The global search box (top bar) and whether its popup is showing.
     search: String,
     search_open: bool,
+    /// A newer Paperloom was installed over this one (by `apt upgrade` or
+    /// the Updates page); the banner offers a restart.
+    replaced: bool,
+    banner_dismissed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +64,10 @@ pub enum Message {
     SearchOnline(String),
     GoToSetting(settings::SettingId),
     ShowInLibrary(String),
+    // --- "New version installed" banner
+    CheckReplaced,
+    Restart,
+    BannerDismissed,
 }
 
 impl App {
@@ -77,6 +85,8 @@ impl App {
             system_theme: iced::theme::Mode::None,
             search: String::new(),
             search_open: false,
+            replaced: false,
+            banner_dismissed: false,
         };
         // Opened from the tray menu's "Tray icon settings…".
         let start = if std::env::args().any(|arg| arg == "--tray-settings") {
@@ -99,6 +109,15 @@ impl App {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::CheckReplaced => {
+                self.replaced = paperloom_common::process::exe_replaced();
+                Task::none()
+            }
+            Message::Restart | Message::Updates(updates::Message::Restart) => crate::engine_client::restart_app(),
+            Message::BannerDismissed => {
+                self.banner_dismissed = true;
+                Task::none()
+            }
             Message::SearchChanged(value) => {
                 self.search_open = !value.trim().is_empty();
                 self.search = value;
@@ -216,6 +235,12 @@ impl App {
             },
             if self.updates_page.is_downloading() {
                 iced::time::every(Duration::from_millis(300)).map(|_| Message::Updates(updates::Message::Tick))
+            } else {
+                Subscription::none()
+            },
+            if cfg!(target_os = "linux") && !self.replaced {
+                // A `readlink` every few seconds: notices `apt upgrade`.
+                iced::time::every(Duration::from_secs(5)).map(|_| Message::CheckReplaced)
             } else {
                 Subscription::none()
             },
@@ -376,6 +401,10 @@ impl App {
         // Very short window: scroll the whole content area, giving the page
         // a usable minimum height instead of squashing it to nothing.
         const MIN_BODY_HEIGHT: f32 = 320.0;
+        let top_bar: Element<'_, Message> = match self.restart_banner(t) {
+            Some(banner) => column![banner, top_bar].into(),
+            None => top_bar.into(),
+        };
         let content: Element<'_, Message> = if size.height < MIN_BODY_HEIGHT + 120.0 {
             scrollable(column![top_bar, container(body).height(Length::Fixed(MIN_BODY_HEIGHT))]).height(Length::Fill).into()
         } else {
@@ -391,6 +420,46 @@ impl App {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
+    }
+
+    /// "New version installed — restart" across the top of the window.
+    fn restart_banner(&self, t: theme::Tokens) -> Option<Element<'_, Message>> {
+        let installed = self.updates_page.installed();
+        if self.banner_dismissed || (installed.is_none() && !self.replaced) {
+            return None;
+        }
+        let message = match installed {
+            Some(version) => format!("Paperloom {version} is installed. Restart to start using it."),
+            None => "A new version of Paperloom was installed. Restart to start using it.".to_string(),
+        };
+        let on_primary = t.background;
+        Some(
+            container(
+                row![
+                    text(message).size(14).color(on_primary).width(Length::Fill),
+                    button(crate::ui::label("Restart now").size(13))
+                        .padding([5, 12])
+                        .style(move |_theme, status| button::Style {
+                            background: Some(Background::Color(if matches!(status, button::Status::Hovered | button::Status::Pressed) { t.surface } else { t.background })),
+                            text_color: t.foreground,
+                            border: Border { radius: 6.0.into(), ..Border::default() },
+                            shadow: Shadow::default(),
+                            snap: false,
+                        })
+                        .on_press(Message::Restart),
+                    button(crate::ui::label("Later").size(13))
+                        .padding([5, 10])
+                        .style(move |_theme, _status| button::Style { text_color: on_primary, ..button::Style::default() })
+                        .on_press(Message::BannerDismissed),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
+            )
+            .padding([8, 16])
+            .width(Length::Fill)
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.primary)), ..container::Style::default() })
+            .into(),
+        )
     }
 
     fn is_active(&self, page: Page) -> bool {
