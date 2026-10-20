@@ -17,14 +17,11 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use ksni::blocking::{Handle, TrayMethods};
-use ksni::menu::{CheckmarkItem, StandardItem};
 use ksni::{Icon, MenuItem, ToolTip, Tray};
-use paperloom_common::ipc::{self, Command};
 use paperloom_common::{TraySize, TrayStyle};
 
 struct PaperloomTray {
     paused: bool,
-    muted: bool,
     wallpaper: Option<String>,
     style: TrayStyle,
     size: TraySize,
@@ -43,7 +40,7 @@ const PANEL_RECHECK: Duration = Duration::from_secs(10);
 /// Shows or hides the icon, and restyles it, to match the settings (cheap
 /// when nothing changed).
 pub fn sync(settings: &paperloom_common::Settings) {
-    let (show, style, size, muted) = (settings.show_tray_icon, settings.tray_style, settings.tray_size, settings.muted);
+    let (show, style, size) = (settings.show_tray_icon, settings.tray_style, settings.tray_size);
     // Only `Auto` looks at the theme (it shells out to `gsettings`).
     let dark_panel = if show && style == TrayStyle::Auto { panel_dark() } else { true };
     let mut handle = HANDLE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -55,7 +52,7 @@ pub fn sync(settings: &paperloom_common::Settings) {
             let wallpaper = paperloom_common::EngineState::load()
                 .current_wallpaper
                 .and_then(|path| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()));
-            let tray = PaperloomTray { paused: false, muted: settings.muted, wallpaper, style, size, dark_panel };
+            let tray = PaperloomTray { paused: false, wallpaper, style, size, dark_panel };
             // Inside Flatpak the sandbox can't own the spec's well-known name.
             let sandboxed = std::env::var_os("FLATPAK_ID").is_some();
             // `assume_sni_available`: publish the item even if no tray host
@@ -80,7 +77,6 @@ pub fn sync(settings: &paperloom_common::Settings) {
                 handle.update(|tray| {
                     tray.style = style;
                     tray.size = size;
-                    tray.muted = muted;
                     tray.dark_panel = dark_panel;
                 });
             }
@@ -165,16 +161,29 @@ fn detect_dark_panel() -> bool {
     gsettings("org.gnome.desktop.interface", "gtk-theme").and_then(|name| shade(&name)).unwrap_or(true)
 }
 
-fn open_paperloom() {
-    if let Err(err) = paperloom_common::process::command("paperloom-gui").spawn() {
-        eprintln!("paperloom-engine: couldn't open Paperloom: {err}");
+/// Opens the themed widget window near `at` (screen coordinates), or near
+/// the mouse pointer when the panel didn't say where. Launching it again
+/// while it's open closes it (the widget handles that itself).
+fn open_widget(at: Option<(i32, i32)>) {
+    let (x, y) = at.or_else(pointer).unwrap_or((-1, -1));
+    let mut command = paperloom_common::process::command("paperloom-gui");
+    command.arg("--widget");
+    if x >= 0 && y >= 0 {
+        command.args(["--at", &x.to_string(), &y.to_string()]);
+    }
+    if let Err(err) = command.spawn() {
+        eprintln!("paperloom-engine: couldn't open the tray widget: {err}");
     }
 }
 
-fn open_page(page: &str) {
-    if let Err(err) = paperloom_common::process::command("paperloom-gui").args(["--page", page]).spawn() {
-        eprintln!("paperloom-engine: couldn't open Paperloom: {err}");
-    }
+/// Where the mouse pointer is on screen (X11 / XWayland); `None` elsewhere.
+fn pointer() -> Option<(i32, i32)> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::ConnectionExt;
+    let (conn, screen) = x11rb::connect(None).ok()?;
+    let root = conn.setup().roots[screen].root;
+    let reply = conn.query_pointer(root).ok()?.reply().ok()?;
+    Some((i32::from(reply.root_x), i32::from(reply.root_y)))
 }
 
 /// Pre-rendered ARGB32 icons (`assets/tray/<art>-<fill>-<px>.argb`: big-endian
@@ -224,10 +233,9 @@ fn pixmaps(style: TrayStyle, size: TraySize, dark_panel: bool) -> Vec<Icon> {
 }
 
 impl Tray for PaperloomTray {
-    /// The panel draws the menu itself (so it matches the desktop's own
-    /// theme and applet system — Cinnamon, KDE, GNOME's AppIndicator, …) on
-    /// left and right click alike.
-    const MENU_ON_ACTIVATE: bool = true;
+    /// Left click calls `activate` (the widget opens there); right click
+    /// reaches `menu_about_to_show` (the widget opens at the pointer).
+    const MENU_ON_ACTIVATE: bool = false;
 
     fn id(&self) -> String {
         "paperloom".into()
@@ -262,58 +270,23 @@ impl Tray for PaperloomTray {
         true
     }
 
-    fn activate(&mut self, _x: i32, _y: i32) {
-        open_paperloom();
+    fn activate(&mut self, x: i32, y: i32) {
+        open_widget(Some((x, y)));
+    }
+
+    /// Middle click: the widget, wherever the panel says the icon is.
+    fn secondary_activate(&mut self, x: i32, y: i32) {
+        open_widget(Some((x, y)));
+    }
+
+    /// There is no drop-down menu any more. The panel is about to show one
+    /// on a right click — that moment opens the themed widget window
+    /// instead (the menu itself is empty).
+    fn menu_about_to_show(&mut self) {
+        open_widget(None);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        let status = match (&self.wallpaper, self.paused) {
-            (Some(name), false) => format!("Playing {name}"),
-            (Some(name), true) => format!("Paused: {name}"),
-            (None, _) => "No wallpaper playing".into(),
-        };
-        let playing = self.wallpaper.is_some();
-        let page = |label: &str, page: &'static str| {
-            StandardItem { label: label.into(), activate: Box::new(move |_: &mut Self| open_page(page)), ..Default::default() }.into()
-        };
-        vec![
-            StandardItem { label: status, enabled: false, ..Default::default() }.into(),
-            MenuItem::Separator,
-            StandardItem {
-                label: if self.paused { "Resume" } else { "Pause" }.into(),
-                enabled: playing,
-                activate: Box::new(|tray: &mut Self| {
-                    let _ = ipc::send(&if tray.paused { Command::Resume } else { Command::Pause });
-                }),
-                ..Default::default()
-            }
-            .into(),
-            StandardItem {
-                label: "Stop wallpaper".into(),
-                enabled: playing,
-                activate: Box::new(|_: &mut Self| {
-                    let _ = ipc::send(&Command::Stop);
-                }),
-                ..Default::default()
-            }
-            .into(),
-            CheckmarkItem {
-                label: "Mute audio".into(),
-                checked: self.muted,
-                activate: Box::new(|tray: &mut Self| {
-                    tray.muted = !tray.muted;
-                    let mut settings = paperloom_common::load();
-                    settings.muted = tray.muted;
-                    let _ = paperloom_common::save(&settings);
-                    let _ = ipc::send(&Command::Mute(tray.muted));
-                }),
-                ..Default::default()
-            }
-            .into(),
-            MenuItem::Separator,
-            StandardItem { label: "Open Paperloom".into(), activate: Box::new(|_: &mut Self| open_paperloom()), ..Default::default() }.into(),
-            page("Usage", "usage"),
-            page("Settings", "settings"),
-        ]
+        Vec::new()
     }
 }

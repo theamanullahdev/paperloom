@@ -92,11 +92,14 @@ pub fn tokens(mode: ThemeMode) -> Tokens {
 }
 
 pub fn from_mode(mode: ThemeMode) -> Theme {
-    let t = tokens(mode);
     let name = match mode {
         ThemeMode::Light => "Paperloom Light",
         _ => "Paperloom Dark",
     };
+    from_tokens(name, tokens(mode))
+}
+
+pub fn from_tokens(name: &'static str, t: Tokens) -> Theme {
     Theme::custom(
         name,
         Palette {
