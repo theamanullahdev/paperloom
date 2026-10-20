@@ -122,7 +122,7 @@ impl App {
             replaced: false,
             banner_dismissed: false,
         };
-        // `--page usage` etc. (from the tray widget's shortcuts).
+        // `--page usage` etc. (from the tray menu).
         let requested_page = std::env::args().skip_while(|arg| arg != "--page").nth(1).as_deref().and_then(page_named);
         if let Some(page) = requested_page {
             app.page = page;

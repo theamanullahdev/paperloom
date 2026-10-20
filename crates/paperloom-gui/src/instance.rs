@@ -1,6 +1,5 @@
 //! "Only one of me": starting Paperloom while it is already open must bring
-//! the open window forward instead of making a second one, and the tray
-//! widget closes itself when its icon is clicked again.
+//! the open window forward instead of making a second one.
 //!
 //! Each named instance listens on a small Unix socket. A second launch
 //! connects, sends one line (what it wanted: "SHOW", "PAGE usage", …) and

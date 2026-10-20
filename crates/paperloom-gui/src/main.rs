@@ -17,21 +17,10 @@ mod search;
 mod telemetry;
 mod theme;
 mod ui;
-mod widget;
 
 pub fn main() -> iced::Result {
     let args: Vec<String> = std::env::args().collect();
     let value_of = |flag: &str| args.iter().position(|arg| arg == flag).and_then(|at| args.get(at + 1)).cloned();
-
-    // `--widget [--at X Y]`: the tray's themed pop-up, not the app. Launching
-    // it again while it's open closes it (clicking the tray icon twice).
-    if args.iter().any(|arg| arg == "--widget") {
-        if !instance::claim("widget", "CLOSE") {
-            return Ok(());
-        }
-        let at = args.iter().position(|arg| arg == "--at").and_then(|at| Some((args.get(at + 1)?.parse().ok()?, args.get(at + 2)?.parse().ok()?)));
-        return widget::run(at);
-    }
 
     // One Paperloom window: if it's already open, bring it forward (and pass
     // along what this launch asked for) instead of opening a second one.
