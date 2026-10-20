@@ -20,6 +20,10 @@ pub struct EngineState {
     /// switcher/overview, which draw the system background, match).
     /// Restored when the wallpaper is stopped.
     pub saved_background: Vec<SavedSetting>,
+    /// Paused from the tray / widget (held until Resume).
+    pub user_paused: bool,
+    /// Paused by an automatic trigger (fullscreen app, lock, battery…).
+    pub auto_paused: bool,
 }
 
 /// One `gsettings` value: schema, key, and the value exactly as

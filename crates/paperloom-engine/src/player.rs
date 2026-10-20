@@ -49,8 +49,14 @@ pub fn configure_wallpaper(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Settings that can change between wallpapers: audio, and hardware
+/// decoding. `auto-safe` lets mpv use the GPU only through decoders it
+/// trusts, falling back to software if none works — so turning this on
+/// can't leave a black desktop on a machine that can't do it.
 fn apply_mute_from_settings(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
-    mpv.set_property("mute", paperloom_common::load().muted)?;
+    let settings = paperloom_common::load();
+    mpv.set_property("mute", settings.muted)?;
+    mpv.set_property("hwdec", if settings.hardware_decoding { "auto-safe" } else { "no" }.to_string())?;
     Ok(())
 }
 
@@ -89,10 +95,25 @@ static AUTO_PAUSED: AtomicBool = AtomicBool::new(false);
 static USER_PAUSED: AtomicBool = AtomicBool::new(false);
 
 fn apply_pause(mpv: &Mpv) {
-    let paused = AUTO_PAUSED.load(Ordering::Relaxed) || USER_PAUSED.load(Ordering::Relaxed);
-    if let Err(err) = mpv.set_property("pause", paused) {
+    let (auto, user) = (AUTO_PAUSED.load(Ordering::Relaxed), USER_PAUSED.load(Ordering::Relaxed));
+    if let Err(err) = mpv.set_property("pause", auto || user) {
         eprintln!("paperloom-engine: failed to set pause state: {err}");
     }
+    publish_pause(auto, user);
+}
+
+/// Writes the pause state where the tray widget can read it — only when it
+/// changed, so the ~2s tick doesn't touch the disk.
+fn publish_pause(auto: bool, user: bool) {
+    static LAST: std::sync::Mutex<Option<(bool, bool)>> = std::sync::Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *last == Some((auto, user)) {
+        return;
+    }
+    *last = Some((auto, user));
+    let mut state = EngineState::load();
+    (state.auto_paused, state.user_paused) = (auto, user);
+    let _ = state.save();
 }
 
 /// Called by the backends with the automatic pause triggers' verdict.
@@ -148,6 +169,9 @@ pub fn poll_ipc(listener: &mut Listener, mpv: &Mpv) -> Flow {
         // Quit (before an update) keeps the current wallpaper remembered,
         // so the updated engine picks it back up.
         Command::Quit => return Flow::Quit,
+        Command::Mute(muted) => {
+            let _ = mpv.set_property("mute", muted);
+        }
         Command::Pause | Command::Resume => {
             let paused = command == Command::Pause;
             USER_PAUSED.store(paused, Ordering::Relaxed);

@@ -14,6 +14,7 @@ pub enum SettingId {
     ImportMode,
     Theme,
     Muted,
+    HardwareDecoding,
     LowBatteryPercent,
     Autostart,
     Updates,
@@ -79,6 +80,12 @@ pub const ENTRIES: &[Entry] = &[
         label: "Mute wallpaper audio",
         section: "Playback",
         aliases: &["sound", "audio", "volume", "unmute", "silent"],
+    },
+    Entry {
+        id: SettingId::HardwareDecoding,
+        label: "Use the graphics card to play video",
+        section: "Playback",
+        aliases: &["hardware decoding", "hwdec", "gpu", "cpu usage", "performance", "battery", "vaapi", "nvdec", "cooler", "fan"],
     },
     Entry {
         id: SettingId::LowBatteryPercent,

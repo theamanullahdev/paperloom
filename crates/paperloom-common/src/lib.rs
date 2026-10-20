@@ -18,7 +18,7 @@ mod settings;
 mod state;
 
 pub use config_store::{load, save};
-pub use display::primary_aspect_ratio;
+pub use display::{primary_aspect_ratio, primary_size};
 pub use library::{Collection, Library, LibraryEntry};
 pub use paths::{background_frames_dir, config_file, downloads_dir, library_dir, online_cache_dir, state_file, thumbnails_dir, updates_dir, wallpapers_dir};
 pub use state::{EngineState, SavedSetting};

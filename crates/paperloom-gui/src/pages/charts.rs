@@ -1,0 +1,74 @@
+//! Small shared canvas charts (scrolling line graphs) used by the
+//! Downloads page's connection meter and the Usage page.
+
+use iced::mouse;
+use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke};
+use iced::{Color, Element, Length, Point, Rectangle, Renderer, Theme};
+
+use crate::theme;
+
+/// One line on a chart; newest sample last.
+pub struct Series {
+    pub samples: Vec<f32>,
+    pub color: Color,
+}
+
+/// A line graph with a faint grid. All series share one scale: the
+/// largest value in view, never below `floor` (so idle noise doesn't fill
+/// the whole graph). A series with fewer than `window` samples is pinned
+/// to the right edge so the graph "scrolls in" from the right.
+pub fn line_chart<'a, M: 'a>(series: Vec<Series>, t: theme::Tokens, floor: f32, window: usize, height: f32) -> Element<'a, M> {
+    canvas::Canvas::new(Chart { series, t, floor, window: window.max(2) }).width(Length::Fill).height(Length::Fixed(height)).into()
+}
+
+struct Chart {
+    series: Vec<Series>,
+    t: theme::Tokens,
+    floor: f32,
+    window: usize,
+}
+
+impl<M> canvas::Program<M> for Chart {
+    type State = ();
+
+    fn draw(&self, _state: &(), renderer: &Renderer, _theme: &Theme, bounds: Rectangle, _cursor: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let (width, height) = (bounds.width, bounds.height);
+
+        frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color { a: 0.35, ..self.t.muted });
+        for step in 1..4 {
+            let y = height * step as f32 / 4.0;
+            frame.stroke(&Path::line(Point::new(0.0, y), Point::new(width, y)), Stroke::default().with_color(self.t.border).with_width(1.0));
+        }
+
+        let top = self.series.iter().flat_map(|series| series.samples.iter().copied()).fold(self.floor, f32::max) * 1.1;
+        let y_at = |value: f32| height - (value / top).clamp(0.0, 1.0) * (height - 2.0) - 1.0;
+
+        for series in &self.series {
+            let count = series.samples.len();
+            if count < 2 {
+                continue;
+            }
+            let offset = width * (1.0 - count as f32 / self.window as f32);
+            let x_at = |index: usize| width * index as f32 / (self.window - 1) as f32 + offset;
+
+            let line = Path::new(|builder| {
+                builder.move_to(Point::new(x_at(0), y_at(series.samples[0])));
+                for (index, value) in series.samples.iter().enumerate().skip(1) {
+                    builder.line_to(Point::new(x_at(index), y_at(*value)));
+                }
+            });
+            let area = Path::new(|builder| {
+                builder.move_to(Point::new(x_at(0), height));
+                for (index, value) in series.samples.iter().enumerate() {
+                    builder.line_to(Point::new(x_at(index), y_at(*value)));
+                }
+                builder.line_to(Point::new(x_at(count - 1), height));
+                builder.close();
+            });
+            frame.fill(&area, Color { a: 0.16, ..series.color });
+            frame.stroke(&line, Stroke::default().with_color(series.color).with_width(2.0));
+        }
+        vec![frame.into_geometry()]
+    }
+}

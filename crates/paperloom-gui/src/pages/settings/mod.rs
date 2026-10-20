@@ -59,6 +59,7 @@ pub enum Message {
     DefaultLibraryFolder,
     /// Handled by the app (it owns navigation).
     OpenUpdates,
+    OpenUsage,
     /// Ticks only while `highlight_fade` is actually animating — see
     /// `subscription`. Carries no data; it exists purely to trigger a
     /// redraw so `view` re-samples the animation at the new time.
@@ -102,6 +103,7 @@ impl State {
                         settings.pause_on_window_covering_desktop = value;
                     }
                     SettingId::Muted => settings.muted = value,
+                    SettingId::HardwareDecoding => settings.hardware_decoding = value,
                     SettingId::Autostart => {
                         self.autostart_error = paperloom_common::autostart::set_enabled(value).err().map(|err| err.to_string());
                         self.autostart = paperloom_common::autostart::is_enabled();
@@ -129,7 +131,7 @@ impl State {
                 self.flash(SettingId::LowBatteryPercent);
                 let _ = paperloom_common::save(settings);
             }
-            Message::OpenUpdates => {}
+            Message::OpenUpdates | Message::OpenUsage => {}
             Message::ChooseLibraryFolder => {
                 let start = paperloom_common::wallpapers_dir();
                 if let Some(folder) = rfd::FileDialog::new().set_title("Folder for your wallpapers").set_directory(&start).pick_folder() {
@@ -258,7 +260,22 @@ impl State {
         let playback = card(
             "Playback",
             "Applies to the wallpaper on your desktop.",
-            item(SettingId::Muted, toggler(settings.muted).label("Mute wallpaper audio").on_toggle(|v| Message::Toggle(SettingId::Muted, v)).into()),
+            column![
+                item(SettingId::Muted, toggler(settings.muted).label("Mute wallpaper audio").on_toggle(|v| Message::Toggle(SettingId::Muted, v)).into()),
+                item(
+                    SettingId::HardwareDecoding,
+                    column![
+                        toggler(settings.hardware_decoding)
+                            .label("Use the graphics card to play video")
+                            .on_toggle(|v| Message::Toggle(SettingId::HardwareDecoding, v)),
+                        hint("Much less CPU and battery. Applies the next time a wallpaper starts. Turn off only if a wallpaper shows black or glitches."),
+                    ]
+                    .spacing(4)
+                    .into(),
+                ),
+            ]
+            .spacing(10)
+            .into(),
             t,
         );
 
@@ -398,7 +415,10 @@ impl State {
 
         let mut page = column![].spacing(16);
         if let Some(stats) = &self.stats {
-            page = page.push(overview(stats, t)).push(storage_chart(stats, t));
+            page = page
+                .push(row![Space::new().width(Length::Fill), button(crate::ui::label("Resource usage")).style(button::secondary).on_press(Message::OpenUsage)])
+                .push(overview(stats, t))
+                .push(storage_chart(stats, t));
         }
         page.push(cards).into()
     }
@@ -420,7 +440,7 @@ pub struct Stats {
 }
 
 impl Stats {
-    fn gather(library: &paperloom_common::Library) -> Self {
+    pub fn gather(library: &paperloom_common::Library) -> Self {
         let (mut copied_bytes, mut linked_bytes, mut missing) = (0, 0, 0);
         for entry in &library.entries {
             match entry.path.metadata() {
@@ -468,7 +488,7 @@ fn dir_size(dir: &std::path::Path) -> u64 {
 }
 
 /// "1.2 GB", "340 MB", "12 KB".
-fn bytes(n: u64) -> String {
+pub(crate) fn bytes(n: u64) -> String {
     let n = n as f64;
     if n >= 1e9 {
         format!("{:.1} GB", n / 1e9)
@@ -482,9 +502,9 @@ fn bytes(n: u64) -> String {
 }
 
 /// The row of headline numbers.
-fn overview<'a>(stats: &Stats, t: theme::Tokens) -> Element<'a, Message> {
+pub(crate) fn overview<'a, M: 'a>(stats: &Stats, t: theme::Tokens) -> Element<'a, M> {
     let disk = stats.copied_bytes + stats.preview_bytes + stats.cache_bytes + stats.update_bytes;
-    let tile = |label: &'static str, value: String, note: String| -> Element<'a, Message> {
+    let tile = |label: &'static str, value: String, note: String| -> Element<'a, M> {
         container(
             column![
                 text(label).size(12).color(t.muted_foreground),
@@ -520,7 +540,7 @@ fn overview<'a>(stats: &Stats, t: theme::Tokens) -> Element<'a, Message> {
 }
 
 /// Where the disk space goes: a stacked bar plus a legend.
-fn storage_chart<'a>(stats: &Stats, t: theme::Tokens) -> Element<'a, Message> {
+pub(crate) fn storage_chart<'a, M: 'a>(stats: &Stats, t: theme::Tokens) -> Element<'a, M> {
     let parts = [
         ("Wallpapers (copied)", stats.copied_bytes, t.primary),
         ("Linked videos (not in Paperloom's folder)", stats.linked_bytes, iced::Color { a: 0.45, ..t.primary }),
@@ -530,7 +550,7 @@ fn storage_chart<'a>(stats: &Stats, t: theme::Tokens) -> Element<'a, Message> {
     ];
     let total: u64 = parts.iter().map(|(_, size, _)| size).sum();
 
-    let bar: Element<'a, Message> = if total == 0 {
+    let bar: Element<'a, M> = if total == 0 {
         container(Space::new()).width(Length::Fill).height(14).style(move |_theme| container::Style {
             background: Some(Background::Color(t.muted)),
             border: Border { radius: 7.0.into(), ..Border::default() },
@@ -631,6 +651,7 @@ const ORDER: &[SettingId] = &[
     SettingId::LowBatteryPercent,
     SettingId::Autostart,
     SettingId::Muted,
+    SettingId::HardwareDecoding,
     SettingId::TrayIcon,
     SettingId::AllowMature,
     SettingId::TrayStyle,
@@ -646,7 +667,7 @@ fn scroll_to(id: SettingId) -> Task<Message> {
     iced::widget::operation::snap_to(SCROLL_ID, iced::widget::operation::RelativeOffset { x: None, y: Some(fraction) })
 }
 
-fn tile_style(t: theme::Tokens) -> container::Style {
+pub(crate) fn tile_style(t: theme::Tokens) -> container::Style {
     container::Style {
         background: Some(Background::Color(t.surface)),
         border: Border { color: t.border, width: 1.0, radius: 12.0.into() },

@@ -24,6 +24,9 @@ pub enum Command {
     /// Pause), regardless of the automatic pause triggers.
     Pause,
     Resume,
+    /// Mute or unmute the playing wallpaper right now (the tray widget's
+    /// switch); the saved setting is changed by whoever sends this.
+    Mute(bool),
 }
 
 impl Command {
@@ -34,6 +37,8 @@ impl Command {
             Command::Quit => "QUIT\n".to_string(),
             Command::Pause => "PAUSE\n".to_string(),
             Command::Resume => "RESUME\n".to_string(),
+            Command::Mute(true) => "MUTE\n".to_string(),
+            Command::Mute(false) => "UNMUTE\n".to_string(),
         }
     }
 
@@ -44,6 +49,8 @@ impl Command {
             "QUIT" => Some(Command::Quit),
             "PAUSE" => Some(Command::Pause),
             "RESUME" => Some(Command::Resume),
+            "MUTE" => Some(Command::Mute(true)),
+            "UNMUTE" => Some(Command::Mute(false)),
             _ => line.strip_prefix("PLAY ").map(|path| Command::Play(PathBuf::from(path))),
         }
     }

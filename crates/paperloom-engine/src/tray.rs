@@ -17,9 +17,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use ksni::blocking::{Handle, TrayMethods};
-use ksni::menu::StandardItem;
 use ksni::{Icon, MenuItem, ToolTip, Tray};
-use paperloom_common::ipc::{self, Command};
 use paperloom_common::{TraySize, TrayStyle};
 
 struct PaperloomTray {
@@ -163,22 +161,35 @@ fn detect_dark_panel() -> bool {
     gsettings("org.gnome.desktop.interface", "gtk-theme").and_then(|name| shade(&name)).unwrap_or(true)
 }
 
-fn send(command: Command) {
-    if let Err(err) = ipc::send(&command) {
-        eprintln!("paperloom-engine: tray couldn't reach the engine: {err}");
-    }
-}
-
 fn open_paperloom() {
     if let Err(err) = paperloom_common::process::command("paperloom-gui").spawn() {
         eprintln!("paperloom-engine: couldn't open Paperloom: {err}");
     }
 }
 
-fn open_tray_settings() {
-    if let Err(err) = paperloom_common::process::command("paperloom-gui").arg("--tray-settings").spawn() {
-        eprintln!("paperloom-engine: couldn't open Paperloom: {err}");
+/// Opens the themed widget window near `at` (screen coordinates), or near
+/// the mouse pointer when the panel didn't say where. Launching it again
+/// while it's open closes it (the widget handles that itself).
+fn open_widget(at: Option<(i32, i32)>) {
+    let (x, y) = at.or_else(pointer).unwrap_or((-1, -1));
+    let mut command = paperloom_common::process::command("paperloom-gui");
+    command.arg("--widget");
+    if x >= 0 && y >= 0 {
+        command.args(["--at", &x.to_string(), &y.to_string()]);
     }
+    if let Err(err) = command.spawn() {
+        eprintln!("paperloom-engine: couldn't open the tray widget: {err}");
+    }
+}
+
+/// Where the mouse pointer is on screen (X11 / XWayland); `None` elsewhere.
+fn pointer() -> Option<(i32, i32)> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::ConnectionExt;
+    let (conn, screen) = x11rb::connect(None).ok()?;
+    let root = conn.setup().roots[screen].root;
+    let reply = conn.query_pointer(root).ok()?.reply().ok()?;
+    Some((i32::from(reply.root_x), i32::from(reply.root_y)))
 }
 
 /// Pre-rendered ARGB32 icons (`assets/tray/<art>-<fill>-<px>.argb`: big-endian
@@ -228,8 +239,9 @@ fn pixmaps(style: TrayStyle, size: TraySize, dark_panel: bool) -> Vec<Icon> {
 }
 
 impl Tray for PaperloomTray {
-    /// Any click opens the menu ("Open Paperloom" is its first item).
-    const MENU_ON_ACTIVATE: bool = true;
+    /// A plain (left) click opens Paperloom — or brings its window to the
+    /// front if it's already open — instead of dropping a menu.
+    const MENU_ON_ACTIVATE: bool = false;
 
     fn id(&self) -> String {
         "paperloom".into()
@@ -264,41 +276,23 @@ impl Tray for PaperloomTray {
         true
     }
 
+    fn activate(&mut self, _x: i32, _y: i32) {
+        open_paperloom();
+    }
+
+    /// Middle click: the widget, wherever the panel says the icon is.
+    fn secondary_activate(&mut self, x: i32, y: i32) {
+        open_widget(Some((x, y)));
+    }
+
+    /// There is no drop-down menu any more. The panel is about to show one
+    /// on a right click — that moment opens the themed widget window
+    /// instead (the menu itself is empty).
+    fn menu_about_to_show(&mut self) {
+        open_widget(None);
+    }
+
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        let now_playing = match &self.wallpaper {
-            Some(name) => format!("{} {name}", if self.paused { "Paused:" } else { "Playing:" }),
-            None => "No wallpaper playing".into(),
-        };
-        vec![
-            StandardItem { label: now_playing, enabled: false, ..Default::default() }.into(),
-            MenuItem::Separator,
-            StandardItem { label: "Open Paperloom".into(), icon_name: "paperloom".into(), activate: Box::new(|_| open_paperloom()), ..Default::default() }
-                .into(),
-            StandardItem {
-                label: if self.paused { "Resume wallpaper".into() } else { "Pause wallpaper".into() },
-                icon_name: if self.paused { "media-playback-start".into() } else { "media-playback-pause".into() },
-                activate: Box::new(|tray: &mut Self| {
-                    tray.paused = !tray.paused;
-                    send(if tray.paused { Command::Pause } else { Command::Resume });
-                }),
-                ..Default::default()
-            }
-            .into(),
-            StandardItem {
-                label: "Stop wallpaper".into(),
-                icon_name: "media-playback-stop".into(),
-                activate: Box::new(|_| send(Command::Stop)),
-                ..Default::default()
-            }
-            .into(),
-            MenuItem::Separator,
-            StandardItem {
-                label: "Tray icon settings…".into(),
-                icon_name: "preferences-system".into(),
-                activate: Box::new(|_| open_tray_settings()),
-                ..Default::default()
-            }
-            .into(),
-        ]
+        Vec::new()
     }
 }

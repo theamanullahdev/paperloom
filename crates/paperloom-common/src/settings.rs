@@ -166,6 +166,11 @@ pub struct Settings {
     /// Lively, mpvpaper), since audio from a background wallpaper is
     /// usually unwanted.
     pub muted: bool,
+    /// Decode video on the graphics card (mpv's `hwdec=auto-safe`, which
+    /// falls back to the CPU by itself where the GPU can't do it). Software
+    /// decoding of a 4K wallpaper cost ~22% CPU on a laptop with a capable
+    /// GPU; hardware decoding is the difference between "near-zero" and not.
+    pub hardware_decoding: bool,
     pub sources: Vec<SourceSetting>,
     /// Allow 18+ searches and results in the online library (off by
     /// default: mature searches return nothing, mature titles are hidden,
@@ -256,6 +261,7 @@ impl Default for Settings {
             import_mode: ImportMode::default(),
             theme: ThemeMode::default(),
             muted: true,
+            hardware_decoding: true,
             sources: builtin_sources(),
             allow_mature: false,
             show_tray_icon: true,

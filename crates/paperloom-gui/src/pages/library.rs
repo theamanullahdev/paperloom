@@ -374,6 +374,10 @@ impl State {
         self.library.contains_source(source_id)
     }
 
+    pub fn tab(&self) -> Tab {
+        self.tab
+    }
+
     pub fn library(&self) -> &Library {
         &self.library
     }

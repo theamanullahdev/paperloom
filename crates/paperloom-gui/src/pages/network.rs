@@ -6,13 +6,12 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use iced::mouse;
-use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke};
 use iced::widget::{button, column, container, row, text, Space};
-use iced::{Background, Border, Color, Element, Length, Rectangle, Renderer, Task, Theme};
+use iced::{Background, Border, Element, Length, Task};
 
 use paperloom_fetch::{Diagnosis, Verdict};
 
+use super::charts::{line_chart, Series};
 use crate::theme;
 
 /// Two minutes of history at one sample per half second.
@@ -154,9 +153,7 @@ impl Meter {
         .spacing(28)
         .wrap();
 
-        let chart = canvas::Canvas::new(Chart { samples: self.samples.iter().copied().collect(), t })
-            .width(Length::Fill)
-            .height(Length::Fixed(96.0));
+        let chart = line_chart(vec![Series { samples: self.samples.iter().copied().collect(), color: t.primary }], t, 256.0 * 1024.0, MAX_SAMPLES, 96.0);
 
         let mut panel = column![heading, stats, chart].spacing(12);
 
@@ -209,57 +206,6 @@ fn megabytes(bytes: u64) -> String {
         format!("{:.2} GB", megabytes / 1024.0)
     } else {
         format!("{megabytes:.1} MB")
-    }
-}
-
-/// The scrolling speed graph: filled area under a line, faint grid, scaled
-/// to the busiest moment in view.
-struct Chart {
-    samples: Vec<f32>,
-    t: theme::Tokens,
-}
-
-impl<M> canvas::Program<M> for Chart {
-    type State = ();
-
-    fn draw(&self, _state: &(), renderer: &Renderer, _theme: &Theme, bounds: Rectangle, _cursor: mouse::Cursor) -> Vec<Geometry> {
-        let mut frame = Frame::new(renderer, bounds.size());
-        let (width, height) = (bounds.width, bounds.height);
-
-        frame.fill_rectangle(iced::Point::ORIGIN, bounds.size(), Color { a: 0.35, ..self.t.muted });
-        for step in 1..4 {
-            let y = height * step as f32 / 4.0;
-            frame.stroke(&Path::line(iced::Point::new(0.0, y), iced::Point::new(width, y)), Stroke::default().with_color(self.t.border).with_width(1.0));
-        }
-
-        if self.samples.len() < 2 {
-            return vec![frame.into_geometry()];
-        }
-
-        // Scale to the busiest sample in view, never below 256 KB/s so
-        // idle noise doesn't fill the whole graph.
-        let top = self.samples.iter().copied().fold(256.0 * 1024.0, f32::max) * 1.1;
-        let x_at = |index: usize| width * index as f32 / (MAX_SAMPLES - 1) as f32 + width * (1.0 - (self.samples.len() as f32 / MAX_SAMPLES as f32));
-        let y_at = |value: f32| height - (value / top).clamp(0.0, 1.0) * (height - 2.0) - 1.0;
-
-        let line = Path::new(|builder| {
-            builder.move_to(iced::Point::new(x_at(0), y_at(self.samples[0])));
-            for (index, value) in self.samples.iter().enumerate().skip(1) {
-                builder.line_to(iced::Point::new(x_at(index), y_at(*value)));
-            }
-        });
-        let area = Path::new(|builder| {
-            builder.move_to(iced::Point::new(x_at(0), height));
-            for (index, value) in self.samples.iter().enumerate() {
-                builder.line_to(iced::Point::new(x_at(index), y_at(*value)));
-            }
-            builder.line_to(iced::Point::new(x_at(self.samples.len() - 1), height));
-            builder.close();
-        });
-
-        frame.fill(&area, Color { a: 0.22, ..self.t.primary });
-        frame.stroke(&line, Stroke::default().with_color(self.t.primary).with_width(2.0));
-        vec![frame.into_geometry()]
     }
 }
 

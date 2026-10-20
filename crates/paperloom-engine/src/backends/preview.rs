@@ -71,6 +71,7 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
     mpv.set_property("input-cursor", false)?;
     mpv.set_property("cursor-autohide", "always".to_string())?;
     mpv.set_property("mute", true)?;
+    mpv.set_property("hwdec", if paperloom_common::load().hardware_decoding { "auto-safe" } else { "no" }.to_string())?;
     // Same crop-to-fill as the real wallpaper, so the preview shows what
     // the desktop will show.
     mpv.set_property("panscan", 1.0)?;

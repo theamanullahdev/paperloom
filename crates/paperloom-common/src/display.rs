@@ -11,6 +11,10 @@
 
 /// Falls back to 16:10 (this project's existing default, and a common
 /// laptop panel ratio) if the size can't be read.
+pub fn primary_size() -> Option<(u32, u32)> {
+    primary_resolution()
+}
+
 pub fn primary_aspect_ratio() -> (u32, u32) {
     primary_resolution().map(|(w, h)| reduce(w, h)).unwrap_or((16, 10))
 }

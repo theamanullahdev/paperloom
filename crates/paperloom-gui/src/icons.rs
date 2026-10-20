@@ -52,11 +52,6 @@ pub fn wifi_off() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/wifi-off.svg").as_slice())
 }
 
-/// Nav icon for the sources page.
-pub fn layers() -> svg::Handle {
-    svg::Handle::from_memory(include_bytes!("../assets/icons/layers.svg").as_slice())
-}
-
 pub fn grid() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/layout-grid.svg").as_slice())
 }
@@ -77,4 +72,38 @@ pub fn back() -> svg::Handle {
 /// An empty collection's cover.
 pub fn folder() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/folder.svg").as_slice())
+}
+
+/// Collapsed group in the sidebar tree.
+pub fn chevron_right() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/chevron-right.svg").as_slice())
+}
+
+/// Expanded group in the sidebar tree.
+pub fn chevron_down() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/chevron-down.svg").as_slice())
+}
+
+pub fn eye_off() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/eye-off.svg").as_slice())
+}
+
+pub fn compass() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/compass.svg").as_slice())
+}
+
+pub fn layers() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/layers.svg").as_slice())
+}
+
+pub fn dashboard() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/layout-dashboard.svg").as_slice())
+}
+
+pub fn activity() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/activity.svg").as_slice())
+}
+
+pub fn refresh() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/refresh-cw.svg").as_slice())
 }

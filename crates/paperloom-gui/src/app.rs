@@ -1,11 +1,13 @@
+use std::collections::HashSet;
 use std::time::Duration;
 
 use iced::widget::{button, column, container, mouse_area, opaque, responsive, row, scrollable, stack, svg, text, text_input, Space};
+use iced::futures::StreamExt;
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Size, Subscription, Task, Theme};
 
 use paperloom_common::Settings;
 
-use crate::pages::{downloads, library, online, settings, sources, updates};
+use crate::pages::{downloads, library, online, settings, sources, updates, usage};
 use crate::ui::Width;
 use crate::{icons, search, theme};
 
@@ -18,6 +20,9 @@ pub struct App {
     downloads_page: downloads::State,
     sources_page: sources::State,
     updates_page: updates::State,
+    usage_page: usage::State,
+    /// Which sidebar groups are open (the tree is collapsible).
+    expanded: HashSet<Group>,
     /// Sources changed since the Online tab last loaded; reload it when
     /// next opened so the change takes effect.
     online_stale: bool,
@@ -41,6 +46,23 @@ pub(crate) enum Page {
     Sources,
     Settings,
     Updates,
+    Usage,
+}
+
+/// A collapsible group in the sidebar tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Group {
+    Library,
+    Collections,
+    Online,
+    Settings,
+}
+
+/// Where a sidebar row leads: a page, or one of the Library's tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NavTarget {
+    Page(Page),
+    Tab(library::Tab),
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +74,12 @@ pub enum Message {
     Downloads(downloads::Message),
     Sources(sources::Message),
     Updates(updates::Message),
+    Usage(usage::Message),
+    /// Another launch of Paperloom (tray click, app menu…) asked this
+    /// window for something: "SHOW", "PAGE usage", "TRAY-SETTINGS".
+    OtherLaunch(String),
+    ToggleGroup(Group),
+    Navigate(NavTarget),
     /// Fires while downloads are in flight: moves finished files into the
     /// library.
     DownloadsTick,
@@ -81,6 +109,8 @@ impl App {
             downloads_page: downloads::State::default(),
             sources_page: sources::State::default(),
             updates_page: updates::State::new(),
+            usage_page: usage::State::new(),
+            expanded: HashSet::from([Group::Library, Group::Online, Group::Settings]),
             online_stale: false,
             system_theme: iced::theme::Mode::None,
             search: String::new(),
@@ -88,6 +118,14 @@ impl App {
             replaced: false,
             banner_dismissed: false,
         };
+        // `--page usage` etc. (from the tray widget's shortcuts).
+        let requested_page = std::env::args().skip_while(|arg| arg != "--page").nth(1).as_deref().and_then(page_named);
+        if let Some(page) = requested_page {
+            app.page = page;
+            if page == Page::Usage {
+                app.usage_page.open(app.library_page.library());
+            }
+        }
         // Opened from the tray menu's "Tray icon settings…".
         let start = if std::env::args().any(|arg| arg == "--tray-settings") {
             app.page = Page::Settings;
@@ -151,9 +189,61 @@ impl App {
                 self.library_page.set_filter(name);
                 Task::none()
             }
+            Message::OtherLaunch(request) => {
+                let mut tasks = vec![raise_window()];
+                if request == "TRAY-SETTINGS" {
+                    self.page = Page::Settings;
+                    self.settings_page.refresh(self.library_page.library());
+                    tasks.push(
+                        self.settings_page
+                            .update(&mut self.settings, settings::Message::ResultSelected(settings::SettingId::TrayIcon))
+                            .map(Message::Settings),
+                    );
+                } else if let Some(page) = request.strip_prefix("PAGE ") {
+                    if let Some(page) = page_named(page) {
+                        tasks.push(self.update(Message::SwitchPage(page)));
+                    }
+                }
+                Task::batch(tasks)
+            }
+            Message::ToggleGroup(group) => {
+                if !self.expanded.remove(&group) {
+                    self.expanded.insert(group);
+                }
+                Task::none()
+            }
+            Message::Navigate(NavTarget::Page(page)) => self.update(Message::SwitchPage(page)),
+            Message::Navigate(NavTarget::Tab(tab)) => {
+                self.search_open = false;
+                self.page = Page::Library;
+                self.expanded.insert(Group::Library);
+                self.library_page.update(&mut self.settings, library::Message::TabSelected(tab)).map(Message::Library)
+            }
+            Message::Usage(usage::Message::Back) => {
+                self.page = Page::Settings;
+                self.settings_page.refresh(self.library_page.library());
+                Task::none()
+            }
+            Message::Usage(msg) => self.usage_page.update(msg).map(Message::Usage),
+            Message::Settings(settings::Message::OpenUsage) => self.update(Message::SwitchPage(Page::Usage)),
             Message::SwitchPage(page) => {
                 self.search_open = false;
                 self.page = page;
+                // Opening a page opens its group, so the tree shows where you are.
+                match page {
+                    Page::Online | Page::Downloads | Page::Sources => {
+                        self.expanded.insert(Group::Online);
+                    }
+                    Page::Settings | Page::Updates | Page::Usage => {
+                        self.expanded.insert(Group::Settings);
+                    }
+                    Page::Library => {
+                        self.expanded.insert(Group::Library);
+                    }
+                }
+                if page == Page::Usage {
+                    self.usage_page.open(self.library_page.library());
+                }
                 if page == Page::Settings {
                     self.settings_page.refresh(self.library_page.library());
                 }
@@ -239,6 +329,8 @@ impl App {
             self.settings_page.subscription().map(Message::Settings),
             self.library_page.subscription(self.page == Page::Library).map(Message::Library),
             self.online_page.subscription(self.page == Page::Online).map(Message::Online),
+            self.usage_page.subscription(self.page == Page::Usage).map(Message::Usage),
+            Subscription::run(|| crate::instance::requests().map(Message::OtherLaunch)),
             if self.online_page.queue().is_busy() || !self.online_page.queue().finished().is_empty() || self.page == Page::Downloads {
                 // Smoother progress while the Downloads page is open.
                 let period = if self.page == Page::Downloads { Duration::from_millis(300) } else { Duration::from_secs(1) };
@@ -349,6 +441,7 @@ impl App {
             Page::Sources => ("Sources", Space::new().into(), self.sources_page.body(&self.settings, t).map(Message::Sources)),
             Page::Settings => ("Settings", Space::new().into(), self.settings_page.body(&self.settings, self.updates_page.summary(&self.settings), t).map(Message::Settings)),
             Page::Updates => ("Updates", self.updates_page.header().map(Message::Updates), self.updates_page.body(&self.settings, t).map(Message::Updates)),
+            Page::Usage => ("Usage", self.usage_page.header().map(Message::Usage), self.usage_page.body(&self.settings, t).map(Message::Usage)),
         };
 
         let search_box = text_input("Search Paperloom & online wallpapers…", &self.search)
@@ -366,6 +459,9 @@ impl App {
             for (icon, label, page) in nav_pages() {
                 nav = nav.push(nav_item(icon, label, page, self.is_active(page), self.has_badge(page), false, t));
             }
+            if let Some(update) = self.update_button(t) {
+                nav = nav.push(update);
+            }
             nav = nav.push(self.downloads_button(t));
             column![
                 nav.wrap().vertical_spacing(4),
@@ -375,7 +471,11 @@ impl App {
             .spacing(10)
             .into()
         } else {
-            row![title_text, search_box, header, self.downloads_button(t)].spacing(12).align_y(Alignment::Center).wrap().vertical_spacing(10).into()
+            let mut bar = row![title_text, search_box, header].spacing(12).align_y(Alignment::Center);
+            if let Some(update) = self.update_button(t) {
+                bar = bar.push(update);
+            }
+            bar.push(self.downloads_button(t)).wrap().vertical_spacing(10).into()
         };
         let top_bar = container(top_bar)
             .padding(if width == Width::Narrow { [10, 12] } else { [16, 24] })
@@ -477,8 +577,8 @@ impl App {
 
     fn is_active(&self, page: Page) -> bool {
         match page {
-            Page::Online => matches!(self.page, Page::Online | Page::Downloads),
-            Page::Settings => matches!(self.page, Page::Settings | Page::Updates),
+            Page::Online => matches!(self.page, Page::Online | Page::Downloads | Page::Sources),
+            Page::Settings => matches!(self.page, Page::Settings | Page::Updates | Page::Usage),
             other => self.page == other,
         }
     }
@@ -487,14 +587,221 @@ impl App {
         page == Page::Settings && self.updates_page.available(&self.settings).is_some()
     }
 
+    /// "Update 0.7.0" in the top bar whenever a newer release is known, on
+    /// every page, so it's one click from anywhere.
+    fn update_button(&self, t: theme::Tokens) -> Option<Element<'_, Message>> {
+        let release = self.updates_page.available(&self.settings)?;
+        Some(
+            button(crate::ui::label(format!("Update {}", release.tag.trim_start_matches('v'))).size(13))
+                .padding([7, 12])
+                .on_press(Message::SwitchPage(Page::Updates))
+                .style(move |_theme, status| button::Style {
+                    background: Some(Background::Color(if matches!(status, button::Status::Hovered | button::Status::Pressed) { t.primary_hover } else { t.primary })),
+                    text_color: t.background,
+                    border: Border { radius: 8.0.into(), ..Border::default() },
+                    shadow: Shadow::default(),
+                    snap: false,
+                })
+                .into(),
+        )
+    }
+
+    /// One row of the sidebar tree: a small icon and a label, indented by
+    /// `depth`. `badge` is a count or marker shown at the right.
+    #[allow(clippy::too_many_arguments)]
+    fn tree_row<'a>(&self, icon: svg::Handle, label: String, depth: u16, active: bool, badge: Option<String>, on_press: Message, t: theme::Tokens) -> Element<'a, Message> {
+        let color = if active { t.primary } else { t.foreground };
+        let icon_color = if active { t.primary } else { t.muted_foreground };
+        let mut content = row![
+            svg(icon).width(15).height(15).style(move |_theme, _status| svg::Style { color: Some(icon_color) }),
+            text(label).font(theme::BODY_FONT).size(13).color(color).wrapping(text::Wrapping::None),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        if let Some(badge) = badge {
+            content = content.push(Space::new().width(Length::Fill));
+            content = content.push(text(badge).size(11).color(t.primary));
+        }
+        let _ = depth;
+        button(content)
+            .padding([6, 10])
+            .width(Length::Fill)
+            .on_press(on_press)
+            .style(move |_theme, status| {
+                let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                button::Style {
+                    background: if active {
+                        Some(Background::Color(Color { a: 0.12, ..t.primary }))
+                    } else if hovered {
+                        Some(Background::Color(t.muted))
+                    } else {
+                        None
+                    },
+                    text_color: color,
+                    border: Border { radius: 7.0.into(), ..Border::default() },
+                    shadow: Shadow::default(),
+                    snap: false,
+                }
+            })
+            .into()
+    }
+
+    /// A group header: chevron (expand/collapse) + icon + label (opens the
+    /// group's main page).
+    #[allow(clippy::too_many_arguments)]
+    fn group_header<'a>(&self, icon: svg::Handle, label: &'static str, group: Group, open: Message, active: bool, badge: Option<String>, t: theme::Tokens) -> Element<'a, Message> {
+        let expanded = self.expanded.contains(&group);
+        let color = if active { t.primary } else { t.muted_foreground };
+        let chevron = button(svg(if expanded { icons::chevron_down() } else { icons::chevron_right() }).width(14).height(14).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) }))
+            .padding([9, 6])
+            .on_press(Message::ToggleGroup(group))
+            .style(|_theme, _status| button::Style::default());
+        let label_color = if active { t.primary } else { t.foreground };
+        let mut line = row![svg(icon).width(18).height(18).style(move |_theme, _status| svg::Style { color: Some(color) }), text(label).font(theme::BODY_FONT).size(14).color(label_color).wrapping(text::Wrapping::None)]
+            .spacing(10)
+            .align_y(Alignment::Center);
+        if let Some(badge) = badge {
+            line = line.push(Space::new().width(Length::Fill));
+            line = line.push(text(badge).size(11).color(t.primary));
+        }
+        let opener = button(line).padding([9, 6]).width(Length::Fill).on_press(open).style(move |_theme, status| {
+            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: if hovered { Some(Background::Color(t.muted)) } else { None },
+                text_color: label_color,
+                border: Border { radius: 7.0.into(), ..Border::default() },
+                shadow: Shadow::default(),
+                snap: false,
+            }
+        });
+        row![chevron, opener].align_y(Alignment::Center).into()
+    }
+
+    /// Children of a group, indented. (No height-filling guide line: a
+    /// "fill" height inside nested groups made the layout collapse when a
+    /// group had nothing in it.)
+    fn children<'a>(&self, rows: Vec<Element<'a, Message>>, depth: u16, _t: theme::Tokens) -> Element<'a, Message> {
+        row![Space::new().width(Length::Fixed(14.0 + f32::from(depth) * 12.0)), column(rows).spacing(1).width(Length::Fill)].into()
+    }
+
+    /// The whole tree: Library (All / Collections → each collection /
+    /// Hidden), Online (Browse / Downloads / Sources) and Settings
+    /// (Overview / Usage / Updates), each group collapsible.
+    fn tree<'a>(&self, t: theme::Tokens) -> Element<'a, Message> {
+        let tab = self.library_page.tab();
+        let on_library = self.page == Page::Library;
+        let go_tab = |tab: library::Tab| Message::Navigate(NavTarget::Tab(tab));
+        let go_page = |page: Page| Message::Navigate(NavTarget::Page(page));
+        let mut tree = column![].spacing(2);
+
+        // --- Library
+        tree = tree.push(self.group_header(icons::library(), "Library", Group::Library, go_tab(library::Tab::All), on_library, None, t));
+        if self.expanded.contains(&Group::Library) {
+            let mut rows = vec![self.tree_row(icons::grid(), "All wallpapers".into(), 1, on_library && tab == library::Tab::All, None, go_tab(library::Tab::All), t)];
+
+            let collections = &self.library_page.library().collections;
+            let open = self.expanded.contains(&Group::Collections);
+            rows.push(
+                row![
+                    button(svg(if open { icons::chevron_down() } else { icons::chevron_right() }).width(12).height(12).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) }))
+                        .padding([6, 4])
+                        .on_press(Message::ToggleGroup(Group::Collections))
+                        .style(|_theme, _status| button::Style::default()),
+                    self.tree_row(
+                        icons::folder(),
+                        "Collections".into(),
+                        1,
+                        on_library && tab == library::Tab::Collections,
+                        (!collections.is_empty()).then(|| collections.len().to_string()),
+                        go_tab(library::Tab::Collections),
+                        t,
+                    ),
+                ]
+                .align_y(Alignment::Center)
+                .into(),
+            );
+            if open {
+                // An empty group says so (and stays open) instead of
+                // looking like it did nothing.
+                let mut inner: Vec<Element<'a, Message>> = collections
+                    .iter()
+                    .filter(|collection| !collection.hidden)
+                    .map(|collection| {
+                        self.tree_row(
+                            icons::folder(),
+                            collection.name.clone(),
+                            2,
+                            on_library && tab == library::Tab::Collection(collection.id),
+                            None,
+                            go_tab(library::Tab::Collection(collection.id)),
+                            t,
+                        )
+                    })
+                    .collect();
+                if inner.is_empty() {
+                    inner.push(container(text("No collections here yet").size(12).color(t.muted_foreground)).padding([4, 10]).into());
+                }
+                rows.push(self.children(inner, 1, t));
+            }
+            rows.push(self.tree_row(icons::eye_off(), "Hidden".into(), 1, on_library && tab == library::Tab::Hidden, None, go_tab(library::Tab::Hidden), t));
+            tree = tree.push(self.children(rows, 0, t));
+        }
+
+        // --- Online
+        let pending = self.online_page.queue().snapshot().iter().filter(|job| job.status != paperloom_fetch::Status::Done).count();
+        tree = tree.push(self.group_header(
+            icons::globe(),
+            "Online",
+            Group::Online,
+            go_page(Page::Online),
+            matches!(self.page, Page::Online | Page::Downloads | Page::Sources),
+            None,
+            t,
+        ));
+        if self.expanded.contains(&Group::Online) {
+            let rows = vec![
+                self.tree_row(icons::compass(), "Browse".into(), 1, self.page == Page::Online, None, go_page(Page::Online), t),
+                self.tree_row(icons::download(), "Downloads".into(), 1, self.page == Page::Downloads, (pending > 0).then(|| pending.to_string()), go_page(Page::Downloads), t),
+                self.tree_row(icons::layers(), "Sources".into(), 1, self.page == Page::Sources, None, go_page(Page::Sources), t),
+            ];
+            tree = tree.push(self.children(rows, 0, t));
+        }
+
+        // --- Settings
+        let update = self.updates_page.available(&self.settings).is_some();
+        tree = tree.push(self.group_header(
+            icons::settings(),
+            "Settings",
+            Group::Settings,
+            go_page(Page::Settings),
+            matches!(self.page, Page::Settings | Page::Updates | Page::Usage),
+            None,
+            t,
+        ));
+        if self.expanded.contains(&Group::Settings) {
+            let rows = vec![
+                self.tree_row(icons::dashboard(), "Overview".into(), 1, self.page == Page::Settings, None, go_page(Page::Settings), t),
+                self.tree_row(icons::activity(), "Usage".into(), 1, self.page == Page::Usage, None, go_page(Page::Usage), t),
+                self.tree_row(icons::refresh(), "Updates".into(), 1, self.page == Page::Updates, update.then(|| "new".to_string()), go_page(Page::Updates), t),
+            ];
+            tree = tree.push(self.children(rows, 0, t));
+        }
+        tree.into()
+    }
+
     /// Full sidebar (icons + labels) or an icon-only rail; scrolls if the
     /// window is too short for every item.
     fn sidebar(&self, width: Width, rail_width: f32, t: theme::Tokens) -> Element<'_, Message> {
         let labels = width == Width::Wide;
-        let mut items = column![].spacing(4);
-        for (icon, label, page) in nav_pages() {
-            items = items.push(nav_item(icon, label, page, self.is_active(page), self.has_badge(page), labels, t));
-        }
+        let items: Element<'_, Message> = if labels {
+            self.tree(t)
+        } else {
+            let mut rail = column![].spacing(4);
+            for (icon, label, page) in nav_pages() {
+                rail = rail.push(nav_item(icon, label, page, self.is_active(page), self.has_badge(page), false, t));
+            }
+            rail.into()
+        };
         let brand: Element<'_, Message> = if labels {
             text("Paperloom").font(theme::DISPLAY_FONT).size(20).color(t.primary).wrapping(text::Wrapping::None).into()
         } else {
@@ -514,13 +821,10 @@ impl App {
     }
 }
 
-fn nav_pages() -> [(svg::Handle, &'static str, Page); 4] {
-    [
-        (icons::library(), "Library", Page::Library),
-        (icons::globe(), "Online", Page::Online),
-        (icons::layers(), "Sources", Page::Sources),
-        (icons::settings(), "Settings", Page::Settings),
-    ]
+/// The rail / top-bar navigation: one icon per sidebar group (their
+/// sub-pages are reached from inside the pages, or from the full sidebar).
+fn nav_pages() -> [(svg::Handle, &'static str, Page); 3] {
+    [(icons::library(), "Library", Page::Library), (icons::globe(), "Online", Page::Online), (icons::settings(), "Settings", Page::Settings)]
 }
 
 /// One navigation entry. `with_label`: icon + text (full sidebar), or icon
@@ -568,4 +872,33 @@ fn nav_item<'a>(icon: svg::Handle, label: &'static str, page: Page, active: bool
             }
         })
         .into()
+}
+
+/// Page for a `--page <name>` argument or a "PAGE <name>" request.
+fn page_named(name: &str) -> Option<Page> {
+    match name.trim().to_lowercase().as_str() {
+        "library" => Some(Page::Library),
+        "online" => Some(Page::Online),
+        "downloads" => Some(Page::Downloads),
+        "sources" => Some(Page::Sources),
+        "settings" => Some(Page::Settings),
+        "updates" => Some(Page::Updates),
+        "usage" => Some(Page::Usage),
+        _ => None,
+    }
+}
+
+/// Brings the window to the front and gives it focus — un-minimising it
+/// first. A window manager can refuse a plain focus request from a window
+/// that wasn't just used, so it also takes a quick turn as "always on top",
+/// which reliably lifts it above everything else.
+fn raise_window() -> Task<Message> {
+    iced::window::oldest().and_then(|id| {
+        Task::batch([
+            iced::window::minimize(id, false),
+            iced::window::set_level(id, iced::window::Level::AlwaysOnTop),
+            iced::window::gain_focus(id),
+            iced::window::set_level(id, iced::window::Level::Normal),
+        ])
+    })
 }

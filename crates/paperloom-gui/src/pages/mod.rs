@@ -1,3 +1,4 @@
+pub mod charts;
 pub mod downloads;
 pub mod gallery;
 pub mod library;
@@ -6,3 +7,4 @@ pub mod online;
 pub mod settings;
 pub mod sources;
 pub mod updates;
+pub mod usage;
