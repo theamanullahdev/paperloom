@@ -16,6 +16,12 @@ pub fn state_file() -> PathBuf {
     project_dirs().data_dir().join("engine-state.toml")
 }
 
+/// Why the engine last failed to start (its console is hidden on Windows,
+/// so errors would otherwise vanish).
+pub fn engine_log() -> PathBuf {
+    project_dirs().data_dir().join("engine.log")
+}
+
 /// Still frames the engine hands to the desktop as its background.
 pub fn background_frames_dir() -> PathBuf {
     project_dirs().data_dir().join("background")

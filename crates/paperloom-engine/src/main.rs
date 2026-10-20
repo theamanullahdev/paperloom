@@ -50,6 +50,11 @@ fn main() -> ExitCode {
 
     if let Err(err) = result {
         eprintln!("paperloom-engine: {err}");
+        let log = paperloom_common::engine_log();
+        if let Some(dir) = log.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(log, format!("{err}\n"));
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS

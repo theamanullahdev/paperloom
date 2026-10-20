@@ -12,6 +12,8 @@ use paperloom_common::process;
 pub enum Error {
     EngineNotFound,
     Io(std::io::Error),
+    /// The engine started but exited straight away; carries what it said.
+    EngineFailed(String),
 }
 
 impl std::fmt::Display for Error {
@@ -19,6 +21,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::EngineNotFound => write!(f, "couldn't find or start paperloom-engine"),
             Error::Io(err) => write!(f, "{err}"),
+            Error::EngineFailed(why) => write!(f, "the wallpaper engine stopped at startup: {why}"),
         }
     }
 }
@@ -93,6 +96,7 @@ fn send_or_spawn(command: &Command) -> Result<(), Error> {
         return Ok(());
     }
 
+    let _ = std::fs::remove_file(paperloom_common::engine_log());
     spawn_engine()?;
 
     // Give the daemon a moment to stand up its window and start listening
@@ -109,6 +113,9 @@ fn send_or_spawn(command: &Command) -> Result<(), Error> {
         }
     }
 
+    if let Ok(why) = std::fs::read_to_string(paperloom_common::engine_log()) {
+        return Err(Error::EngineFailed(why.trim().to_string()));
+    }
     Err(last_error.map(Error::Io).unwrap_or(Error::EngineNotFound))
 }
 

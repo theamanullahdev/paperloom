@@ -22,9 +22,9 @@ pub enum ImportMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ThemeMode {
-    #[default]
     System,
     Light,
+    #[default]
     Dark,
 }
 
