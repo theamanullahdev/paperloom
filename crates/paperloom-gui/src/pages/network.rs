@@ -14,11 +14,15 @@ use paperloom_fetch::{Diagnosis, Verdict};
 use super::charts::{line_chart, Series};
 use crate::theme;
 
+/// Two minutes of history at one sample per half second.
+const MAX_SAMPLES: usize = 240;
 const MIN_SAMPLE_GAP: Duration = Duration::from_millis(450);
 /// A connection check older than this is redone when the page opens.
 const STALE_AFTER: Duration = Duration::from_secs(90);
 
 pub struct Meter {
+    /// Bytes per second, oldest first.
+    samples: VecDeque<f32>,
     last_total: u64,
     last_at: Instant,
     smoothed: f32,
@@ -27,12 +31,14 @@ pub struct Meter {
     diagnosis: Option<Diagnosis>,
     checking: bool,
     checked_at: Option<Instant>,
+    seeded: bool,
 }
 
 impl Default for Meter {
     fn default() -> Self {
         let now_total = paperloom_fetch::bytes_received();
         Self {
+            samples: VecDeque::new(),
             last_total: now_total,
             last_at: Instant::now(),
             smoothed: 0.0,
@@ -41,6 +47,7 @@ impl Default for Meter {
             diagnosis: None,
             checking: false,
             checked_at: None,
+            seeded: false,
         }
     }
 }
@@ -63,6 +70,27 @@ impl Meter {
             self.smoothed = 0.0;
         }
         self.peak = self.peak.max(self.smoothed);
+        if self.samples.len() == MAX_SAMPLES {
+            self.samples.pop_front();
+        }
+        self.samples.push_back(self.smoothed);
+    }
+
+    /// Once, when the page first opens: puts the recorder's recent history
+    /// in front of the live samples so the graph isn't empty. The recorder's
+    /// readings are 2 s apart, so each is repeated to match the half-second
+    /// scale of live samples.
+    pub fn seed(&mut self, history: &VecDeque<f32>) {
+        if self.seeded {
+            return;
+        }
+        self.seeded = true;
+        let mut seeded: VecDeque<f32> = history.iter().flat_map(|rate| [*rate; 4]).collect();
+        seeded.extend(self.samples.drain(..));
+        while seeded.len() > MAX_SAMPLES {
+            seeded.pop_front();
+        }
+        self.samples = seeded;
     }
 
     /// Starts a connection check unless one is already running. Only the
@@ -97,7 +125,7 @@ impl Meter {
         !self.checking && self.checked_at.is_none_or(|at| at.elapsed() > STALE_AFTER)
     }
 
-    pub fn view<'a, M: Clone + 'a>(&'a self, t: theme::Tokens, history: &VecDeque<f32>, on_check: M) -> Element<'a, M> {
+    pub fn view<'a, M: Clone + 'a>(&'a self, t: theme::Tokens, on_check: M) -> Element<'a, M> {
         let (title, color, advice) = match self.diagnosis.as_ref().map(|d| d.verdict) {
             None => ("Checking your connection...", t.muted_foreground, ""),
             Some(Verdict::Good) => ("Connected", t.success, "Everything responds normally."),
@@ -144,7 +172,7 @@ impl Meter {
         .spacing(28)
         .wrap();
 
-        let chart = line_chart(vec![Series { samples: history.iter().copied().collect(), color: t.primary }], t, 256.0 * 1024.0, crate::telemetry::WINDOW, 96.0);
+        let chart = line_chart(vec![Series { samples: self.samples.iter().copied().collect(), color: t.primary }], t, 256.0 * 1024.0, MAX_SAMPLES, 96.0);
 
         let mut panel = column![heading, stats, chart].spacing(12);
 

@@ -256,6 +256,7 @@ impl App {
                 }
                 if page == Page::Downloads {
                     self.downloads_page.set_hosts(crate::pages::network::hosts_for(&self.settings));
+                    self.downloads_page.seed(&self.recorder.history.network);
                     return self.downloads_page.opened().map(Message::Downloads);
                 }
                 if page == Page::Online {
@@ -448,7 +449,7 @@ impl App {
             Page::Downloads => (
                 "Downloads",
                 self.downloads_page.header().map(Message::Downloads),
-                self.downloads_page.body(t, self.online_page.queue().snapshot(), &self.recorder.history.network).map(Message::Downloads),
+                self.downloads_page.body(t, self.online_page.queue().snapshot()).map(Message::Downloads),
             ),
             Page::Sources => ("Sources", Space::new().into(), self.sources_page.body(&self.settings, t).map(Message::Sources)),
             Page::Settings => ("Settings", Space::new().into(), self.settings_page.body(&self.settings, self.updates_page.summary(&self.settings), t).map(Message::Settings)),

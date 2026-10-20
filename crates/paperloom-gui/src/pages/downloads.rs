@@ -55,6 +55,11 @@ impl State {
         self.hosts = hosts;
     }
 
+    /// Fills the graph with recent history the first time the page opens.
+    pub fn seed(&mut self, history: &std::collections::VecDeque<f32>) {
+        self.meter.seed(history);
+    }
+
     /// Runs a connection check when the page opens, if the last one is old.
     pub fn opened(&mut self) -> Task<Message> {
         if self.meter.needs_check() {
@@ -118,8 +123,8 @@ impl State {
         button(crate::ui::label("Back to Online")).style(button::secondary).on_press(Message::Back).into()
     }
 
-    pub fn body<'a>(&'a self, t: theme::Tokens, jobs: Vec<Job>, history: &std::collections::VecDeque<f32>) -> Element<'a, Message> {
-        let mut list = column![self.meter.view(t, history, Message::CheckConnection)].spacing(14);
+    pub fn body<'a>(&'a self, t: theme::Tokens, jobs: Vec<Job>) -> Element<'a, Message> {
+        let mut list = column![self.meter.view(t, Message::CheckConnection)].spacing(14);
 
         if jobs.is_empty() {
             list = list.push(text("No downloads yet. Pick wallpapers in the Online tab.").color(t.muted_foreground));
