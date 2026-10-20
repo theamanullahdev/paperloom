@@ -767,7 +767,11 @@ fn install_with_password_prompt(kind: Option<InstallKind>, path: &Path) -> Optio
     }
     let file = path.as_os_str();
     let command: Vec<&std::ffi::OsStr> = match kind {
-        Some(InstallKind::Deb) if on_path("apt-get") => vec!["apt-get".as_ref(), "install".as_ref(), "-y".as_ref(), "--allow-downgrades".as_ref(), file],
+        Some(InstallKind::Deb) if on_path("apt-get") => // apt normally reads local files as its unprivileged `_apt` user,
+        // which can't open a file in the user's home folder — and when the
+        // same version is also in the apt repository it tries that "file
+        // not found" copy and gives up. Reading as root avoids both.
+        vec!["apt-get".as_ref(), "install".as_ref(), "-y".as_ref(), "--allow-downgrades".as_ref(), "-o".as_ref(), "APT::Sandbox::User=root".as_ref(), file],
         Some(InstallKind::Deb) if on_path("dpkg") => vec!["dpkg".as_ref(), "-i".as_ref(), file],
         Some(InstallKind::Rpm) if on_path("dnf") => vec!["dnf".as_ref(), "install".as_ref(), "-y".as_ref(), file],
         Some(InstallKind::Rpm) if on_path("zypper") => {
