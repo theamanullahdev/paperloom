@@ -28,8 +28,8 @@ curl -fsSL -o "$work/flatpak-cargo-generator.py" \
   https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
 "$work/venv/bin/python" "$work/flatpak-cargo-generator.py" "$work/Cargo.lock" -o cargo-sources.json
 
-python3 - "$work/manifest.yml" "$tag" "$commit" > "$app.yml" <<'PY'
-import re, subprocess, sys
+python3 - "$work/manifest.yml" "$tag" "$commit" > "$work/out.yml" <<'PY'
+import re, subprocess, sys, time
 manifest, tag, commit = open(sys.argv[1]).read(), sys.argv[2], sys.argv[3]
 
 # 1. The app itself: the pinned release instead of the local checkout.
@@ -47,7 +47,14 @@ if n != 1:
 def add_commit(match):
     url, tag_line = match.group(1), match.group(2)
     name = tag_line.strip().split(": ", 1)[1]
-    out = subprocess.run(["git", "ls-remote", url, f"refs/tags/{name}^{{}}", f"refs/tags/{name}"], capture_output=True, text=True, check=True).stdout.split()
+    for attempt in range(4):  # a flaky connection shouldn't fail the whole run
+        run = subprocess.run(["git", "ls-remote", url, f"refs/tags/{name}^{{}}", f"refs/tags/{name}"], capture_output=True, text=True)
+        if run.returncode == 0:
+            break
+        time.sleep(3)
+    else:
+        sys.exit(f"could not reach {url}")
+    out = run.stdout.split()
     if not out:
         sys.exit(f"tag {name} not found in {url}")
     sha = out[0]
@@ -55,5 +62,8 @@ def add_commit(match):
 manifest = re.sub(r"      - type: git\n        url: (https://(?!github.com/theamanullahdev)[^\n]+)\n(        tag: [^\n]+)(?!\n        commit:)", add_commit, manifest)
 sys.stdout.write(manifest)
 PY
+# Only now, with everything generated, replace the committed files.
+[ -s "$work/out.yml" ] || { echo "manifest generation produced nothing; leaving files untouched" >&2; exit 1; }
+cp "$work/out.yml" "$app.yml"
 printf '{\n  "only-arches": ["x86_64"]\n}\n' > flathub.json
 echo "Wrote $app.yml, cargo-sources.json, flathub.json for $tag"
