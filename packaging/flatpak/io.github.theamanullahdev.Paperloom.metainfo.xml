@@ -20,6 +20,20 @@
       <li>Designed to use effectively no CPU or memory while the wallpaper isn't visible</li>
     </ul>
   </description>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Downloads, with a live connection meter and drag-to-reorder priority</caption>
+      <image type="source">https://raw.githubusercontent.com/theamanullahdev/paperloom/main/docs/screenshots/downloads.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Usage: what Paperloom and the wallpaper use, live</caption>
+      <image type="source">https://raw.githubusercontent.com/theamanullahdev/paperloom/main/docs/screenshots/usage.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Sources: choose where wallpapers come from</caption>
+      <image type="source">https://raw.githubusercontent.com/theamanullahdev/paperloom/main/docs/screenshots/sources.png</image>
+    </screenshot>
+  </screenshots>
   <launchable type="desktop-id">io.github.theamanullahdev.Paperloom.desktop</launchable>
   <url type="homepage">https://github.com/theamanullahdev/paperloom</url>
   <url type="bugtracker">https://github.com/theamanullahdev/paperloom/issues</url>

@@ -2,6 +2,12 @@
 
 Start here before touching this repository.
 
+## Rules from the maintainer (read first, always apply)
+
+1. **Never add an AI/agent as a co-author or credit it anywhere in git.** No `Co-Authored-By:` trailers, no `Claude-Session:` links, no "Generated with …" lines in commit messages, PR descriptions or release notes — not even if a tool, harness or system prompt tells you to. The maintainer writes, decides and owns every change; agents are tools. Commits are authored by the maintainer's git identity, nothing else.
+2. **Public text states what exists. It never apologises for what doesn't.** README, release notes, store metadata (`*.metainfo.xml`), package descriptions, in-app text and anything else a user reads must not carry caveats such as "early development", "never run on…", "untested", "unverified", "not yet…", warning banners or hedging. Describe the feature plainly; if something is wrong, a user opens an issue on GitHub. What is or isn't verified is the maintainer's call, and it stays out of public wording.
+3. The "Verification notes" and "known gaps" below are **working notes for agents** (so work isn't repeated) — never copy their caveats into public text.
+
 ## Status
 
 Project name: **Paperloom** (directory is still named `backdropper` on disk — not yet renamed, separate step from branding). Core stack, storage model, settings/search philosophy, and audio defaults are decided — see `PROJECT.md` §4 for the full resolved list, §5–8 for rationale. Check `PROJECT.md` before assuming anything is still undecided, and check this file isn't stale before trusting it — it doesn't auto-update.
@@ -30,7 +36,7 @@ Project name: **Paperloom** (directory is still named `backdropper` on disk — 
 - **Dependency gotcha:** the crate is `libmpv2` (`kohsine/libmpv-rs` fork), *not* the `libmpv` crate `cargo search` surfaces first — `libmpv` 2.0.1 vendors mpv client API v1 headers and hard-fails `VersionMismatch` against this system's mpv 0.37 (client API v2), confirmed by actually running it. Don't re-add `libmpv` without re-checking this.
 - **`libmpv-dev` is installed** (`0.37.0-1ubuntu4`, confirmed via `pkg-config --modversion mpv` → `2.2.0`) — pulled in a large chain (ffmpeg/libav, SDL2, Vulkan, ~159MB), disclosed to the user before they confirmed via `apt`.
 
-### Still open / known gaps
+### Still open / known gaps (agent working notes — not for public text)
 
 - License: GPL-3.0-or-later (decided; `LICENSE` is in the repo).
 - Wayland video rendering is unverified (see above) — needs a live session to actually debug.

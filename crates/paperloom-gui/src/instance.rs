@@ -9,7 +9,7 @@
 
 use std::sync::Mutex;
 
-use iced::futures::channel::mpsc::{unbounded, UnboundedReceiver};
+use iced::futures::channel::mpsc::UnboundedReceiver;
 use iced::futures::stream::{BoxStream, StreamExt};
 
 static INBOX: Mutex<Option<UnboundedReceiver<String>>> = Mutex::new(None);
@@ -35,7 +35,9 @@ mod imp {
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::PathBuf;
 
-    use super::{unbounded, INBOX};
+    use iced::futures::channel::mpsc::unbounded;
+
+    use super::INBOX;
 
     fn socket_path(name: &str) -> PathBuf {
         match std::env::var_os("XDG_RUNTIME_DIR") {

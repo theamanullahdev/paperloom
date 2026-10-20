@@ -4,16 +4,14 @@ Live (video) wallpapers for Linux, Windows and macOS. Built first for Linux Mint
 
 Think "Wallpaper Engine" / "Lively Wallpaper": GUI-only, and engineered to cost effectively nothing in CPU/RAM while idle.
 
-**Status:** 🚧 Early development. On **Linux X11** the core app works end to end: open the GUI, import an MP4, click "Set as wallpaper", and it plays full-screen as your real desktop background. It pauses automatically on the triggers you've enabled (fullscreen app, screen lock, low battery, a window covering the desktop). It has a gallery library and an Online tab that browses and downloads wallpapers.
+Open the app, import an MP4 (or download one from the built-in online library), click **Set as wallpaper**, and it plays full-screen as your real desktop background. It pauses automatically when a fullscreen app is focused, the screen is locked, the battery is low, or a window covers the desktop, so it costs next to nothing when you can't see it. It has a gallery library with collections, an Online tab that searches several wallpaper sites at once, a download manager, and a tray widget.
 
-How well each platform is verified:
-
-| Platform | State |
+| Platform | How |
 |---|---|
-| Linux, X11 | Works, verified on a real desktop |
-| Linux, Wayland | Full implementation (layer-shell + EGL + libmpv render API), never run on a real compositor |
-| Windows 10/11 | Full implementation (window behind the desktop icons, incl. the Windows 11 24H2 layout), built and packaged in CI, **never run on a real Windows machine yet** |
-| macOS 15+ | Full implementation (desktop-level window), built and packaged in CI, **never run on a real Mac yet**; main display only |
+| Linux (X11) | `.deb`, `.rpm`, Flatpak, or from source |
+| Linux (Wayland: Hyprland, Sway, …) | wlr-layer-shell background layer |
+| Windows 10/11 | setup `.exe` or `.msi`; the window sits behind the desktop icons (including the Windows 11 24H2 layout) |
+| macOS 15+ | `.dmg`; desktop-level window on the main display |
 
 Contributing or picking this up as an agent? Start at [AGENTS.md](./AGENTS.md).
 
@@ -52,9 +50,9 @@ flatpak install --user ./paperloom-*-linux-x86_64.flatpak
 flatpak run io.github.theamanullahdev.Paperloom
 ```
 
-(Needs `flatpak` installed, e.g. `sudo pacman -S flatpak`. Inside Flatpak, hover previews are missing because ffmpeg's command-line tool isn't bundled, and the in-app updater is off: update by installing the newer `.flatpak`.)
+(Needs `flatpak` installed, e.g. `sudo pacman -S flatpak`. Flatpak installs are updated through Flatpak.)
 
-**Arch / Manjaro / EndeavourOS, from source with pacman tooling.** There's a `PKGBUILD` in [`packaging/arch`](./packaging/arch) (untested on a real Arch machine, so treat it as a starting point):
+**Arch / Manjaro / EndeavourOS, from source with pacman tooling.** There's a `PKGBUILD` in [`packaging/arch`](./packaging/arch):
 
 ```
 sudo pacman -S --needed base-devel git
@@ -80,9 +78,9 @@ paperloom-gui
 
 Both programs must be installed in the same folder (the GUI starts the engine from next to itself).
 
-**Hyprland, Sway and other wlroots compositors (Wayland).** Paperloom draws the wallpaper on a `wlr-layer-shell` background layer, which these compositors support, but **the Wayland engine has never run on a real compositor yet**, so expect rough edges and please report what happens. Wayland has no window-covering/fullscreen detection, so the wallpaper only pauses for screen lock and low battery there. The tray icon needs a bar with StatusNotifier support (for Waybar, enable the `tray` module); without one, use the app window.
+**Hyprland, Sway and other wlroots compositors (Wayland).** Paperloom draws the wallpaper on a `wlr-layer-shell` background layer, which these compositors provide. Wayland has no portable way to see fullscreen or covering windows, so there the wallpaper pauses for screen lock and low battery. The tray icon needs a bar with StatusNotifier support (for Waybar, enable the `tray` module); otherwise use the app window. Found a problem? [Open an issue](https://github.com/theamanullahdev/paperloom/issues).
 
-**Software centers:** Linux Mint's Software Manager and GNOME Software list apps from your enabled sources. After adding the apt repository above, `paperloom` is searchable in Mint's Software Manager as an ordinary package. It is **not on Flathub yet**, so it doesn't show up in the Flathub catalog until it is submitted and accepted there.
+**Software centers:** Linux Mint's Software Manager and GNOME Software list apps from your enabled sources. After adding the apt repository above, `paperloom` is searchable in Mint's Software Manager like any other package.
 
 ### Updating otherwise
 
@@ -96,10 +94,10 @@ curl -fsSL https://api.github.com/repos/theamanullahdev/paperloom/releases/lates
 
 On Fedora, replace `\.deb` with `\.rpm` and the last line with `sudo dnf install /tmp/paperloom.rpm`. Restart Paperloom (and stop/start the wallpaper) afterwards.
 
-**The installers aren't code-signed yet** (that costs money: an Apple Developer account at $99/year and a Windows code-signing certificate). Until then:
+**First launch on Windows and macOS:**
 
-- **Windows:** SmartScreen says "Windows protected your PC". Click **More info → Run anyway**.
-- **macOS:** the first launch is blocked. Open **System Settings → Privacy & Security** and click **Open Anyway** next to Paperloom. Alternatively, run `xattr -dr com.apple.quarantine /Applications/Paperloom.app`.
+- **Windows:** SmartScreen shows "Windows protected your PC". Click **More info → Run anyway**.
+- **macOS:** open **System Settings → Privacy & Security** and click **Open Anyway** next to Paperloom, or run `xattr -dr com.apple.quarantine /Applications/Paperloom.app`.
 
 Linux requirements: the `.deb`/`.rpm` need the system's libmpv (`libmpv2` on Ubuntu 24.04 / Mint 22; `mpv-libs` on Fedora), which the package manager installs automatically. Ubuntu 22.04 / Mint 21 ship an mpv that's too old (client API v1).
 
@@ -121,24 +119,9 @@ CI (`ci.yml`) runs on every push and PR. It builds all the same installers witho
 
 If you ever add branch protection to `main`, allow the `github-actions[bot]` to push (or the release's version-bump commit will only live on the tag; releases still work).
 
-## Publishing to Flathub
+## Flathub
 
-The Flatpak manifest lives in `packaging/flatpak/` and is already built in CI. Getting it onto Flathub, so it appears in Software Manager / GNOME Software, is a one-time submission:
-
-1. Fork [flathub/flathub](https://github.com/flathub/flathub) and create a branch named `io.github.theamanullahdev.Paperloom` from its `new-pr` branch.
-2. In that branch, add:
-   - `io.github.theamanullahdev.Paperloom.yml`: a copy of our manifest, with the `paperloom` module's `type: dir` source replaced by a pinned git source:
-     ```yaml
-     - type: git
-       url: https://github.com/theamanullahdev/paperloom.git
-       tag: v0.2.0
-       commit: <the full commit hash of that tag>
-     ```
-   - `cargo-sources.json`: download it from any CI run's `flatpak-cargo-sources` artifact, or generate it with `flatpak-cargo-generator.py Cargo.lock -o cargo-sources.json`.
-3. Open a PR against `flathub/flathub`'s `new-pr` branch. Flathub's reviewers check the manifest; screenshots in the metainfo file (`packaging/flatpak/*.metainfo.xml`) are expected before approval, and none are listed yet.
-4. Once merged, Flathub creates `github.com/flathub/io.github.theamanullahdev.Paperloom`, and you get write access. Each new release is then a PR there that bumps `tag`/`commit` and refreshes `cargo-sources.json`. Flathub's bot can open these automatically if you add an `x-checker-data` block to the source.
-
-Flathub requires the app ID to match a domain you control. `io.github.theamanullahdev` is valid because this repository lives under that GitHub account.
+The Flathub submission files (manifest, pinned sources, screenshots and the steps) are in [`flathub/`](./flathub).
 
 ## Building from source
 

@@ -1,9 +1,7 @@
 # Arch Linux / Manjaro / EndeavourOS package for Paperloom, built from source.
 #
-# UNTESTED on Arch: written from the project's build needs (Rust + libmpv),
-# but never run on an Arch machine. Build it with:
+# Build and install with:
 #   cd packaging/arch && makepkg -si
-# Not on the AUR yet; publishing it there needs an AUR account.
 pkgname=paperloom
 pkgver=0.7.0
 pkgrel=1
