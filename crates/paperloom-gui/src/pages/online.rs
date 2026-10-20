@@ -55,6 +55,8 @@ const RELATED_SEARCHES: usize = 4;
 /// shows fewer cards than this, so a narrow keyword still fills the page.
 const MIN_RESULTS: usize = 24;
 const MAX_AUTO_ROUNDS: u32 = 3;
+/// Saved results younger than this are shown as they are, with no refetch.
+const FRESH_FOR: Duration = Duration::from_secs(15 * 60);
 
 /// One keyword being searched across every enabled source: the query
 /// itself, or one of its related keywords.
@@ -88,6 +90,13 @@ pub struct State {
     generation: u64,
     loaded_once: bool,
     auto_rounds: u32,
+    /// Which saved search this page's results belong to (see
+    /// `paperloom_fetch::load_listing`).
+    cache_key: String,
+    /// The cards on screen came from the saved copy and are older than
+    /// `FRESH_FOR`: replaced as soon as fresh results arrive, kept if the
+    /// network never answers.
+    saved_pending: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +140,8 @@ impl State {
             generation: 0,
             loaded_once: false,
             auto_rounds: 0,
+            cache_key: String::new(),
+            saved_pending: false,
         }
     }
 
@@ -166,8 +177,16 @@ impl State {
     }
 
     /// Starts a new search: the query itself plus a few related keywords,
-    /// all at once; results are merged as each one comes back.
+    /// all at once; results are merged as each one comes back. Saved
+    /// results for the same search show immediately, and the network is
+    /// only asked again once they're older than `FRESH_FOR`.
     pub fn search(&mut self, settings: &Settings, query: String) -> Task<Message> {
+        self.start_search(settings, query, false)
+    }
+
+    /// `force`: refetch even if the saved results are fresh (Reload,
+    /// "Try again", the reconnect check).
+    fn start_search(&mut self, settings: &Settings, query: String, force: bool) -> Task<Message> {
         self.active_query = query.trim().to_string();
         self.generation += 1;
         self.loaded_once = true;
@@ -175,11 +194,49 @@ impl State {
         self.notices.clear();
         self.failure = None;
         self.auto_rounds = 0;
+        self.saved_pending = false;
+        self.cache_key = cache_key(&self.active_query, settings);
         self.streams = std::iter::once(self.active_query.clone())
             .chain(paperloom_fetch::keywords::related_queries(&self.active_query, RELATED_SEARCHES))
             .map(Stream::new)
             .collect();
-        Task::batch((0..self.streams.len()).map(|index| self.load(settings, index)).collect::<Vec<_>>())
+
+        let mut tasks = Vec::new();
+        let mut fresh = false;
+        if let Some(saved) = paperloom_fetch::load_listing(&self.cache_key) {
+            fresh = !force && saved.age < FRESH_FOR;
+            self.saved_pending = !fresh;
+            for item in saved.items {
+                self.push_item(item, &mut tasks);
+            }
+        }
+        if !fresh {
+            tasks.extend((0..self.streams.len()).map(|index| self.load(settings, index)));
+        }
+        Task::batch(tasks)
+    }
+
+    /// Adds a card (once) and makes sure its picture will appear: straight
+    /// from the disk cache when it's there, otherwise fetched in the
+    /// background.
+    fn push_item(&mut self, item: OnlineItem, fetches: &mut Vec<Task<Message>>) {
+        let key = item.key();
+        if self.items.iter().any(|existing| existing.key() == key) {
+            return;
+        }
+        if !item.thumb_url.is_empty() && !self.thumbs.contains_key(&key) {
+            if let Some(path) = paperloom_fetch::cached_thumbnail(&item.thumb_url) {
+                self.thumbs.insert(key.clone(), path);
+            } else {
+                let url = item.thumb_url.clone();
+                let thumb_key = key.clone();
+                fetches.push(Task::perform(
+                    blocking(move || paperloom_fetch::fetch_thumbnail(&url).map_err(|err| err.to_string())),
+                    move |result| Message::ThumbLoaded(thumb_key.clone(), result),
+                ));
+            }
+        }
+        self.items.push(item);
     }
 
     /// The next page of one stream.
@@ -212,7 +269,7 @@ impl State {
             Message::Search(query) => return self.search(settings, query),
             Message::Reload | Message::Recheck => {
                 if !self.loading() {
-                    return self.search(settings, self.active_query.clone());
+                    return self.start_search(settings, self.active_query.clone(), true);
                 }
             }
             Message::LoadMore => {
@@ -237,20 +294,15 @@ impl State {
                                 self.notices.push(notice);
                             }
                         }
-                        for item in listing.items {
-                            let key = item.key();
-                            if self.items.iter().any(|existing| existing.key() == key) {
-                                continue;
-                            }
-                            if !item.thumb_url.is_empty() && !self.thumbs.contains_key(&key) {
-                                let url = item.thumb_url.clone();
-                                fetches.push(Task::perform(
-                                    blocking(move || paperloom_fetch::fetch_thumbnail(&url).map_err(|err| err.to_string())),
-                                    move |result| Message::ThumbLoaded(key.clone(), result),
-                                ));
-                            }
-                            self.items.push(item);
+                        // First fresh results replace the (older) saved cards.
+                        if self.saved_pending && !listing.items.is_empty() {
+                            self.items.clear();
+                            self.saved_pending = false;
                         }
+                        for item in listing.items {
+                            self.push_item(item, &mut fetches);
+                        }
+                        paperloom_fetch::save_listing(&self.cache_key, &self.items[..self.items.len().min(72)]);
                     }
                     Err(failure) => {
                         state.has_more = false;
@@ -530,4 +582,11 @@ fn truncate(text: &str, max_chars: usize) -> String {
         let head: String = text.chars().take(max_chars.saturating_sub(1)).collect();
         format!("{head}…")
     }
+}
+
+/// One saved search per (words, enabled sources, mature filter).
+fn cache_key(query: &str, settings: &Settings) -> String {
+    let mut sources: Vec<&str> = settings.sources.iter().filter(|source| source.enabled).map(|source| source.id.as_str()).collect();
+    sources.sort_unstable();
+    format!("{}|{}|{}", query.to_lowercase(), sources.join(","), settings.allow_mature)
 }

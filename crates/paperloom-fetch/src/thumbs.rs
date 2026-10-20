@@ -9,16 +9,25 @@ use crate::http::{self, FetchError};
 
 const MAX_IMAGE_BYTES: u64 = 4 * 1024 * 1024;
 
+fn path_for(url: &str) -> PathBuf {
+    let extension = if url.ends_with(".png") { "png" } else { "jpg" };
+    online_cache_dir().join(format!("{:016x}.{extension}", fnv1a(url)))
+}
+
+/// The cached file for `url` if it's already on disk — no network, no
+/// threads, so a saved results page can show its images immediately.
+pub fn cached(url: &str) -> Option<PathBuf> {
+    let path = path_for(url);
+    path.metadata().is_ok_and(|meta| meta.len() > 0).then_some(path)
+}
+
 /// Returns the cached file for `url`, fetching it first if needed.
 pub fn fetch(url: &str) -> Result<PathBuf, FetchError> {
-    let dir = online_cache_dir();
-    std::fs::create_dir_all(&dir).map_err(|err| FetchError::Transient(format!("cache dir: {err}")))?;
-
-    let extension = if url.ends_with(".png") { "png" } else { "jpg" };
-    let path = dir.join(format!("{:016x}.{extension}", fnv1a(url)));
-    if path.metadata().is_ok_and(|meta| meta.len() > 0) {
+    if let Some(path) = cached(url) {
         return Ok(path);
     }
+    let path = path_for(url);
+    std::fs::create_dir_all(online_cache_dir()).map_err(|err| FetchError::Transient(format!("cache dir: {err}")))?;
 
     let bytes = http::get_bytes(url, MAX_IMAGE_BYTES)?;
     // Write-then-rename so a half-written file is never mistaken for a

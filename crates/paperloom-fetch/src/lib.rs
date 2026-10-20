@@ -4,6 +4,7 @@
 //! never links an HTTP/TLS stack — only the GUI depends on this crate.
 
 mod aggregate;
+mod cache;
 mod download;
 mod generic;
 mod http;
@@ -26,4 +27,5 @@ pub use stats::received as bytes_received;
 pub use queue::{Job, Queue, Status};
 pub use aggregate::{fetch_page, Cursor, Page, MATURE_BLOCKED_NOTICE};
 pub use source::{Listing, OnlineItem, Variant};
-pub use thumbs::fetch as fetch_thumbnail;
+pub use cache::{load as load_listing, save as save_listing, SavedListing};
+pub use thumbs::{cached as cached_thumbnail, fetch as fetch_thumbnail};

@@ -139,7 +139,10 @@ impl App {
         } else {
             Task::none()
         };
-        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check, start]))
+        // Fill the Online page now (from saved results when they're fresh),
+        // so it is already full by the time the tab is opened.
+        let warm = app.online_page.ensure_loaded(&app.settings).map(Message::Online);
+        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check, start, warm]))
     }
 
     fn effective_theme(&self) -> paperloom_common::ThemeMode {
@@ -741,7 +744,12 @@ impl App {
                 if inner.is_empty() {
                     inner.push(container(text("No collections here yet").size(12).color(t.muted_foreground)).padding([4, 10]).into());
                 }
-                rows.push(self.children(inner, 1, t));
+                // However many collections there are, this list scrolls in
+                // place (no visible bar) instead of pushing the rest of the
+                // sidebar off the bottom.
+                let list = scrollable(column(inner).spacing(1).width(Length::Fill))
+                    .direction(iced::widget::scrollable::Direction::Vertical(iced::widget::scrollable::Scrollbar::hidden()));
+                rows.push(row![Space::new().width(Length::Fixed(26.0)), container(list).max_height(220.0).width(Length::Fill)].into());
             }
             rows.push(self.tree_row(icons::eye_off(), "Hidden".into(), 1, on_library && tab == library::Tab::Hidden, None, go_tab(library::Tab::Hidden), t));
             tree = tree.push(self.children(rows, 0, t));
@@ -808,7 +816,11 @@ impl App {
             container(text("P").font(theme::DISPLAY_FONT).size(22).color(t.primary)).center_x(Length::Fill).into()
         };
 
-        container(scrollable(column![brand, items].spacing(20).padding(if labels { 16 } else { 8 })))
+        // Scrolls when the tree outgrows the window, with no visible bar.
+        container(
+            scrollable(column![brand, items].spacing(20).padding(if labels { 16 } else { 8 }))
+                .direction(iced::widget::scrollable::Direction::Vertical(iced::widget::scrollable::Scrollbar::hidden())),
+        )
             .width(Length::Fixed(rail_width))
             .height(Length::Fill)
             .style(move |_theme| container::Style {

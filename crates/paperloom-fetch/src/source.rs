@@ -4,19 +4,21 @@
 //! Pexels, Pixabay) are chosen by `SourceSetting::id`; anything else is a
 //! user-added page source.
 
+use serde::{Deserialize, Serialize};
+
 use paperloom_common::{SourceSetting, SOURCE_MIXKIT, SOURCE_MOTIONBGS, SOURCE_PEXELS, SOURCE_PIXABAY, SOURCE_WALLPAPERWAVES};
 
 use crate::http::FetchError;
 
 /// One downloadable rendition of a wallpaper.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Variant {
     /// "HD" or "4K".
     pub label: String,
     pub url: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OnlineItem {
     /// Source-native identifier.
     pub id: String,
