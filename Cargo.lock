@@ -2812,7 +2812,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-common"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "directories",
  "serde",
@@ -2822,7 +2822,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-engine"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "khronos-egl",
  "ksni",
@@ -2840,7 +2840,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-fetch"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "paperloom-common",
  "serde",
@@ -2852,7 +2852,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-gui"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "iced",
  "paperloom-common",
