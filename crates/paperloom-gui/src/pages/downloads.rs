@@ -8,7 +8,9 @@ use std::time::Instant;
 use iced::widget::{button, column, container, mouse_area, progress_bar, row, svg, text, Space};
 use iced::{Background, Border, Element, Length, Task};
 
-use paperloom_fetch::{Job, Queue, Status};
+use paperloom_fetch::{Diagnosis, Job, Queue, Status};
+
+use super::network::Meter;
 
 use crate::{icons, theme};
 
@@ -17,6 +19,11 @@ pub struct State {
     /// The job currently being dragged (picked up by its grip handle).
     dragging: Option<String>,
     speeds: HashMap<String, Speed>,
+    /// Connection meter: speed graph and connection check.
+    meter: Meter,
+    /// Sites the connection check tests (set by the app from the enabled
+    /// sources).
+    hosts: Vec<String>,
 }
 
 struct Speed {
@@ -34,6 +41,9 @@ pub enum Message {
     MoveToTop(String),
     Retry(String),
     Cancel(String),
+    /// "Check connection": tests the connection only, not any download.
+    CheckConnection,
+    Diagnosed(Diagnosis),
 }
 
 impl State {
@@ -41,9 +51,23 @@ impl State {
         self.dragging.is_some()
     }
 
-    /// Updates per-job transfer speed (smoothed) from the latest snapshot.
-    /// Called from the app's download tick.
+    pub fn set_hosts(&mut self, hosts: Vec<String>) {
+        self.hosts = hosts;
+    }
+
+    /// Runs a connection check when the page opens, if the last one is old.
+    pub fn opened(&mut self) -> Task<Message> {
+        if self.meter.needs_check() {
+            self.meter.check(self.hosts.clone()).map(Message::Diagnosed)
+        } else {
+            Task::none()
+        }
+    }
+
+    /// Updates the speed graph and per-job transfer speed (smoothed) from
+    /// the latest snapshot. Called from the app's download tick.
     pub fn sample(&mut self, jobs: &[Job]) {
+        self.meter.sample();
         let now = Instant::now();
         self.speeds.retain(|id, _| jobs.iter().any(|job| &job.id == id && job.status == Status::Downloading));
 
@@ -84,6 +108,8 @@ impl State {
             Message::MoveToTop(id) => queue.move_job(&id, 0),
             Message::Retry(id) => queue.retry(&id),
             Message::Cancel(id) => queue.cancel(&id),
+            Message::CheckConnection => return self.meter.check(self.hosts.clone()).map(Message::Diagnosed),
+            Message::Diagnosed(diagnosis) => self.meter.finish_check(diagnosis),
         }
         Task::none()
     }
@@ -93,15 +119,16 @@ impl State {
     }
 
     pub fn body<'a>(&'a self, t: theme::Tokens, jobs: Vec<Job>) -> Element<'a, Message> {
-        if jobs.is_empty() {
-            return container(text("No downloads yet. Pick wallpapers in the Online tab.").color(t.muted_foreground)).padding(24).into();
-        }
+        let mut list = column![self.meter.view(t, Message::CheckConnection)].spacing(14);
 
-        let mut list = column![text("Drag the handle to change download order — the top one goes first.").size(12).color(t.muted_foreground)]
-            .spacing(10);
-        for job in jobs {
-            let speed = self.speeds.get(&job.id).map(|s| s.bytes_per_second).unwrap_or(0.0);
-            list = list.push(job_row(job, speed, self.dragging.as_deref(), t));
+        if jobs.is_empty() {
+            list = list.push(text("No downloads yet. Pick wallpapers in the Online tab.").color(t.muted_foreground));
+        } else {
+            list = list.push(text("Drag the handle to change download order — the top one goes first.").size(12).color(t.muted_foreground));
+            for job in jobs {
+                let speed = self.speeds.get(&job.id).map(|s| s.bytes_per_second).unwrap_or(0.0);
+                list = list.push(job_row(job, speed, self.dragging.as_deref(), t));
+            }
         }
         crate::ui::scroll_page(list).into()
     }

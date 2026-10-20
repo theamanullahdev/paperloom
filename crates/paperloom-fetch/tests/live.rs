@@ -52,3 +52,49 @@ fn browse_search_paginate_and_download_with_resume() {
     assert_eq!(Some(bytes.len() as u64), job.bytes_total);
     queue.acknowledge(&job.id, true);
 }
+
+fn only(id: &str) -> Vec<paperloom_common::SourceSetting> {
+    let mut sources = Settings::default().with_builtin_sources().sources;
+    for source in &mut sources {
+        source.enabled = source.id == id;
+    }
+    sources
+}
+
+/// Lists a site, then starts a real download of its first wallpaper and
+/// waits until bytes arrive (cancelling after, so a 100 MB file isn't pulled).
+fn browse_and_start_download(id: &str, query: &str) {
+    let page = fetch_page(&only(id), query, 1, &HashMap::new(), false).unwrap_or_else(|err| panic!("{id}: listing failed: {err}"));
+    assert!(page.items.len() >= 8, "{id}: only {} items", page.items.len());
+    for item in page.items.iter().take(5) {
+        assert!(!item.title.trim().is_empty() && !item.thumb_url.is_empty(), "{id}: bad card {item:?}");
+    }
+    println!("{id}: {} items, first = {:?}", page.items.len(), page.items[0].title);
+
+    let queue = Queue::start();
+    assert!(queue.add(&page.items[0], "HD"));
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let job = queue.snapshot().remove(0);
+        assert_ne!(job.status, Status::Failed, "{id}: {job:?}");
+        if job.bytes_done > 100_000 || job.status == Status::Done {
+            println!("{id}: download flowing ({} bytes of {:?})", job.bytes_done, job.bytes_total);
+            queue.cancel(&job.id);
+            break;
+        }
+        assert!(Instant::now() < deadline, "{id}: no bytes arrived: {job:?}");
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+#[test]
+#[ignore = "network"]
+fn mixkit_lists_and_downloads() {
+    browse_and_start_download(paperloom_common::SOURCE_MIXKIT, "rain");
+}
+
+#[test]
+#[ignore = "network"]
+fn wallpaperwaves_lists_and_downloads() {
+    browse_and_start_download(paperloom_common::SOURCE_WALLPAPERWAVES, "");
+}

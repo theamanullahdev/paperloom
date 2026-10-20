@@ -13,6 +13,7 @@ use crate::http::{self, classify_status, classify_transport, FetchError, Lane};
 /// Runs one attempt: continues `part` if it exists, and on success renames
 /// it to `dest`. `progress(done, total)` is called as bytes arrive.
 pub fn download(
+    source_id: &str,
     url: &str,
     part: &Path,
     dest: &Path,
@@ -26,14 +27,26 @@ pub fn download(
     }
     let existing = part.metadata().map(|m| m.len()).unwrap_or(0);
 
-    // Page sources may hand over the wallpaper's page instead of its video.
-    let url = crate::generic::resolve_video(url)?;
-    http::wait_turn(Lane::Download);
-    let mut request = http::agent().get(&url);
-    if existing > 0 {
-        request = request.header("Range", format!("bytes={existing}-"));
+    let mut response = open(url, existing)?;
+
+    // A page source may hand over the wallpaper's *page* instead of its
+    // video. Decide by what the server actually sends, never by how the URL
+    // is spelled: MotionBGS's `/dl/hd/<id>/` is a video with no ".mp4" in
+    // it, and guessing from the URL made every one of those downloads try
+    // to read a whole video as a web page.
+    if is_page(&response) {
+        use ureq::ResponseExt;
+        let page_url = response.get_uri().to_string();
+        let body = response
+            .body_mut()
+            .with_config()
+            .limit(4 * 1024 * 1024)
+            .read_to_string()
+            .map_err(classify_transport)?;
+        crate::stats::add(body.len() as u64);
+        let video = crate::source::resolve_page(source_id, &page_url, &body)?;
+        response = open(&video, existing)?;
     }
-    let mut response = request.call().map_err(classify_transport)?;
 
     let status = response.status().as_u16();
     let (mut done, total, append) = match status {
@@ -72,6 +85,7 @@ pub fn download(
         if read == 0 {
             break;
         }
+        crate::stats::add(read as u64);
 
         // A 200 with an HTML error/login page would otherwise be saved as
         // a "wallpaper". MP4 files carry `ftyp` at byte offset 4.
@@ -101,6 +115,29 @@ pub fn download(
 
     fs::rename(part, dest).map_err(io)?;
     Ok(())
+}
+
+/// One GET (resuming at `existing` bytes), after waiting for the download
+/// lane's turn.
+fn open(url: &str, existing: u64) -> Result<ureq::http::Response<ureq::Body>, FetchError> {
+    http::wait_turn(Lane::Download);
+    let mut request = http::agent().get(url);
+    if existing > 0 {
+        request = request.header("Range", format!("bytes={existing}-"));
+    }
+    request.call().map_err(classify_transport)
+}
+
+/// The response is a web page (HTML/text), not a video file.
+fn is_page(response: &ureq::http::Response<ureq::Body>) -> bool {
+    response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|kind| {
+            let kind = kind.to_ascii_lowercase();
+            kind.starts_with("text/") || kind.contains("html")
+        })
 }
 
 fn content_length(response: &ureq::http::Response<ureq::Body>) -> Option<u64> {
@@ -181,12 +218,12 @@ mod tests {
         let (part, dest) = (dir.join("v.mp4.part"), dir.join("v.mp4"));
         let cancel = AtomicBool::new(false);
 
-        let first = download(&url, &part, &dest, &cancel, |_, _| {});
+        let first = download("test", &url, &part, &dest, &cancel, |_, _| {});
         assert!(matches!(first, Err(FetchError::Transient(_))), "{first:?}");
         assert!(!dest.exists());
         assert_eq!(part.metadata().unwrap().len() as usize, full.len() * 4 / 10);
 
-        download(&url, &part, &dest, &cancel, |_, _| {}).expect("resumed download");
+        download("test", &url, &part, &dest, &cancel, |_, _| {}).expect("resumed download");
         assert_eq!(fs::read(&dest).unwrap(), full, "resumed file must be byte-identical");
         assert!(!part.exists());
     }
@@ -202,7 +239,7 @@ mod tests {
         });
 
         let (part, dest) = (dir.join("v.mp4.part"), dir.join("v.mp4"));
-        let result = download(&url, &part, &dest, &AtomicBool::new(false), |_, _| {});
+        let result = download("test", &url, &part, &dest, &AtomicBool::new(false), |_, _| {});
         assert!(matches!(result, Err(FetchError::Permanent(_))), "{result:?}");
         assert!(!dest.exists() && !part.exists());
     }
@@ -214,8 +251,75 @@ mod tests {
             let url = serve(1, move |_, stream| {
                 stream.write_all(format!("HTTP/1.1 {code} X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).unwrap();
             });
-            let result = download(&url, &dir.join("a.part"), &dir.join("a.mp4"), &AtomicBool::new(false), |_, _| {});
+            let result = download("test", &url, &dir.join("a.part"), &dir.join("a.mp4"), &AtomicBool::new(false), |_, _| {});
             assert_eq!(matches!(result, Err(FetchError::Permanent(_))), expect_permanent, "HTTP {code}: {result:?}");
         }
+    }
+
+    #[test]
+    fn downloads_a_video_served_from_an_extensionless_url() {
+        // MotionBGS-style: `/dl/hd/10118/` is the video itself.
+        let dir = scratch("direct");
+        let full = fake_mp4(120_000);
+        let served = full.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/dl/hd/10118/", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
+            }
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", served.len());
+            stream.write_all(head.as_bytes()).unwrap();
+            stream.write_all(&served).unwrap();
+        });
+
+        let (part, dest) = (dir.join("v.mp4.part"), dir.join("v.mp4"));
+        download("test", &url, &part, &dest, &AtomicBool::new(false), |_, _| {}).expect("direct video download");
+        assert_eq!(fs::read(&dest).unwrap(), full);
+    }
+
+    #[test]
+    fn follows_a_wallpaper_page_to_its_video() {
+        let dir = scratch("page");
+        let full = fake_mp4(60_000);
+        let served = full.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let page_url = format!("{base}/wallpaper/neon-city/");
+        std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut first = String::new();
+                reader.read_line(&mut first).unwrap();
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                }
+                if first.contains("/files/") {
+                    let head = format!("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", served.len());
+                    stream.write_all(head.as_bytes()).unwrap();
+                    stream.write_all(&served).unwrap();
+                } else {
+                    let page = "<html><video src=\"/files/neon-city-preview-480.mp4\"></video><a href=\"/files/neon-city-1080.mp4\">get</a></html>";
+                    let head = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", page.len());
+                    stream.write_all(head.as_bytes()).unwrap();
+                    stream.write_all(page.as_bytes()).unwrap();
+                }
+            }
+        });
+
+        let (part, dest) = (dir.join("p.mp4.part"), dir.join("p.mp4"));
+        download("test", &page_url, &part, &dest, &AtomicBool::new(false), |_, _| {}).expect("page-to-video download");
+        assert_eq!(fs::read(&dest).unwrap(), full);
     }
 }

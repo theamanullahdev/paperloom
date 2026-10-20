@@ -243,7 +243,7 @@ impl Queue {
             let result = {
                 let progress_queue = self.clone();
                 let id = job.id.clone();
-                download(&job.url, &job.part_path(), &job.final_path(), &cancel, move |done, total| {
+                download(job.id.split(':').next().unwrap_or(""), &job.url, &job.part_path(), &job.final_path(), &cancel, move |done, total| {
                     let mut state = progress_queue.lock();
                     if let Some(job) = state.jobs.iter_mut().find(|job| job.id == id) {
                         job.bytes_done = done;

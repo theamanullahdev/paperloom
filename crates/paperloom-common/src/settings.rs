@@ -113,6 +113,8 @@ pub struct SourceSetting {
 pub const SOURCE_MOTIONBGS: &str = "motionbgs.com";
 pub const SOURCE_PEXELS: &str = "pexels.com";
 pub const SOURCE_PIXABAY: &str = "pixabay.com";
+pub const SOURCE_MIXKIT: &str = "mixkit.co";
+pub const SOURCE_WALLPAPERWAVES: &str = "wallpaperwaves.com";
 
 impl SourceSetting {
     /// Whether this source can be used yet — Pexels/Pixabay refuse to
@@ -131,19 +133,16 @@ fn builtin_sources() -> Vec<SourceSetting> {
         url: String::new(),
         builtin: true,
     };
-    let site = |id: &str, name: &str, url: &str| SourceSetting { url: url.to_string(), ..make(id, name, true) };
     vec![
         make(SOURCE_MOTIONBGS, "MotionBGs", true),
         // Off until the user adds a key, so a fresh install doesn't show
         // "needs API key" errors for sources they never asked for.
         make(SOURCE_PEXELS, "Pexels (videos)", false),
         make(SOURCE_PIXABAY, "Pixabay (videos)", false),
-        // Sites read by the general page reader (`paperloom-fetch`'s
-        // `generic.rs`): their search pages, then each wallpaper's page.
-        site("moewalls.com", "MoeWalls", "https://moewalls.com/page/{page}/?s={q}"),
-        site("mylivewallpapers.com", "MyLiveWallpapers", "https://mylivewallpapers.com/page/{page}/?s={q}"),
-        site("wallpaperwaves.com", "Wallpaper Waves", "https://wallpaperwaves.com/page/{page}/?s={q}"),
-        site("mixkit.co", "Mixkit (stock video)", "https://mixkit.co/free-stock-video/{q=abstract}/?page={page}"),
+        // Each known site has its own reader in `paperloom-fetch`; the
+        // generic page reader is only for sites the user adds.
+        make(SOURCE_WALLPAPERWAVES, "Wallpaper Waves", true),
+        make(SOURCE_MIXKIT, "Mixkit (stock video)", true),
     ]
 }
 
@@ -231,6 +230,12 @@ impl Settings {
     /// Adds any built-in source missing from `sources` (a config written
     /// before that source existed). Never touches existing entries.
     pub fn with_builtin_sources(mut self) -> Self {
+        // Drop built-in entries this version no longer ships (MoeWalls and
+        // MyLiveWallpapers can't be read legitimately); user-added sources
+        // are never touched.
+        let current: Vec<String> = builtin_sources().into_iter().map(|source| source.id).collect();
+        self.sources.retain(|source| !source.builtin || current.contains(&source.id));
+
         for builtin in builtin_sources() {
             if !self.sources.iter().any(|source| source.id == builtin.id) {
                 self.sources.push(builtin);

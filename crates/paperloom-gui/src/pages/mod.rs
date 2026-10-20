@@ -1,6 +1,7 @@
 pub mod downloads;
 pub mod gallery;
 pub mod library;
+pub mod network;
 pub mod online;
 pub mod settings;
 pub mod sources;

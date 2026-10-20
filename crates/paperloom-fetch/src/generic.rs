@@ -1,12 +1,12 @@
 //! Page-reading sources: user-added URLs and the built-in site presets
-//! (MoeWalls, Mixkit, …). Deliberately general, so a new site needs a URL,
+//! (sites the user adds; every known site has its own reader). Deliberately general, so a new site needs a URL,
 //! not code:
 //!
 //! - If the page links straight to `.mp4` files (a gallery page, most JSON
 //!   listing APIs), those are the results.
 //! - Otherwise each same-site link wrapping an image (a search result
 //!   card: link, title, thumbnail) is a result, and the download step
-//!   fetches that wallpaper's own page to find its video (`resolve_video`).
+//!   fetches that wallpaper's own page to find its video (`download::download` calls `best_mp4`).
 //!
 //! The URL may contain `{q}` (the search text; `{q=abstract}` sets what to
 //! use when browsing without one) and `{page}` (page number; without it
@@ -146,18 +146,13 @@ fn host_of(url: &str) -> String {
     host.strip_prefix("www.").map(str::to_string).unwrap_or(host)
 }
 
-fn decode_entities(text: &str) -> String {
+pub(crate) fn decode_entities(text: &str) -> String {
     text.replace("&amp;", "&").replace("&#039;", "'").replace("&#8217;", "’").replace("&quot;", "\"").replace("&#8211;", "–").replace("&lt;", "<").replace("&gt;", ">")
 }
 
-/// A download URL from a page source may be a wallpaper's page rather than
-/// its video: fetch the page and pick its best `.mp4` (largest-sounding,
-/// not a preview). Direct video URLs come back unchanged.
-pub fn resolve_video(url: &str) -> Result<String, FetchError> {
-    if url.to_lowercase().contains(".mp4") {
-        return Ok(url.to_string());
-    }
-    let (body, final_url) = http::get_text(url)?;
+/// Picks the wallpaper's real video out of its page: the best-sounding
+/// `.mp4` (largest, not a preview).
+pub fn best_mp4(body: &str, page_url: &str) -> Result<String, FetchError> {
     let score = |link: &String| {
         let link = link.to_lowercase();
         let mut score = 0;
@@ -173,7 +168,7 @@ pub fn resolve_video(url: &str) -> Result<String, FetchError> {
         }
         score
     };
-    find_mp4_links(&body, &final_url)
+    find_mp4_links(body, page_url)
         .into_iter()
         .max_by_key(score)
         .ok_or_else(|| FetchError::Permanent("no video found on the wallpaper's page".into()))

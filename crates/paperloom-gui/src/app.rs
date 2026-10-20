@@ -157,6 +157,10 @@ impl App {
                 if page == Page::Settings {
                     self.settings_page.refresh(self.library_page.library());
                 }
+                if page == Page::Downloads {
+                    self.downloads_page.set_hosts(crate::pages::network::hosts_for(&self.settings));
+                    return self.downloads_page.opened().map(Message::Downloads);
+                }
                 if page == Page::Online {
                     if std::mem::take(&mut self.online_stale) {
                         self.online_page.update(&self.settings, online::Message::Reload).map(Message::Online)
@@ -184,7 +188,10 @@ impl App {
                 self.page = Page::Online;
                 Task::none()
             }
-            Message::Downloads(msg) => self.downloads_page.update(self.online_page.queue(), msg).map(Message::Downloads),
+            Message::Downloads(msg) => {
+                self.downloads_page.set_hosts(crate::pages::network::hosts_for(&self.settings));
+                self.downloads_page.update(self.online_page.queue(), msg).map(Message::Downloads)
+            }
             Message::Sources(msg) => {
                 self.online_stale = true;
                 self.sources_page.update(&mut self.settings, msg).map(Message::Sources)
@@ -232,7 +239,7 @@ impl App {
             self.settings_page.subscription().map(Message::Settings),
             self.library_page.subscription(self.page == Page::Library).map(Message::Library),
             self.online_page.subscription(self.page == Page::Online).map(Message::Online),
-            if self.online_page.queue().is_busy() || !self.online_page.queue().finished().is_empty() {
+            if self.online_page.queue().is_busy() || !self.online_page.queue().finished().is_empty() || self.page == Page::Downloads {
                 // Smoother progress while the Downloads page is open.
                 let period = if self.page == Page::Downloads { Duration::from_millis(300) } else { Duration::from_secs(1) };
                 iced::time::every(period).map(|_| Message::DownloadsTick)

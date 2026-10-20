@@ -126,7 +126,14 @@ pub fn classify_status(status: u16) -> Option<FetchError> {
 }
 
 pub fn classify_transport(err: ureq::Error) -> FetchError {
-    FetchError::Transient(err.to_string())
+    let message = err.to_string();
+    // Bot-protection services (Sucuri, Cloudflare challenges) answer
+    // automated clients with a redirect that has no destination. Retrying
+    // never helps, and the raw protocol error is cryptic — say what it is.
+    if message.contains("location header") {
+        return FetchError::Permanent("this site blocks automated access, so Paperloom can't read it".into());
+    }
+    FetchError::Transient(message)
 }
 
 /// Fetches a page as text, returning the body and the final URL after
@@ -154,6 +161,7 @@ pub fn get_text_with(url: &str, headers: &[(&str, &str)]) -> Result<(String, Str
     }
     let final_url = response.get_uri().to_string();
     let body = response.body_mut().read_to_string().map_err(classify_transport)?;
+    crate::stats::add(body.len() as u64);
     Ok((body, final_url))
 }
 

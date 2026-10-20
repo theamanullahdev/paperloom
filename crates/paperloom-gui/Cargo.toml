@@ -11,7 +11,7 @@ authors = ["Amanullah Behlim <theamanullahdev@gmail.com>"]
 # "tokio": iced's default executor backend (thread-pool) has no timer
 # support at all (`iced::time::every` doesn't exist without it) — needed
 # to drive the settings-page highlight animation's frame ticks.
-iced = { version = "0.14", features = ["tokio", "svg", "image"] }
+iced = { version = "0.14", features = ["tokio", "svg", "image", "canvas"] }
 rfd = "0.17"
 paperloom-common = { path = "../paperloom-common" }
 paperloom-fetch = { path = "../paperloom-fetch" }

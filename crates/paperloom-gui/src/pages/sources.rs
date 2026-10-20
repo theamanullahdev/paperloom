@@ -131,7 +131,8 @@ fn source_card<'a>(source: &'a SourceSetting, t: theme::Tokens) -> Element<'a, M
         paperloom_common::SOURCE_MOTIONBGS => Some("motionbgs.com — no key needed. Offers HD and 4K."),
         paperloom_common::SOURCE_PEXELS => Some("Free key at pexels.com/api. Offers HD and 4K."),
         paperloom_common::SOURCE_PIXABAY => Some("Free key at pixabay.com/api/docs. Offers HD and 4K where available."),
-        _ if source.builtin => Some("Read from the site's search pages; the video is found on each wallpaper's page when you download it."),
+        paperloom_common::SOURCE_MIXKIT => Some("mixkit.co — free stock video, no key needed. Offers the 720p file the site serves publicly."),
+        paperloom_common::SOURCE_WALLPAPERWAVES => Some("wallpaperwaves.com — no key needed. The download link is found on each wallpaper's page when you download it."),
         _ => None,
     };
     if let Some(hint) = hint {

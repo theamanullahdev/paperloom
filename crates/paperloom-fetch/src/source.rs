@@ -4,7 +4,7 @@
 //! Pexels, Pixabay) are chosen by `SourceSetting::id`; anything else is a
 //! user-added page source.
 
-use paperloom_common::{SourceSetting, SOURCE_MOTIONBGS, SOURCE_PEXELS, SOURCE_PIXABAY};
+use paperloom_common::{SourceSetting, SOURCE_MIXKIT, SOURCE_MOTIONBGS, SOURCE_PEXELS, SOURCE_PIXABAY, SOURCE_WALLPAPERWAVES};
 
 use crate::http::FetchError;
 
@@ -69,11 +69,25 @@ pub fn build(setting: &SourceSetting, safe_search: bool) -> Box<dyn Source> {
         SOURCE_MOTIONBGS => Box::new(crate::motionbgs::MotionBgs),
         SOURCE_PEXELS => Box::new(crate::pexels::Pexels { key: setting.api_key.clone() }),
         SOURCE_PIXABAY => Box::new(crate::pixabay::Pixabay { key: setting.api_key.clone(), safe_search }),
+        SOURCE_MIXKIT => Box::new(crate::mixkit::Mixkit),
+        SOURCE_WALLPAPERWAVES => Box::new(crate::wallpaperwaves::WallpaperWaves),
+        // Only sites the user added come through the general reader.
         _ => Box::new(crate::generic::PageSource {
             id: setting.id.clone(),
             name: setting.name.clone(),
             url: setting.url.clone(),
             key: setting.api_key.clone(),
         }),
+    }
+}
+
+/// A download URL may be a wallpaper's *page* rather than its video (the
+/// server told us so by sending HTML). Each known site finds the real file
+/// its own way; anything else falls back to the best `.mp4` link on the
+/// page.
+pub fn resolve_page(source_id: &str, page_url: &str, body: &str) -> Result<String, FetchError> {
+    match source_id {
+        SOURCE_WALLPAPERWAVES => crate::wallpaperwaves::resolve_download(body),
+        _ => crate::generic::best_mp4(body, page_url),
     }
 }
