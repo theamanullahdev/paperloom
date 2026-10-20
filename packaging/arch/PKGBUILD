@@ -1,0 +1,38 @@
+# Arch Linux / Manjaro / EndeavourOS package for Paperloom, built from source.
+#
+# UNTESTED on Arch: written from the project's build needs (Rust + libmpv),
+# but never run on an Arch machine. Build it with:
+#   cd packaging/arch && makepkg -si
+# Not on the AUR yet; publishing it there needs an AUR account.
+pkgname=paperloom
+pkgver=0.7.0
+pkgrel=1
+pkgdesc='Live video wallpapers for Linux (X11 and Wayland)'
+arch=('x86_64')
+url='https://github.com/theamanullahdev/paperloom'
+license=('GPL-3.0-or-later')
+depends=('mpv' 'ffmpeg' 'libxkbcommon' 'wayland' 'vulkan-icd-loader' 'xdg-utils' 'gtk3')
+makedepends=('cargo' 'pkgconf')
+optdepends=('polkit: install updates from inside the app')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export CARGO_TARGET_DIR=target
+  cargo build --release --frozen --workspace
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/paperloom-gui    "$pkgdir/usr/bin/paperloom-gui"
+  install -Dm755 target/release/paperloom-engine "$pkgdir/usr/bin/paperloom-engine"
+  install -Dm644 packaging/linux/paperloom.desktop "$pkgdir/usr/share/applications/paperloom.desktop"
+  install -Dm644 packaging/icon.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/paperloom.png"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

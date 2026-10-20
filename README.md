@@ -43,6 +43,47 @@ sudo apt update && sudo apt install paperloom
 
 If you already installed a `.deb` by hand, run the same three lines: apt takes over that install and keeps it updated from then on. The repository is published by `.github/workflows/apt-repo.yml` on every release and signed with the `APT_GPG_PRIVATE_KEY` secret (setup is described at the top of that file).
 
+### Other Linux distros (Arch, Manjaro, EndeavourOS, Hyprland, Sway, …)
+
+**Easiest, any distro: Flatpak.** Download `…-linux-x86_64.flatpak` from the [Releases page](https://github.com/theamanullahdev/paperloom/releases/latest), then:
+
+```
+flatpak install --user ./paperloom-*-linux-x86_64.flatpak
+flatpak run io.github.theamanullahdev.Paperloom
+```
+
+(Needs `flatpak` installed, e.g. `sudo pacman -S flatpak`. Inside Flatpak, hover previews are missing because ffmpeg's command-line tool isn't bundled, and the in-app updater is off: update by installing the newer `.flatpak`.)
+
+**Arch / Manjaro / EndeavourOS, from source with pacman tooling.** There's a `PKGBUILD` in [`packaging/arch`](./packaging/arch) (untested on a real Arch machine, so treat it as a starting point):
+
+```
+sudo pacman -S --needed base-devel git
+git clone https://github.com/theamanullahdev/paperloom && cd paperloom/packaging/arch
+makepkg -si
+```
+
+**Any distro, build from source.** You need Rust (`rustup` or your distro's `cargo`), `pkg-config`, and mpv's library with headers, plus `ffmpeg` at runtime (for hover previews):
+
+| Distro | Install the build/run dependencies |
+|---|---|
+| Arch and derivatives | `sudo pacman -S --needed rust mpv ffmpeg pkgconf libxkbcommon wayland vulkan-icd-loader` |
+| Debian, Ubuntu, Mint | `sudo apt install cargo pkg-config libmpv-dev ffmpeg libxkbcommon-dev` |
+| Fedora | `sudo dnf install cargo pkgconf mpv-devel ffmpeg-free libxkbcommon-devel` |
+| openSUSE | `sudo zypper install cargo pkgconf libmpv-devel ffmpeg libxkbcommon-devel` |
+
+```
+git clone https://github.com/theamanullahdev/paperloom && cd paperloom
+cargo build --release
+sudo install -Dm755 target/release/paperloom-gui target/release/paperloom-engine -t /usr/local/bin
+paperloom-gui
+```
+
+Both programs must be installed in the same folder (the GUI starts the engine from next to itself).
+
+**Hyprland, Sway and other wlroots compositors (Wayland).** Paperloom draws the wallpaper on a `wlr-layer-shell` background layer, which these compositors support, but **the Wayland engine has never run on a real compositor yet**, so expect rough edges and please report what happens. Wayland has no window-covering/fullscreen detection, so the wallpaper only pauses for screen lock and low battery there. The tray icon needs a bar with StatusNotifier support (for Waybar, enable the `tray` module); without one, use the app window.
+
+**Software centers:** Linux Mint's Software Manager and GNOME Software list apps from your enabled sources. After adding the apt repository above, `paperloom` is searchable in Mint's Software Manager as an ordinary package. It is **not on Flathub yet**, so it doesn't show up in the Flathub catalog until it is submitted and accepted there.
+
 ### Updating otherwise
 
 **Settings → Updates** in the app downloads the newest installer and opens it in your system's package installer, where you confirm. A `.deb`/`.rpm` downloaded by hand doesn't update in the background. To update one from a terminal:
