@@ -1,10 +1,9 @@
 //! Usage: what Paperloom is costing right now — CPU, memory, disk I/O and
 //! network, for the app and for the wallpaper engine — plus the same
-//! storage breakdown the Settings dashboard shows. Sampled once a second
-//! and only while this page is open, so looking at usage doesn't itself
-//! add background cost.
+//! storage breakdown the Settings dashboard shows. Tiles refresh once a
+//! second while this page is open; the graphs come from the small recorder
+//! in `telemetry.rs`, so they are already filled on arrival.
 
-use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use iced::widget::{button, column, container, row, text, Space};
@@ -15,10 +14,9 @@ use paperloom_common::Settings;
 
 use super::charts::{line_chart, Series};
 use super::settings::{bytes, storage_chart, tile_style, Stats};
+use crate::telemetry::{History, WINDOW};
 use crate::theme;
 
-/// Two minutes of history at one sample per second.
-const WINDOW: usize = 120;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -45,22 +43,10 @@ struct Row {
     run_time: u64,
 }
 
-#[derive(Default)]
-struct History {
-    cpu_app: VecDeque<f32>,
-    cpu_engine: VecDeque<f32>,
-    memory_app: VecDeque<f32>,
-    memory_engine: VecDeque<f32>,
-    network: VecDeque<f32>,
-    disk_read: VecDeque<f32>,
-    disk_write: VecDeque<f32>,
-}
-
 pub struct State {
     system: System,
     cores: f32,
     rows: Vec<Row>,
-    history: History,
     last_sample: Instant,
     last_network_total: u64,
     network_rate: f32,
@@ -78,7 +64,6 @@ impl State {
             system: System::new(),
             cores: std::thread::available_parallelism().map_or(1.0, |n| n.get() as f32),
             rows: Vec::new(),
-            history: History::default(),
             last_sample: Instant::now(),
             last_network_total: paperloom_fetch::bytes_received(),
             network_rate: 0.0,
@@ -162,19 +147,9 @@ impl State {
         }
         rows.sort_by_key(|row| (row.kind as u8, row.pid));
 
-        let sum = |kinds: &[Kind], value: fn(&Row) -> f32| -> f32 { rows.iter().filter(|row| kinds.contains(&row.kind)).map(value).sum() };
-        let app_kinds = [Kind::App, Kind::Helper];
-        push(&mut self.history.cpu_app, sum(&app_kinds, |row| row.cpu));
-        push(&mut self.history.cpu_engine, sum(&[Kind::Engine], |row| row.cpu));
-        push(&mut self.history.memory_app, sum(&app_kinds, |row| row.memory as f32));
-        push(&mut self.history.memory_engine, sum(&[Kind::Engine], |row| row.memory as f32));
-        push(&mut self.history.disk_read, sum(&[Kind::App, Kind::Engine, Kind::Helper], |row| row.read_per_second as f32));
-        push(&mut self.history.disk_write, sum(&[Kind::App, Kind::Engine, Kind::Helper], |row| row.write_per_second as f32));
-
         let total = paperloom_fetch::bytes_received();
         self.network_rate = total.saturating_sub(self.last_network_total) as f32 / elapsed;
         self.last_network_total = total;
-        push(&mut self.history.network, self.network_rate);
 
         self.rows = rows;
     }
@@ -188,7 +163,7 @@ impl State {
         button(crate::ui::label("Back to Settings")).style(button::secondary).on_press(Message::Back).into()
     }
 
-    pub fn body<'a>(&'a self, _settings: &'a Settings, t: theme::Tokens) -> Element<'a, Message> {
+    pub fn body<'a>(&'a self, _settings: &'a Settings, t: theme::Tokens, history: &'a History) -> Element<'a, Message> {
         let total_of = |kinds: &[Kind], value: fn(&Row) -> f32| -> f32 { self.rows.iter().filter(|row| kinds.contains(&row.kind)).map(value).sum() };
         let all = [Kind::App, Kind::Engine, Kind::Helper];
         let cpu = total_of(&all, |row| row.cpu);
@@ -239,8 +214,7 @@ impl State {
 
         let app_color = t.primary;
         let engine_color = Color::from_rgb(0.33, 0.52, 0.85);
-        let history = &self.history;
-        let samples = |series: &VecDeque<f32>| series.iter().copied().collect::<Vec<f32>>();
+        let samples = History::series;
 
         let cpu_chart = graph_card(
             "CPU",
@@ -345,13 +319,6 @@ impl State {
         }
         container(table.spacing(6)).padding(16).width(Length::Fill).style(move |_theme| tile_style(t)).into()
     }
-}
-
-fn push(series: &mut VecDeque<f32>, value: f32) {
-    if series.len() == WINDOW {
-        series.pop_front();
-    }
-    series.push_back(value);
 }
 
 fn rate(bytes_per_second: f32) -> String {

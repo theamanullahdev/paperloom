@@ -21,6 +21,8 @@ pub struct App {
     sources_page: sources::State,
     updates_page: updates::State,
     usage_page: usage::State,
+    /// Short usage history so the graphs are already filled when opened.
+    recorder: crate::telemetry::Recorder,
     /// Which sidebar groups are open (the tree is collapsible).
     expanded: HashSet<Group>,
     /// Sources changed since the Online tab last loaded; reload it when
@@ -83,6 +85,7 @@ pub enum Message {
     /// Fires while downloads are in flight: moves finished files into the
     /// library.
     DownloadsTick,
+    Record,
     SystemTheme(iced::theme::Mode),
     // --- Global search (see `search.rs`)
     SearchChanged(String),
@@ -110,6 +113,7 @@ impl App {
             sources_page: sources::State::default(),
             updates_page: updates::State::new(),
             usage_page: usage::State::new(),
+            recorder: crate::telemetry::Recorder::new(),
             expanded: HashSet::from([Group::Library, Group::Online, Group::Settings]),
             online_stale: false,
             system_theme: iced::theme::Mode::None,
@@ -293,6 +297,10 @@ impl App {
                 self.system_theme = mode;
                 Task::none()
             }
+            Message::Record => {
+                self.recorder.tick();
+                Task::none()
+            }
             Message::DownloadsTick => {
                 self.import_finished_downloads();
                 self.downloads_page.sample(&self.online_page.queue().snapshot());
@@ -333,6 +341,7 @@ impl App {
             self.library_page.subscription(self.page == Page::Library).map(Message::Library),
             self.online_page.subscription(self.page == Page::Online).map(Message::Online),
             self.usage_page.subscription(self.page == Page::Usage).map(Message::Usage),
+            iced::time::every(crate::telemetry::EVERY).map(|_| Message::Record),
             Subscription::run(|| crate::instance::requests().map(Message::OtherLaunch)),
             if self.online_page.queue().is_busy() || !self.online_page.queue().finished().is_empty() || self.page == Page::Downloads {
                 // Smoother progress while the Downloads page is open.
@@ -439,12 +448,12 @@ impl App {
             Page::Downloads => (
                 "Downloads",
                 self.downloads_page.header().map(Message::Downloads),
-                self.downloads_page.body(t, self.online_page.queue().snapshot()).map(Message::Downloads),
+                self.downloads_page.body(t, self.online_page.queue().snapshot(), &self.recorder.history.network).map(Message::Downloads),
             ),
             Page::Sources => ("Sources", Space::new().into(), self.sources_page.body(&self.settings, t).map(Message::Sources)),
             Page::Settings => ("Settings", Space::new().into(), self.settings_page.body(&self.settings, self.updates_page.summary(&self.settings), t).map(Message::Settings)),
             Page::Updates => ("Updates", self.updates_page.header().map(Message::Updates), self.updates_page.body(&self.settings, t).map(Message::Updates)),
-            Page::Usage => ("Usage", self.usage_page.header().map(Message::Usage), self.usage_page.body(&self.settings, t).map(Message::Usage)),
+            Page::Usage => ("Usage", self.usage_page.header().map(Message::Usage), self.usage_page.body(&self.settings, t, &self.recorder.history).map(Message::Usage)),
         };
 
         let search_box = text_input("Search Paperloom & online wallpapers…", &self.search)

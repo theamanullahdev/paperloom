@@ -14,6 +14,7 @@ mod icons;
 mod instance;
 mod pages;
 mod search;
+mod telemetry;
 mod theme;
 mod ui;
 mod widget;
