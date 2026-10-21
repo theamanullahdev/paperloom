@@ -72,6 +72,10 @@ pub const FPS_LIMIT: u32 = 30;
 
 /// `None`: leave the file alone. `screen`: the primary display's size.
 pub fn plan(info: &MediaInfo, screen: Option<(u32, u32)>) -> Option<Plan> {
+    // Still pictures cost nothing to show; leave them as they are.
+    if matches!(info.codec.as_str(), "mjpeg" | "png" | "bmp" | "webp" | "tiff" | "jpeg2000" | "ppm") || info.duration_secs < 0.2 && info.fps < 1.5 && info.codec != "gif" {
+        return None;
+    }
     let friendly = matches!(
         (info.codec.as_str(), info.pixel_format.as_str()),
         ("h264", "yuv420p" | "yuvj420p") | ("hevc", "yuv420p" | "yuv420p10le") | ("vp9", "yuv420p")

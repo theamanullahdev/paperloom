@@ -442,6 +442,18 @@ fn generate_preview_frames(video: &Path) -> Vec<PathBuf> {
         .expect("an unused stem exists");
 
     let pattern = dir.join(format!("{unique_stem}-m%02d.jpg"));
+    // A still picture has no second to start from: one frame is its preview.
+    let single = |video: &Path| {
+        let first = dir.join(format!("{unique_stem}-m01.jpg"));
+        let ok = crate::process::command("ffmpeg")
+            .args(["-y", "-i"])
+            .arg(video)
+            .args(["-frames:v", "1", "-vf", &format!("scale={PREVIEW_WIDTH}:-1"), "-q:v", "5"])
+            .arg(&first)
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if ok && first.metadata().is_ok_and(|meta| meta.len() > 0) { vec![first] } else { Vec::new() }
+    };
     let ran = crate::process::command("ffmpeg")
         .args(["-y", "-ss", &PREVIEW_START_SECONDS.to_string(), "-t", &PREVIEW_SECONDS.to_string(), "-i"])
         .arg(video)
@@ -449,14 +461,16 @@ fn generate_preview_frames(video: &Path) -> Vec<PathBuf> {
         .arg(&pattern)
         .output()
         .is_ok_and(|out| out.status.success());
-    if !ran {
-        return Vec::new();
+    let frames: Vec<PathBuf> = if ran {
+        (1..=PREVIEW_SECONDS * PREVIEW_FPS).map(|n| dir.join(format!("{unique_stem}-m{n:02}.jpg"))).take_while(|frame| frame.metadata().is_ok_and(|m| m.len() > 0)).collect()
+    } else {
+        Vec::new()
+    };
+    if frames.is_empty() {
+        single(video)
+    } else {
+        frames
     }
-
-    (1..=PREVIEW_SECONDS * PREVIEW_FPS)
-        .map(|n| dir.join(format!("{unique_stem}-m{n:02}.jpg")))
-        .take_while(|frame| frame.metadata().is_ok_and(|m| m.len() > 0))
-        .collect()
 }
 
 /// Picks a free filename in `dir` for `source`, appending `-1`, `-2`, ... on

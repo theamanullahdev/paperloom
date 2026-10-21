@@ -107,6 +107,11 @@ fn optimize(path: &Path, progress: impl Fn(u8)) -> Outcome {
     let Some(info) = media::probe(path) else { return Ok(None) };
     let Some(plan) = media::plan(&info, paperloom_common::primary_size()) else { return Ok(None) };
 
+    // The result is always an .mp4, whatever the original container was.
+    let target = path.with_extension("mp4");
+    if target != path && target.exists() {
+        return Err("a file with the converted name already exists".into());
+    }
     let temp = path.with_extension("optimizing.mp4");
     let _ = std::fs::remove_file(&temp);
     let mut command = low_priority_ffmpeg();
@@ -135,11 +140,14 @@ fn optimize(path: &Path, progress: impl Fn(u8)) -> Outcome {
         let _ = std::fs::remove_file(&temp);
         return Err("the converted copy didn't check out; the original is kept".into());
     }
-    std::fs::rename(&temp, path).map_err(|err| {
+    std::fs::rename(&temp, &target).map_err(|err| {
         let _ = std::fs::remove_file(&temp);
         format!("couldn't replace the file (is it playing?): {err}")
     })?;
-    Ok(Some(path.to_path_buf()))
+    if target != path {
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(Some(target))
 }
 
 #[cfg(unix)]
@@ -202,7 +210,7 @@ mod tests {
         let big = make("big.mp4", "3840x2160", 60);
         let replaced = optimize(&big, |_| {}).expect("optimizes");
         if paperloom_common::primary_size().is_some() {
-            assert_eq!(replaced.as_deref(), Some(big.as_path()));
+            assert_eq!(replaced.as_deref(), Some(big.as_path())); // already an .mp4
             let info = media::probe(&big).unwrap();
             assert!(info.width < 3840 && info.fps <= 31.0, "{info:?}");
         }

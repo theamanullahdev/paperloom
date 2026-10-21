@@ -105,6 +105,9 @@ pub struct State {
     thumb_tries: HashMap<String, u8>,
     /// Keys being retried right now (so a retry isn't started twice).
     thumb_pending: HashSet<String>,
+    /// The "paste a link" box and what happened to the last one.
+    link: String,
+    link_note: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +124,8 @@ pub enum Message {
     Cancel(String),
     Recheck,
     ToggleHideOwned,
+    LinkChanged(String),
+    AddLink,
     Open(String),
     CloseDetail,
     /// Streams a short look at the wallpaper (the HD file) full screen.
@@ -160,6 +165,8 @@ impl State {
             selected: None,
             thumb_tries: HashMap::new(),
             thumb_pending: HashSet::new(),
+            link: String::new(),
+            link_note: None,
         }
     }
 
@@ -371,6 +378,31 @@ impl State {
                 }
             }
             Message::ToggleHideOwned => self.hide_owned = !self.hide_owned,
+            Message::LinkChanged(text) => {
+                self.link = text;
+                self.link_note = None;
+            }
+            Message::AddLink => {
+                let url = self.link.trim().to_string();
+                if !(url.starts_with("http://") || url.starts_with("https://")) {
+                    self.link_note = Some("Paste a full web address (https://…).".into());
+                } else {
+                    let name = url.split(['?', '#']).next().unwrap_or(&url).rsplit('/').find(|part| !part.is_empty()).unwrap_or("link").to_string();
+                    let title = name.rsplit_once('.').map_or(name.clone(), |(stem, _)| stem.to_string()).replace(['-', '_'], " ");
+                    let id = format!("{:016x}", url.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)));
+                    let item = OnlineItem {
+                        id,
+                        source: "link".into(),
+                        source_name: "Link".into(),
+                        title,
+                        thumb_url: String::new(),
+                        variants: vec![paperloom_fetch::Variant { label: "HD".into(), url: url.clone() }],
+                        page_url: url,
+                    };
+                    self.link_note = Some(if self.queue.add(&item, "HD") { "Added — see Downloads.".into() } else { "That link is already in Downloads.".into() });
+                    self.link.clear();
+                }
+            }
             Message::Open(key) => self.selected = Some(key),
             Message::CloseDetail => self.selected = None,
             Message::Watch(key) => {
@@ -414,6 +446,14 @@ impl State {
                 .padding([6, 10])
                 .on_press(Message::ToggleHideOwned),
         );
+
+        header = header.push(
+            iced::widget::text_input("Paste a link to a video or page", &self.link).on_input(Message::LinkChanged).on_submit(Message::AddLink).padding(6).width(Length::Fixed(260.0)),
+        );
+        header = header.push(button(crate::ui::label("Add link").size(13)).style(button::secondary).padding([6, 10]).on_press_maybe((!self.link.trim().is_empty()).then_some(Message::AddLink)));
+        if let Some(note) = &self.link_note {
+            header = header.push(text(note.clone()).size(12).color(t.muted_foreground));
+        }
 
         if active > 0 {
             header = header.push(text(format!("{active} downloading")).size(13).color(t.muted_foreground));

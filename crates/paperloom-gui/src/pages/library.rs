@@ -447,7 +447,7 @@ impl State {
     }
 
     fn import(&mut self, settings: &Settings) {
-        let picked = rfd::FileDialog::new().set_title("Import wallpapers").add_filter("MP4 video", &["mp4"]).pick_files();
+        let picked = rfd::FileDialog::new().set_title("Import wallpapers").add_filter("Videos and images", &["mp4", "webm", "mkv", "mov", "avi", "gif", "jpg", "jpeg", "png", "webp"]).pick_files();
         let Some(paths) = picked else { return };
         let total = paths.len();
         let mut failed = Vec::new();

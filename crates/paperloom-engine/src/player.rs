@@ -68,7 +68,8 @@ fn tune(mpv: &Mpv) {
     }
 }
 
-const TUNING: [(&str, &str); 14] = [
+const TUNING: [(&str, &str); 15] = [
+        ("image-display-duration", "inf"),
         ("demuxer-max-bytes", "32MiB"),
         ("demuxer-max-back-bytes", "8MiB"),
         ("demuxer-readahead-secs", "3"),
