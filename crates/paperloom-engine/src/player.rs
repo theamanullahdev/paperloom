@@ -52,6 +52,40 @@ pub fn startup_wallpaper(cli_path: Option<&str>) -> Option<String> {
     EngineState::load().current_wallpaper.filter(|path| path.is_file()).map(|path| path.to_string_lossy().into_owned())
 }
 
+/// Cheaper-than-default settings for a looping background video: a small
+/// demuxer cache (the default holds up to 150 MB of the file in memory),
+/// no display-sync resampling, plain scaling, no subtitles, quiet logging.
+/// Each is best-effort — an option an older libmpv doesn't know is skipped.
+fn tune(mpv: &Mpv) {
+    for (name, value) in TUNING {
+        if let Err(err) = mpv.set_property(name, value.to_string()) {
+            paperloom_common::log::debug(&format!("mpv option {name} skipped: {err}"));
+        }
+    }
+}
+
+const TUNING: [(&str, &str); 14] = [
+        ("demuxer-max-bytes", "32MiB"),
+        ("demuxer-max-back-bytes", "8MiB"),
+        ("demuxer-readahead-secs", "3"),
+        ("video-sync", "desync"),
+        ("interpolation", "no"),
+        ("scale", "bilinear"),
+        ("cscale", "bilinear"),
+        ("dscale", "bilinear"),
+        ("correct-downscaling", "no"),
+        ("sigmoid-upscaling", "no"),
+        ("deband", "no"),
+        ("dither-depth", "no"),
+        ("sid", "no"),
+        ("msg-level", "all=error"),
+];
+
+/// No audio decoder at all while muted; unmuting brings the track back.
+fn set_audio(mpv: &Mpv, muted: bool) {
+    let _ = mpv.set_property("aid", if muted { "no" } else { "auto" }.to_string());
+}
+
 /// Wallpaper defaults: loops forever, no on-screen controller, doesn't try
 /// to grab keyboard/mouse input, and fills the screen like CSS
 /// `background-size: cover` instead of letterboxing when the clip's aspect
@@ -63,6 +97,7 @@ pub fn configure_wallpaper(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
     mpv.set_property("input-vo-keyboard", false)?;
     mpv.set_property("cursor-autohide", "no".to_string())?;
     mpv.set_property("panscan", 1.0)?;
+    tune(mpv);
     apply_mute_from_settings(mpv)?;
     Ok(())
 }
@@ -74,6 +109,7 @@ pub fn configure_wallpaper(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
 fn apply_mute_from_settings(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
     let settings = paperloom_common::load();
     mpv.set_property("mute", settings.muted)?;
+    set_audio(mpv, settings.muted);
     mpv.set_property("hwdec", if settings.hardware_decoding && !dev().force_software { "auto-safe" } else { "no" }.to_string())?;
     Ok(())
 }
@@ -90,6 +126,7 @@ pub fn play(mpv: &Mpv, path: &str) {
         return;
     }
     paperloom_common::log::info(&format!("playing {path}"));
+    crate::perf_guard::reset();
     remember(Some(path));
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -161,6 +198,9 @@ pub fn refresh_dev(settings: &paperloom_common::Settings) {
 pub fn periodic(settings: &paperloom_common::Settings, mpv: &Mpv) {
     refresh_dev(settings);
     publish_status(mpv, settings.developer_mode);
+    let paused = AUTO_PAUSED.load(Ordering::Relaxed) || USER_PAUSED.load(Ordering::Relaxed);
+    let hardware = mpv.get_property::<String>("hwdec-current").is_ok_and(|name| !name.is_empty() && name != "no");
+    crate::perf_guard::tick(mpv, settings.performance_guard, paused, hardware);
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         let mut settings = settings.clone();
@@ -190,6 +230,7 @@ fn publish_status(mpv: &Mpv, with_drops: bool) {
         fps: mpv.get_property::<f64>("container-fps").unwrap_or(0.0),
         video_output: text("current-vo"),
         dropped_frames: if with_drops { mpv.get_property::<i64>("frame-drop-count").unwrap_or(0) } else { 0 },
+        guard_level: crate::perf_guard::level(),
     };
     let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if last.as_ref() == Some(&info) {
@@ -242,6 +283,7 @@ pub fn poll_ipc(listener: &mut Listener, mpv: &Mpv) -> Flow {
         Command::Quit => return Flow::Quit,
         Command::Mute(muted) => {
             let _ = mpv.set_property("mute", muted);
+            set_audio(mpv, muted);
         }
         Command::Ping => {}
         Command::Pause | Command::Resume => {
@@ -253,4 +295,26 @@ pub fn poll_ipc(listener: &mut Listener, mpv: &Mpv) -> Flow {
         }
     }
     Flow::Continue
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every tuning option must be one this libmpv accepts, or the tuning
+    /// would silently do nothing.
+    #[test]
+    fn tuning_options_are_known_to_libmpv() {
+        let mpv = Mpv::with_initializer(|init| {
+            init.set_property("vo", "null")?;
+            init.set_property("ao", "null")?;
+            Ok(())
+        })
+        .expect("libmpv starts headless");
+        let rejected: Vec<_> = TUNING.iter().filter(|(name, value)| mpv.set_property(name, value.to_string()).is_err()).collect();
+        assert!(rejected.is_empty(), "libmpv rejected: {rejected:?}");
+        for (name, value) in [("vd-lavc-fast", "yes"), ("vd-lavc-skiploopfilter", "nonref"), ("vd-lavc-skipframe", "nonref"), ("aid", "no"), ("aid", "auto")] {
+            assert!(mpv.set_property(name, value.to_string()).is_ok(), "{name}={value}");
+        }
+    }
 }

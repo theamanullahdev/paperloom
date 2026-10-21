@@ -11,3 +11,9 @@ members = [
 version = "0.12.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
+
+# Smaller binaries and a bit less memory at runtime. Unwinding stays on so a
+# panic in a worker thread is contained instead of closing the app.
+[profile.release]
+lto = "thin"
+strip = "symbols"

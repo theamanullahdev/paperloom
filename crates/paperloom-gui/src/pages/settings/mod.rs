@@ -111,6 +111,7 @@ impl State {
                     SettingId::AllowMature => settings.allow_mature = value,
                     SettingId::TrayIcon => settings.show_tray_icon = value,
                     SettingId::DeveloperMode => settings.developer_mode = value,
+                    SettingId::PerformanceGuard => settings.performance_guard = value,
                     SettingId::ImportMode
                     | SettingId::Theme
                     | SettingId::LowBatteryPercent
@@ -270,6 +271,15 @@ impl State {
                             .label("Use the graphics card to play video")
                             .on_toggle(|v| Message::Toggle(SettingId::HardwareDecoding, v)),
                         hint("Much less CPU and battery. Applies the next time a wallpaper starts. Turn off only if a wallpaper shows black or glitches."),
+                    ]
+                    .spacing(4)
+                    .into(),
+                ),
+                item(
+                    SettingId::PerformanceGuard,
+                    column![
+                        toggler(settings.performance_guard).label("Keep CPU use low automatically").on_toggle(|v| Message::Toggle(SettingId::PerformanceGuard, v)),
+                        hint("If a wallpaper keeps the processor busy for half a minute, Paperloom lowers decoding quality a step at a time until it calms down."),
                     ]
                     .spacing(4)
                     .into(),

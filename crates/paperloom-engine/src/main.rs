@@ -25,6 +25,7 @@ mod backends;
 mod desktop_background;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod pause;
+mod perf_guard;
 mod player;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod tray;

@@ -46,6 +46,8 @@ pub struct EngineInfo {
     pub video_output: String,
     /// Frames dropped so far (kept up to date only in developer mode).
     pub dropped_frames: i64,
+    /// 0 = full quality; 1–2 = the performance guard lowered decoding quality.
+    pub guard_level: u8,
 }
 
 /// One `gsettings` value: schema, key, and the value exactly as

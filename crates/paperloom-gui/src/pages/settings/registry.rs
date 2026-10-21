@@ -24,6 +24,7 @@ pub enum SettingId {
     TraySize,
     LibraryFolder,
     DeveloperMode,
+    PerformanceGuard,
 }
 
 pub struct Entry {
@@ -123,6 +124,12 @@ pub const ENTRIES: &[Entry] = &[
         label: "Tray icon size",
         section: "Startup",
         aliases: &["tray size", "icon size", "applet size", "bigger icon", "smaller icon"],
+    },
+    Entry {
+        id: SettingId::PerformanceGuard,
+        label: "Keep CPU use low automatically",
+        section: "Playback",
+        aliases: &["performance guard", "cpu", "fan", "hot", "laptop", "lower quality", "battery", "throttle"],
     },
     Entry {
         id: SettingId::DeveloperMode,

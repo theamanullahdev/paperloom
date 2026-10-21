@@ -189,6 +189,9 @@ pub struct Settings {
     /// Shows the Developers page (diagnostics, test actions, logs) and
     /// honours the switches in `dev.toml`.
     pub developer_mode: bool,
+    /// Lets the engine lower decoding quality by itself when the wallpaper
+    /// keeps the CPU busy (see the engine's `perf_guard`).
+    pub performance_guard: bool,
 }
 
 /// The Library page's view: grid of cards or list of rows, in three sizes.
@@ -274,6 +277,7 @@ impl Default for Settings {
             library_view: LibraryView::default(),
             library_folder: None,
             developer_mode: false,
+            performance_guard: true,
         }
     }
 }
