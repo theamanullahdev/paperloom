@@ -91,40 +91,72 @@ pub fn preview(path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
+/// How long a cold start may take. Windows is slow the first time: the
+/// antivirus scans the big libmpv DLL before the engine can run at all.
+const STARTUP_WAIT: Duration = if cfg!(windows) { Duration::from_secs(45) } else { Duration::from_secs(5) };
+
 fn send_or_spawn(command: &Command) -> Result<(), Error> {
     if ipc::send(command).is_ok() {
-        return Ok(());
+        // A running engine that couldn't set up the desktop says why.
+        return match std::fs::read_to_string(paperloom_common::engine_log()) {
+            Ok(why) if !why.trim().is_empty() => Err(Error::EngineFailed(why.trim().to_string())),
+            _ => Ok(()),
+        };
     }
 
     let _ = std::fs::remove_file(paperloom_common::engine_log());
-    spawn_engine()?;
+    let mut child = spawn_engine()?;
 
-    // Give the daemon a moment to stand up its window and start listening
-    // before giving up. This blocks the GUI's event loop briefly on a cold
-    // start (acceptable here — same tradeoff as the blocking file-dialog
-    // call elsewhere in this crate), but only the first time; the daemon
-    // stays running after that.
-    let mut last_error = None;
-    for _ in 0..20 {
+    // Wait for the daemon to stand up and listen — but stop as soon as it
+    // has exited, with the reason. Callers run this off the UI thread.
+    let started = std::time::Instant::now();
+    while started.elapsed() < STARTUP_WAIT {
         std::thread::sleep(Duration::from_millis(100));
-        match ipc::send(command) {
-            Ok(()) => return Ok(()),
-            Err(err) => last_error = Some(err),
+        if ipc::send(command).is_ok() {
+            return Ok(());
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            let log = std::fs::read_to_string(paperloom_common::engine_log()).unwrap_or_default();
+            return Err(Error::EngineFailed(explain_exit(status.code(), log.trim())));
         }
     }
+    let log = std::fs::read_to_string(paperloom_common::engine_log()).unwrap_or_default();
+    Err(Error::EngineFailed(if log.trim().is_empty() {
+        format!("it didn't start within {} seconds — your antivirus may be scanning it; try again in a minute", STARTUP_WAIT.as_secs())
+    } else {
+        log.trim().to_string()
+    }))
+}
 
-    if let Ok(why) = std::fs::read_to_string(paperloom_common::engine_log()) {
-        return Err(Error::EngineFailed(why.trim().to_string()));
+/// Turns the engine's exit into something readable. Windows reports
+/// loader failures as NTSTATUS codes.
+fn explain_exit(code: Option<i32>, log: &str) -> String {
+    if !log.is_empty() {
+        return log.to_string();
     }
-    Err(last_error.map(Error::Io).unwrap_or(Error::EngineNotFound))
+    let Some(code) = code else { return "it stopped right after starting".into() };
+    let hint = match code as u32 {
+        0xC000_0135 => "a required DLL is missing — reinstall Paperloom",
+        0xC000_007B => "a DLL has the wrong architecture — reinstall Paperloom",
+        0xC000_0142 => "a DLL failed to initialise — reinstall Paperloom or update your graphics driver",
+        0xC000_0005 => "access violation — blocked by antivirus or a graphics driver crash",
+        _ => "it stopped right after starting",
+    };
+    format!("{hint} (exit code 0x{:08X})", code as u32)
 }
 
 /// The engine ships next to this executable in every layout (cargo's
 /// `target/<profile>/`, `/usr/bin`, the Windows install folder, a macOS
 /// bundle's `Contents/MacOS`) — see `paperloom_common::process`.
-fn spawn_engine() -> Result<(), Error> {
+fn spawn_engine() -> Result<std::process::Child, Error> {
     let engine_path = process::sibling_binary("paperloom-engine").ok_or(Error::EngineNotFound)?;
+    if cfg!(windows) {
+        let dll = engine_path.with_file_name("libmpv-2.dll");
+        if !dll.is_file() {
+            return Err(Error::EngineFailed("libmpv-2.dll is missing from the Paperloom folder — reinstall Paperloom".into()));
+        }
+    }
     let mut command = std::process::Command::new(engine_path);
     process::hide_console(&mut command);
-    command.spawn().map(|_| ()).map_err(Error::Io)
+    command.spawn().map_err(Error::Io)
 }

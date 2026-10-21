@@ -97,7 +97,7 @@ jobs:
       - name: Build
         shell: pwsh
         env:
-          RUSTFLAGS: -L native=C:\mpv
+          RUSTFLAGS: -L native=C:\mpv -C target-feature=+crt-static
         run: cargo build --release --workspace --locked
       - name: Stage files
         shell: pwsh

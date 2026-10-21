@@ -24,6 +24,21 @@ pub fn validate_cli_path(path: Option<&str>) -> Result<(), Box<dyn Error>> {
     }
 }
 
+/// Remembers why the engine couldn't start (its console is hidden on
+/// Windows) so the app can show the reason; cleared once playback works.
+pub fn record_failure(reason: &dyn std::fmt::Display) {
+    let log = paperloom_common::engine_log();
+    if let Some(dir) = log.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(log, format!("{reason}\n"));
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn clear_failure() {
+    let _ = std::fs::remove_file(paperloom_common::engine_log());
+}
+
 /// What to show at startup: the CLI path if one was given, otherwise
 /// whatever was playing when the engine last ran (the login-autostart
 /// case), as long as that file still exists.

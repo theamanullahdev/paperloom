@@ -78,6 +78,8 @@ pub enum Message {
     OpenActions(u64),
     CloseActions,
     SetAsWallpaper(u64),
+    /// The engine answered (or didn't): the text to show.
+    PlayFinished(Result<String, String>),
     OpenPreview(u64),
     SetHidden(u64, bool),
     SetInCollection { collection: u64, entry: u64, member: bool },
@@ -168,13 +170,22 @@ impl State {
             Message::OpenActions(entry) => self.actions = Some(Actions { entry, confirm_remove: false, new_collection: String::new() }),
             Message::CloseActions => self.actions = None,
             Message::SetAsWallpaper(id) => {
-                if let Some(entry) = self.library.entry(id) {
-                    self.status = match crate::engine_client::play(&entry.path) {
-                        Ok(()) => Some(format!("Now playing: {}", entry.display_name)),
-                        Err(err) => Some(format!("Couldn't start playback: {err}")),
-                    };
-                }
                 self.actions = None;
+                if let Some(entry) = self.library.entry(id) {
+                    let (path, name) = (entry.path.clone(), entry.display_name.clone());
+                    self.status = Some(format!("Starting “{name}”…"));
+                    // Off the UI thread: a first start can take a while.
+                    return Task::perform(
+                        crate::pages::online::blocking(move || crate::engine_client::play(&path).map(|()| format!("Now playing: {name}")).map_err(|err| err.to_string())),
+                        Message::PlayFinished,
+                    );
+                }
+            }
+            Message::PlayFinished(result) => {
+                self.status = Some(match result {
+                    Ok(text) => text,
+                    Err(err) => format!("Couldn't start playback: {err}"),
+                });
             }
             Message::OpenPreview(id) => {
                 if let Some(entry) = self.library.entry(id) {

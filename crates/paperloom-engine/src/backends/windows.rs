@@ -21,11 +21,11 @@
 //! the main loop notices the window has gone and builds a new one (and a new
 //! mpv) — the wallpaper comes back by itself.
 //!
-//! **Never run on a real Windows machine** — this dev environment is Linux.
-//! It's built (cross-compile check locally, real MSVC build in CI) against
-//! the exact `windows-sys` API, and the window-tree logic follows what
-//! Lively ships, but "compiles" isn't "shows video behind the icons" until
-//! someone runs it.
+//! Startup is forgiving: Explorer may not be up yet at login, libmpv may
+//! fail to start on an odd GPU, the screen layout may change. Instead of
+//! exiting, the engine keeps retrying (with a plainer video setup after
+//! the first failures), keeps answering IPC, and records the reason in
+//! `engine.log` for the app to show.
 
 use std::error::Error;
 use std::ffi::OsStr;
@@ -33,7 +33,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::time::{Duration, Instant};
 
 use libmpv2::Mpv;
-use paperloom_common::ipc::Listener;
+use paperloom_common::ipc::{Command, Listener};
 use paperloom_common::Settings;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
@@ -81,13 +81,25 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     register_class(CLASS_NAME)?;
 
     let mut startup = player::startup_wallpaper(initial_path);
+    let mut failures = 0u32;
     loop {
-        let window = create_wallpaper_window()?;
-        let mpv = Mpv::with_initializer(|init| {
-            init.set_property("wid", window as i64)?;
-            Ok(())
-        })?;
-        player::configure_wallpaper(&mpv)?;
+        // After two failures, fall back to the most compatible video setup.
+        let (window, mpv) = match build(failures >= 2) {
+            Ok(pair) => {
+                failures = 0;
+                player::clear_failure();
+                pair
+            }
+            Err(err) => {
+                failures += 1;
+                eprintln!("paperloom-engine: {err}");
+                player::record_failure(&err);
+                if wait_for_retry(&mut listener, &mut startup, Duration::from_secs(u64::from(failures.min(5)) * 2)) == Flow::Quit {
+                    return Ok(());
+                }
+                continue;
+            }
+        };
         if let Some(path) = startup.take() {
             player::play(&mpv, &path);
         }
@@ -109,12 +121,59 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     }
 }
 
+/// The wallpaper window plus an mpv drawing into it. `safe` picks the most
+/// compatible video output (Direct3D 11, software decoding) for machines
+/// where the default fails.
+fn build(safe: bool) -> Result<(HWND, Mpv), Box<dyn Error>> {
+    let window = create_wallpaper_window()?;
+    let made = (|| -> Result<Mpv, Box<dyn Error>> {
+        let mpv = Mpv::with_initializer(|init| {
+            init.set_property("wid", window as i64)?;
+            if safe {
+                init.set_property("vo", "gpu")?;
+                init.set_property("gpu-api", "d3d11")?;
+            }
+            Ok(())
+        })?;
+        player::configure_wallpaper(&mpv)?;
+        if safe {
+            mpv.set_property("hwdec", "no".to_string())?;
+        }
+        Ok(mpv)
+    })();
+    match made {
+        Ok(mpv) => Ok((window, mpv)),
+        Err(err) => {
+            // SAFETY: our own window, destroyed once.
+            unsafe { DestroyWindow(window) };
+            Err(format!("couldn't start the video player (libmpv): {err}").into())
+        }
+    }
+}
+
+/// Waits `wait` before the next attempt while still answering the app: a
+/// QUIT ends the engine, a PLAY is remembered for when setup succeeds.
+fn wait_for_retry(listener: &mut Listener, startup: &mut Option<String>, wait: Duration) -> Flow {
+    let until = Instant::now() + wait;
+    while Instant::now() < until {
+        pump_messages();
+        match listener.accept_command() {
+            Ok(Some(Command::Quit)) => return Flow::Quit,
+            Ok(Some(Command::Play(path))) => *startup = Some(path.to_string_lossy().into_owned()),
+            _ => {}
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    Flow::Continue
+}
+
 /// The poll loop: Windows messages, IPC, and (every ~2s) the pause
 /// triggers. Returns `Quit` on an IPC quit, `Continue` if the window was
 /// destroyed out from under us.
 fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Flow {
     let mut is_paused = false;
     let mut last_check = Instant::now();
+    let mut size = screen_size();
     loop {
         pump_messages();
         if player::poll_ipc(listener, mpv) == Flow::Quit {
@@ -127,6 +186,13 @@ fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Fl
             if unsafe { IsWindow(window) } == 0 {
                 return Flow::Continue;
             }
+            // A monitor was plugged in/out or the resolution changed: refit.
+            let now = screen_size();
+            if now != size && now.0 > 0 && now.1 > 0 {
+                size = now;
+                // SAFETY: our own window; NOZORDER | NOACTIVATE.
+                unsafe { SetWindowPos(window, std::ptr::null_mut(), 0, 0, now.0, now.1, 0x0004 | SWP_NOACTIVATE) };
+            }
             let settings = paperloom_common::load();
             player::periodic(&settings);
             let should_pause = should_pause(&settings, window);
@@ -138,6 +204,11 @@ fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Fl
 
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+fn screen_size() -> (i32, i32) {
+    // SAFETY: plain metric queries.
+    unsafe { (GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN)) }
 }
 
 fn pump_messages() {
@@ -194,6 +265,16 @@ fn create_wallpaper_window() -> Result<HWND, Box<dyn Error>> {
         let mut result = 0usize;
         SendMessageTimeoutW(progman, 0x052C, 0xD, 0x1, SMTO_NORMAL, 1000, &mut result);
         SendMessageTimeoutW(progman, 0x052C, 0, 0, SMTO_NORMAL, 1000, &mut result);
+
+        // Explorer builds the layers asynchronously (and is slow just after
+        // login): give it a moment before deciding which layout it chose.
+        for _ in 0..20 {
+            let raised = FindWindowExW(progman, std::ptr::null_mut(), wide("WorkerW").as_ptr(), std::ptr::null());
+            if !raised.is_null() || find_legacy_workerw().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
 
         let (width, height) = (GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN));
         let raised_workerw = FindWindowExW(progman, std::ptr::null_mut(), wide("WorkerW").as_ptr(), std::ptr::null());
