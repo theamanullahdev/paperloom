@@ -3,3 +3,6 @@
 .DS_Store
 # Claude Code session-local state, not project content.
 /.claude/
+
+# Local working plan (not part of the published project)
+/PLAN.md
