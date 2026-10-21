@@ -268,6 +268,27 @@ pub enum Flow {
     Quit,
 }
 
+/// The pause the user asked for (tray, IPC, hotkey).
+pub fn set_user_pause(mpv: &Mpv, paused: bool) {
+    USER_PAUSED.store(paused, Ordering::Relaxed);
+    apply_pause(mpv);
+    #[cfg(all(unix, not(target_os = "macos")))]
+    crate::tray::set_paused(paused);
+}
+
+/// A global shortcut fired.
+pub enum Shortcut {
+    Next,
+    TogglePause,
+}
+
+pub fn shortcut(mpv: &Mpv, which: Shortcut) {
+    match which {
+        Shortcut::Next => crate::rotation::next(mpv),
+        Shortcut::TogglePause => set_user_pause(mpv, !USER_PAUSED.load(Ordering::Relaxed)),
+    }
+}
+
 /// Handles at most one pending IPC command. Call once per loop tick.
 pub fn poll_ipc(listener: &mut Listener, mpv: &Mpv) -> Flow {
     let command = match listener.accept_command() {
@@ -307,13 +328,7 @@ pub fn poll_ipc(listener: &mut Listener, mpv: &Mpv) -> Flow {
         }
         Command::Ping => {}
         Command::Next => crate::rotation::next(mpv),
-        Command::Pause | Command::Resume => {
-            let paused = command == Command::Pause;
-            USER_PAUSED.store(paused, Ordering::Relaxed);
-            apply_pause(mpv);
-            #[cfg(all(unix, not(target_os = "macos")))]
-            crate::tray::set_paused(paused);
-        }
+        Command::Pause | Command::Resume => set_user_pause(mpv, command == Command::Pause),
     }
     Flow::Continue
 }

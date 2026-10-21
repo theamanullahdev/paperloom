@@ -8,6 +8,7 @@ mod config_store;
 pub mod dev;
 pub mod diagnostics;
 mod display;
+pub mod hotkey;
 /// GUI <-> engine wire protocol. Kept as its own namespace (`ipc::Command`,
 /// not re-exported flat) since `Command` would otherwise collide with
 /// `std::process::Command`, which the GUI also needs for spawning the

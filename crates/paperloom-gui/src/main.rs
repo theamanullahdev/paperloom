@@ -9,6 +9,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
+mod cli;
 mod desktop_colors;
 mod engine_client;
 mod icons;
@@ -63,6 +64,11 @@ pub fn main() -> iced::Result {
         }
         let at = args.iter().position(|arg| arg == "--at").and_then(|at| Some((args.get(at + 1)?.parse().ok()?, args.get(at + 2)?.parse().ok()?)));
         return widget::run(at);
+    }
+
+    // `paperloom-gui next|pause|set <name>|…`: drive the engine, no window.
+    if let Some(code) = cli::run(&args) {
+        std::process::exit(code);
     }
 
     // `--selftest`: run every check without opening a window; the report is

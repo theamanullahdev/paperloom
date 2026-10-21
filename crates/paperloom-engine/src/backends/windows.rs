@@ -178,6 +178,7 @@ fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Fl
     let mut size = screen_size();
     loop {
         pump_messages();
+        run_hotkeys(mpv);
         if player::poll_ipc(listener, mpv) == Flow::Quit {
             return Flow::Quit;
         }
@@ -197,6 +198,7 @@ fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Fl
             }
             let settings = paperloom_common::load();
             player::periodic(&settings, mpv);
+            sync_hotkeys(&settings.hotkey_next, &settings.hotkey_pause);
             let should_pause = should_pause(&settings, window);
             if should_pause != is_paused {
                 is_paused = should_pause;
@@ -218,9 +220,46 @@ fn pump_messages() {
     unsafe {
         let mut msg: MSG = std::mem::zeroed();
         while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+            // A registered global shortcut (see `sync_hotkeys`).
+            if msg.message == 0x0312 {
+                HOTKEY_PRESSES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(msg.wParam as i32);
+                continue;
+            }
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
+    }
+}
+
+/// Shortcut ids (1 = next, 2 = pause) pressed since the last look.
+static HOTKEY_PRESSES: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new());
+static HOTKEYS: std::sync::Mutex<(String, String)> = std::sync::Mutex::new((String::new(), String::new()));
+
+/// (Re)registers the two global shortcuts when the settings changed.
+fn sync_hotkeys(next: &str, pause: &str) {
+    use paperloom_common::hotkey::Hotkey;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
+    let mut current = HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if current.0 == next && current.1 == pause {
+        return;
+    }
+    *current = (next.to_string(), pause.to_string());
+    for (id, text) in [(1, next), (2, pause)] {
+        // SAFETY: thread-level hotkeys (no window); ids are ours.
+        unsafe {
+            UnregisterHotKey(std::ptr::null_mut(), id);
+            if let Some(hotkey) = Hotkey::parse(text) {
+                const NOREPEAT: u32 = 0x4000;
+                RegisterHotKey(std::ptr::null_mut(), id, hotkey.windows_modifiers() | NOREPEAT, hotkey.windows_vk());
+            }
+        }
+    }
+}
+
+fn run_hotkeys(mpv: &Mpv) {
+    let pressed = std::mem::take(&mut *HOTKEY_PRESSES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+    for id in pressed {
+        player::shortcut(mpv, if id == 1 { player::Shortcut::Next } else { player::Shortcut::TogglePause });
     }
 }
 

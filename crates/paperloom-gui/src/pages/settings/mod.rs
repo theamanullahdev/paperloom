@@ -72,6 +72,8 @@ pub enum Message {
     ThemeSelected(ThemeMode),
     LowBatteryChanged(u8),
     PauseAppsChanged(String),
+    HotkeyNext(String),
+    HotkeyPause(String),
     PauseIdleSelected(Idle),
     TrayStyleSelected(TrayStyle),
     TraySizeSelected(TraySize),
@@ -140,6 +142,7 @@ impl State {
                     | SettingId::TraySize
                     | SettingId::PauseApps
                     | SettingId::PauseIdle
+                    | SettingId::Hotkeys
                     | SettingId::LibraryFolder => {}
                 }
                 self.flash(id);
@@ -154,6 +157,16 @@ impl State {
                 settings.pause_apps = text.split(',').map(|app| app.trim().to_string()).filter(|app| !app.is_empty()).collect();
                 self.pause_apps_text = text;
                 self.flash(SettingId::PauseApps);
+                let _ = paperloom_common::save(settings);
+            }
+            Message::HotkeyNext(text) => {
+                settings.hotkey_next = text;
+                self.flash(SettingId::Hotkeys);
+                let _ = paperloom_common::save(settings);
+            }
+            Message::HotkeyPause(text) => {
+                settings.hotkey_pause = text;
+                self.flash(SettingId::Hotkeys);
                 let _ = paperloom_common::save(settings);
             }
             Message::PauseIdleSelected(idle) => {
@@ -397,6 +410,43 @@ impl State {
             t,
         );
 
+        let shortcut_state = |text: &str| -> &'static str {
+            if text.trim().is_empty() {
+                ""
+            } else if paperloom_common::hotkey::Hotkey::parse(text).is_some() {
+                "✓"
+            } else {
+                "not a valid shortcut"
+            }
+        };
+        let shortcuts = card(
+            "Keyboard shortcuts",
+            "Work anywhere, even while Paperloom is closed (the wallpaper engine listens).",
+            item(
+                SettingId::Hotkeys,
+                column![
+                    row![
+                        text("Next wallpaper").size(13).width(Length::Fixed(130.0)),
+                        text_input("Ctrl+Alt+Right", &settings.hotkey_next).on_input(Message::HotkeyNext).padding(6).width(Length::Fixed(200.0)),
+                        text(shortcut_state(&settings.hotkey_next)).size(12).color(t.muted_foreground),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                    row![
+                        text("Pause / resume").size(13).width(Length::Fixed(130.0)),
+                        text_input("Ctrl+Alt+P", &settings.hotkey_pause).on_input(Message::HotkeyPause).padding(6).width(Length::Fixed(200.0)),
+                        text(shortcut_state(&settings.hotkey_pause)).size(12).color(t.muted_foreground),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                    hint("Use Ctrl, Alt, Shift or Super with a letter, number, F-key or arrow. Linux (X11) and Windows. \"Next\" follows your Rotation."),
+                ]
+                .spacing(8)
+                .into(),
+            ),
+            t,
+        );
+
         let advanced = card(
             "Advanced",
             "For testing and support.",
@@ -483,12 +533,12 @@ impl State {
         let cards: Element<'a, Message> = if width >= 760.0 {
             row![
                 column![pausing, playback, content].spacing(16).width(Length::FillPortion(1)),
-                column![appearance, library, startup, about, advanced].spacing(16).width(Length::FillPortion(1)),
+                column![appearance, library, shortcuts, startup, about, advanced].spacing(16).width(Length::FillPortion(1)),
             ]
             .spacing(16)
             .into()
         } else {
-            column![pausing, appearance, playback, library, content, startup, about, advanced].spacing(16).into()
+            column![pausing, appearance, playback, shortcuts, library, content, startup, about, advanced].spacing(16).into()
         };
 
         let mut page = column![].spacing(16);

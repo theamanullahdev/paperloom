@@ -24,6 +24,8 @@ mod backends;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod desktop_background;
 #[cfg(all(unix, not(target_os = "macos")))]
+mod hotkeys_x11;
+#[cfg(all(unix, not(target_os = "macos")))]
 mod pause;
 mod perf_guard;
 mod rotation;

@@ -27,6 +27,7 @@ pub enum SettingId {
     PerformanceGuard,
     PauseApps,
     PauseIdle,
+    Hotkeys,
 }
 
 pub struct Entry {
@@ -126,6 +127,12 @@ pub const ENTRIES: &[Entry] = &[
         label: "Tray icon size",
         section: "Startup",
         aliases: &["tray size", "icon size", "applet size", "bigger icon", "smaller icon"],
+    },
+    Entry {
+        id: SettingId::Hotkeys,
+        label: "Keyboard shortcuts",
+        section: "Playback",
+        aliases: &["hotkey", "shortcut", "next wallpaper", "global key", "keybinding", "keys", "pause key"],
     },
     Entry {
         id: SettingId::PauseApps,

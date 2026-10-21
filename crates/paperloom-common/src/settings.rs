@@ -197,6 +197,9 @@ pub struct Settings {
     /// Hold the wallpaper on one frame after this many minutes without
     /// keyboard or mouse input; 0 = never.
     pub pause_when_idle_minutes: u32,
+    /// Global shortcuts such as "Ctrl+Alt+Right"; empty = none.
+    pub hotkey_next: String,
+    pub hotkey_pause: String,
 }
 
 /// The Library page's view: grid of cards or list of rows, in three sizes.
@@ -285,6 +288,8 @@ impl Default for Settings {
             performance_guard: true,
             pause_apps: Vec::new(),
             pause_when_idle_minutes: 0,
+            hotkey_next: String::new(),
+            hotkey_pause: String::new(),
         }
     }
 }

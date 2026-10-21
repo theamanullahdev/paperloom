@@ -71,6 +71,7 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     let mut listener = Listener::bind()?;
 
     let pause_detector = PauseDetector::new(&conn, screen.root)?;
+    let mut hotkeys = crate::hotkeys_x11::Hotkeys::new(screen.root);
     let mut is_paused = false;
     // Pause triggers are checked every 10 ticks (~2s at the 200ms tick
     // below), not every tick: two of the four checks shell out to
@@ -79,7 +80,11 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     let mut tick: u32 = 0;
 
     loop {
-        while conn.poll_for_event()?.is_some() {}
+        while let Some(event) = conn.poll_for_event()? {
+            if let Some(shortcut) = hotkeys.event(&event) {
+                player::shortcut(&mpv, shortcut);
+            }
+        }
 
         if player::poll_ipc(&mut listener, &mpv) == Flow::Quit {
             return Ok(());
@@ -89,6 +94,7 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
         if tick.is_multiple_of(10) {
             let settings = paperloom_common::load();
             player::periodic(&settings, &mpv);
+            hotkeys.sync(&conn, &settings.hotkey_next, &settings.hotkey_pause);
             let should_be_paused =
                 pause_detector.should_pause(&conn, screen.width_in_pixels, screen.height_in_pixels, window, &settings);
             if should_be_paused != is_paused {
