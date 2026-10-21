@@ -13,6 +13,17 @@ Open the app, import an MP4 (or download one from the built-in online library), 
 | Windows 10/11 | setup `.exe` or `.msi`; the window sits behind the desktop icons (including the Windows 11 24H2 layout) |
 | macOS 15+ | `.dmg`; desktop-level window on the main display |
 
+## What it does
+
+- **Library:** import MP4, WebM, MKV, MOV, GIF and still images; collections you make yourself plus automatic ones (by topic, source, favorites and tags); favorites, tags and sorting; duplicate imports are recognised.
+- **Cheap to run:** imports are re-encoded in a low-priority background step only when that makes them cheaper to play (formats a graphics card can't decode, more pixels than your screen, more than 30 fps). Hardware decoding, a small decode cache, no audio decoding while muted, and a guard that lowers quality by itself if a wallpaper keeps the CPU busy.
+- **Online:** searches several sources at once, hides wallpapers you already have, opens a detail pop-up with a streaming preview, and takes pasted links.
+- **Rotation and schedule:** change the wallpaper on an interval or by a weekly schedule, even with the window closed.
+- **Pauses by itself:** fullscreen app, locked screen, low battery, covered desktop, chosen apps, or no input for a while.
+- **Control:** tray menu, global keyboard shortcuts, and `paperloom-gui next|pause|resume|mute|stop|status|set <name>` from a terminal.
+- **Updates:** inside the app, any release (older ones too) can be downloaded and installed.
+- **Developer mode:** Settings → Advanced adds a Developers page with live engine status, copyable diagnostics, logs, test actions, and **Run all tests**, which checks everything on a computer and writes one report.
+
 Contributing or picking this up as an agent? Start at [AGENTS.md](./AGENTS.md).
 
 ## Install
