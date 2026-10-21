@@ -2834,6 +2834,7 @@ name = "paperloom-common"
 version = "0.13.0"
 dependencies = [
  "directories",
+ "libc",
  "serde",
  "toml",
  "windows-sys 0.61.2",

@@ -198,6 +198,7 @@ pub fn refresh_dev(settings: &paperloom_common::Settings) {
 pub fn periodic(settings: &paperloom_common::Settings, mpv: &Mpv) {
     refresh_dev(settings);
     publish_status(mpv, settings.developer_mode);
+    crate::rotation::tick(mpv);
     let paused = AUTO_PAUSED.load(Ordering::Relaxed) || USER_PAUSED.load(Ordering::Relaxed);
     let hardware = mpv.get_property::<String>("hwdec-current").is_ok_and(|name| !name.is_empty() && name != "no");
     crate::perf_guard::tick(mpv, settings.performance_guard, paused, hardware);
@@ -286,6 +287,7 @@ pub fn poll_ipc(listener: &mut Listener, mpv: &Mpv) -> Flow {
             set_audio(mpv, muted);
         }
         Command::Ping => {}
+        Command::Next => crate::rotation::next(mpv),
         Command::Pause | Command::Resume => {
             let paused = command == Command::Pause;
             USER_PAUSED.store(paused, Ordering::Relaxed);

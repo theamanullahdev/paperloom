@@ -27,6 +27,8 @@ use crate::{icons, theme};
 pub enum Tab {
     All,
     Collections,
+    /// Rotation and schedule.
+    Rotation,
     /// One collection's wallpapers.
     Collection(u64),
     Hidden,
@@ -70,6 +72,7 @@ pub struct State {
     /// The Stop button was clicked and the choice is showing.
     confirm_stop: bool,
     optimizer: crate::optimizer::Optimizer,
+    rotation: super::rotation::State,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +87,7 @@ pub enum Message {
     CloseActions,
     SetAsWallpaper(u64),
     OptimizeTick,
+    Rotation(super::rotation::Message),
     /// The engine answered (or didn't): the text to show.
     PlayFinished(Result<String, String>),
     OpenPreview(u64),
@@ -138,6 +142,7 @@ impl State {
             preview_cache: HashMap::new(),
             confirm_stop: false,
             optimizer: crate::optimizer::Optimizer::default(),
+            rotation: super::rotation::State::new(),
         };
         state.queue_optimizations();
         state
@@ -177,6 +182,7 @@ impl State {
     pub fn update(&mut self, settings: &mut Settings, message: Message) -> Task<Message> {
         match message {
             Message::SearchChanged(value) => self.search = value,
+            Message::Rotation(message) => self.rotation.update(message, &self.library.collections),
             Message::OptimizeTick => {
                 for (id, outcome) in self.optimizer.take_finished() {
                     let result = self.library.finish_optimize(id, outcome);
@@ -517,6 +523,7 @@ impl State {
                 self.wallpapers(entries, view, empty, t)
             }
             Tab::Collections => self.collections_page(view, t),
+            Tab::Rotation => self.rotation.view(&self.library.collections, t).map(Message::Rotation),
             Tab::Collection(id) => self.collection_page(id, view, t),
             Tab::Hidden => self.hidden_page(view, t),
         };
@@ -557,6 +564,7 @@ impl State {
             vec![
                 (format!("All  {shown}"), self.tab == Tab::All, Message::TabSelected(Tab::All)),
                 (format!("Collections  {collections}"), in_collections, Message::TabSelected(Tab::Collections)),
+                ("Rotation".to_string(), self.tab == Tab::Rotation, Message::TabSelected(Tab::Rotation)),
                 (format!("Hidden  {hidden}"), self.tab == Tab::Hidden, Message::TabSelected(Tab::Hidden)),
             ],
             t,

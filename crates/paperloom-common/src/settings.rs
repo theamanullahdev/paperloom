@@ -191,6 +191,12 @@ pub struct Settings {
     /// Lets the engine lower decoding quality by itself when the wallpaper
     /// keeps the CPU busy (see the engine's `perf_guard`).
     pub performance_guard: bool,
+    /// Pause while the focused window belongs to one of these apps (names
+    /// matched case-insensitively against the program or window class).
+    pub pause_apps: Vec<String>,
+    /// Hold the wallpaper on one frame after this many minutes without
+    /// keyboard or mouse input; 0 = never.
+    pub pause_when_idle_minutes: u32,
 }
 
 /// The Library page's view: grid of cards or list of rows, in three sizes.
@@ -277,6 +283,8 @@ impl Default for Settings {
             library_folder: None,
             developer_mode: false,
             performance_guard: true,
+            pause_apps: Vec::new(),
+            pause_when_idle_minutes: 0,
         }
     }
 }

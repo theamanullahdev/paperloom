@@ -29,6 +29,8 @@ pub enum Command {
     Mute(bool),
     /// Does nothing; answers "is the engine alive" (Developers page, CLI).
     Ping,
+    /// Change to the next wallpaper of the active rotation now.
+    Next,
 }
 
 impl Command {
@@ -42,6 +44,7 @@ impl Command {
             Command::Mute(true) => "MUTE\n".to_string(),
             Command::Mute(false) => "UNMUTE\n".to_string(),
             Command::Ping => "PING\n".to_string(),
+            Command::Next => "NEXT\n".to_string(),
         }
     }
 
@@ -55,6 +58,7 @@ impl Command {
             "MUTE" => Some(Command::Mute(true)),
             "UNMUTE" => Some(Command::Mute(false)),
             "PING" => Some(Command::Ping),
+            "NEXT" => Some(Command::Next),
             _ => line.strip_prefix("PLAY ").map(|path| Command::Play(PathBuf::from(path))),
         }
     }

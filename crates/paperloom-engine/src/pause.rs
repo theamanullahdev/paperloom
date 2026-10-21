@@ -55,6 +55,25 @@ impl PauseDetector {
                 && self.a_window_covers_desktop(conn, screen_width, screen_height, our_window).unwrap_or(false))
             || (settings.pause_on_screen_lock && screen_is_locked())
             || (settings.pause_on_low_battery && battery_low(settings.low_battery_percent))
+            || (!settings.pause_apps.is_empty() && self.active_app_matches(conn, &settings.pause_apps))
+            || (settings.pause_when_idle_minutes > 0 && self.idle_longer_than(conn, settings.pause_when_idle_minutes))
+    }
+
+    /// The focused window's program/class (WM_CLASS) contains one of `apps`.
+    fn active_app_matches(&self, conn: &impl Connection, apps: &[String]) -> bool {
+        let Ok(Some(active)) = get_property_u32(conn, self.root, self.net_active_window) else { return false };
+        if active == 0 {
+            return false;
+        }
+        let Some(reply) = conn.get_property(false, active, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 256).ok().and_then(|cookie| cookie.reply().ok()) else { return false };
+        let class = String::from_utf8_lossy(&reply.value).to_lowercase();
+        apps.iter().map(|app| app.trim().to_lowercase()).any(|app| !app.is_empty() && class.contains(&app))
+    }
+
+    /// No keyboard or mouse input for `minutes` (X screensaver extension).
+    fn idle_longer_than(&self, conn: &impl Connection, minutes: u32) -> bool {
+        use x11rb::protocol::screensaver::ConnectionExt as _;
+        conn.screensaver_query_info(self.root).ok().and_then(|cookie| cookie.reply().ok()).is_some_and(|info| u64::from(info.ms_since_user_input) >= u64::from(minutes) * 60_000)
     }
 
     fn active_window_is_fullscreen(&self, conn: &impl Connection) -> Result<bool, Box<dyn Error>> {

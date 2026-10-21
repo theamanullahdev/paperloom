@@ -34,6 +34,11 @@ pub fn dev_file() -> PathBuf {
     project_dirs().config_dir().join("dev.toml")
 }
 
+/// Rotation and schedule (see `rotation.rs`).
+pub fn rotation_file() -> PathBuf {
+    project_dirs().config_dir().join("rotation.toml")
+}
+
 /// Still frames the engine hands to the desktop as its background.
 pub fn background_frames_dir() -> PathBuf {
     project_dirs().data_dir().join("background")

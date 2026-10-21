@@ -2,7 +2,7 @@ mod registry;
 
 use std::time::{Duration, Instant};
 
-use iced::widget::{button, column, container, pick_list, row, slider, text, toggler, Space};
+use iced::widget::{button, column, container, pick_list, row, slider, text, text_input, toggler, Space};
 use iced::{Animation, Background, Border, Element, Length, Subscription, Task};
 
 use paperloom_common::{ImportMode, Settings, ThemeMode, TraySize, TrayStyle};
@@ -11,6 +11,21 @@ pub use registry::{matches, Entry, SettingId, ENTRIES};
 use crate::theme;
 
 const THEME_OPTIONS: &[ThemeMode] = &[ThemeMode::System, ThemeMode::Light, ThemeMode::Dark];
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Idle(u32);
+
+const IDLE_OPTIONS: [Idle; 5] = [Idle(0), Idle(5), Idle(10), Idle(30), Idle(60)];
+
+impl std::fmt::Display for Idle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            0 => f.write_str("Never"),
+            60 => f.write_str("After 1 hour"),
+            m => write!(f, "After {m} minutes"),
+        }
+    }
+}
+
 const TRAY_STYLE_OPTIONS: &[TrayStyle] = &[TrayStyle::Auto, TrayStyle::Colored, TrayStyle::White, TrayStyle::Black];
 const TRAY_SIZE_OPTIONS: &[TraySize] = &[TraySize::Small, TraySize::Medium, TraySize::Large];
 const IMPORT_MODE_OPTIONS: &[ImportMode] = &[
@@ -31,6 +46,8 @@ pub struct State {
     autostart: bool,
     autostart_error: Option<String>,
     stats: Option<Stats>,
+    /// The pause-by-app list as typed (commas included).
+    pause_apps_text: String,
 }
 
 impl Default for State {
@@ -41,6 +58,7 @@ impl Default for State {
             autostart: paperloom_common::autostart::is_enabled(),
             autostart_error: None,
             stats: None,
+            pause_apps_text: String::new(),
         }
     }
 }
@@ -53,6 +71,8 @@ pub enum Message {
     ImportModeSelected(ImportMode),
     ThemeSelected(ThemeMode),
     LowBatteryChanged(u8),
+    PauseAppsChanged(String),
+    PauseIdleSelected(Idle),
     TrayStyleSelected(TrayStyle),
     TraySizeSelected(TraySize),
     ChooseLibraryFolder,
@@ -68,7 +88,7 @@ pub enum Message {
 
 impl State {
     pub fn new() -> Self {
-        Self::default()
+        Self { pause_apps_text: paperloom_common::load().pause_apps.join(", "), ..Self::default() }
     }
 
     /// Only subscribes to frame ticks while a highlight is actively
@@ -118,6 +138,8 @@ impl State {
                     | SettingId::Updates
                     | SettingId::TrayStyle
                     | SettingId::TraySize
+                    | SettingId::PauseApps
+                    | SettingId::PauseIdle
                     | SettingId::LibraryFolder => {}
                 }
                 self.flash(id);
@@ -126,6 +148,17 @@ impl State {
             Message::ImportModeSelected(mode) => {
                 settings.import_mode = mode;
                 self.flash(SettingId::ImportMode);
+                let _ = paperloom_common::save(settings);
+            }
+            Message::PauseAppsChanged(text) => {
+                settings.pause_apps = text.split(',').map(|app| app.trim().to_string()).filter(|app| !app.is_empty()).collect();
+                self.pause_apps_text = text;
+                self.flash(SettingId::PauseApps);
+                let _ = paperloom_common::save(settings);
+            }
+            Message::PauseIdleSelected(idle) => {
+                settings.pause_when_idle_minutes = idle.0;
+                self.flash(SettingId::PauseIdle);
                 let _ = paperloom_common::save(settings);
             }
             Message::LowBatteryChanged(percent) => {
@@ -223,6 +256,25 @@ impl State {
                 item(
                     SettingId::PauseLowBattery,
                     toggler(settings.pause_on_low_battery).label("The battery is low").on_toggle(|v| Message::Toggle(SettingId::PauseLowBattery, v)).into(),
+                ),
+                item(
+                    SettingId::PauseApps,
+                    column![
+                        text("Pause while one of these apps is focused").size(13),
+                        text_input("steam, obs, zoom", &self.pause_apps_text).on_input(Message::PauseAppsChanged).padding(6),
+                        hint("Program or window names, separated by commas. Games and calls are the usual ones."),
+                    ]
+                    .spacing(6)
+                    .into(),
+                ),
+                item(
+                    SettingId::PauseIdle,
+                    column![
+                        row![text("Pause when I'm away").size(13), Space::new().width(Length::Fill), pick_list(IDLE_OPTIONS, Some(Idle(settings.pause_when_idle_minutes)), Message::PauseIdleSelected)].align_y(iced::Alignment::Center),
+                        hint("Holds one frame after no keyboard or mouse input for that long, and resumes when you return. Linux (X11) and Windows."),
+                    ]
+                    .spacing(6)
+                    .into(),
                 ),
                 item(
                     SettingId::LowBatteryPercent,

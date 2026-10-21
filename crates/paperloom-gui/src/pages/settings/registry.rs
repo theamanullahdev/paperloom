@@ -25,6 +25,8 @@ pub enum SettingId {
     LibraryFolder,
     DeveloperMode,
     PerformanceGuard,
+    PauseApps,
+    PauseIdle,
 }
 
 pub struct Entry {
@@ -124,6 +126,18 @@ pub const ENTRIES: &[Entry] = &[
         label: "Tray icon size",
         section: "Startup",
         aliases: &["tray size", "icon size", "applet size", "bigger icon", "smaller icon"],
+    },
+    Entry {
+        id: SettingId::PauseApps,
+        label: "Pause while certain apps are focused",
+        section: "Performance & idle behavior",
+        aliases: &["game", "games", "steam", "obs", "zoom", "app list", "pause for app", "performance"],
+    },
+    Entry {
+        id: SettingId::PauseIdle,
+        label: "Pause when I'm away",
+        section: "Performance & idle behavior",
+        aliases: &["idle", "inactive", "away", "no input", "afk", "screensaver", "save power", "battery"],
     },
     Entry {
         id: SettingId::PerformanceGuard,

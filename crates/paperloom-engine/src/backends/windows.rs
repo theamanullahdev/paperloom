@@ -357,6 +357,47 @@ fn should_pause(settings: &Settings, window: HWND) -> bool {
         || (settings.pause_on_window_covering_desktop && desktop_covered(window))
         || (settings.pause_on_screen_lock && screen_locked())
         || (settings.pause_on_low_battery && battery_low(settings.low_battery_percent))
+        || (!settings.pause_apps.is_empty() && foreground_app_matches(&settings.pause_apps))
+        || (settings.pause_when_idle_minutes > 0 && idle_milliseconds() >= u64::from(settings.pause_when_idle_minutes) * 60_000)
+}
+
+/// The focused window's program (file name) or window class contains one of `apps`.
+fn foreground_app_matches(apps: &[String]) -> bool {
+    use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows_sys::Win32::Foundation::CloseHandle;
+    // SAFETY: read-only queries; the process handle is closed right away.
+    let (program, class) = unsafe {
+        let window = GetForegroundWindow();
+        if window.is_null() {
+            return false;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(window, &mut pid);
+        let mut program = String::new();
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if !process.is_null() {
+            let mut buffer = [0u16; 520];
+            let mut length = buffer.len() as u32;
+            if QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut length) != 0 {
+                program = String::from_utf16_lossy(&buffer[..length as usize]);
+            }
+            CloseHandle(process);
+        }
+        (program.rsplit(['\\', '/']).next().unwrap_or_default().to_lowercase(), class_name(window).to_lowercase())
+    };
+    apps.iter().map(|app| app.trim().to_lowercase()).any(|app| !app.is_empty() && (program.contains(&app) || class.contains(&app)))
+}
+
+/// Milliseconds since the last keyboard or mouse input.
+fn idle_milliseconds() -> u64 {
+    use windows_sys::Win32::System::SystemInformation::GetTickCount;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+    let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+    // SAFETY: fills the struct we own.
+    if unsafe { GetLastInputInfo(&mut info) } == 0 {
+        return 0;
+    }
+    u64::from(unsafe { GetTickCount() }.wrapping_sub(info.dwTime))
 }
 
 /// The shell's own "don't disturb the user" signal: a fullscreen app, a

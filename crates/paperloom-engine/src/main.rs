@@ -26,6 +26,7 @@ mod desktop_background;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod pause;
 mod perf_guard;
+mod rotation;
 mod player;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod tray;
