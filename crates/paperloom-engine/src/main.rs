@@ -27,6 +27,7 @@ mod desktop_background;
 mod pause;
 mod perf_guard;
 mod rotation;
+mod selftest;
 mod player;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod tray;
@@ -40,6 +41,12 @@ fn main() -> ExitCode {
     player::refresh_dev(&paperloom_common::load());
     let mut args = env::args().skip(1);
     let first = args.next();
+
+    // `--selftest [clip]`: step-by-step startup checks printed as text.
+    if first.as_deref() == Some("--selftest") {
+        selftest::run(args.next().as_deref());
+        return ExitCode::SUCCESS;
+    }
 
     // `--preview <file>`: a one-off full-screen window for the GUI's
     // double-click preview, not the wallpaper daemon.

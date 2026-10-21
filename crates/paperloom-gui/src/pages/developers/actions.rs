@@ -148,7 +148,7 @@ fn clear_dir(dir: &std::path::Path) -> usize {
 }
 
 /// A five-second moving test pattern, made with the bundled ffmpeg.
-fn make_test_clip() -> Result<PathBuf, String> {
+pub(super) fn make_test_clip() -> Result<PathBuf, String> {
     let path = paperloom_common::online_cache_dir().join("paperloom-test-clip.mp4");
     if path.is_file() {
         return Ok(path);

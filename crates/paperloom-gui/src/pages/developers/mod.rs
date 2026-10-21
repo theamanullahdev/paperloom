@@ -5,10 +5,11 @@
 //! second only while it is open.
 
 mod actions;
+mod suite;
 
 use std::time::Duration;
 
-use iced::widget::{button, column, container, row, scrollable, text, toggler};
+use iced::widget::{button, column, container, row, scrollable, text, toggler, Space};
 use iced::{Alignment, Background, Border, Element, Font, Length, Subscription, Task};
 
 use paperloom_common::dev::DevSwitches;
@@ -16,11 +17,17 @@ use paperloom_common::{log, EngineState, Settings};
 
 pub use actions::{Action, Folder};
 
+/// The whole self-test as text (also behind `paperloom-gui --selftest`).
+pub fn run_suite(settings: &Settings) -> String {
+    suite::run(settings, Default::default())
+}
+
 use crate::theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Overview,
+    Tests,
     Diagnostics,
     Actions,
     Logs,
@@ -59,6 +66,9 @@ pub enum Message {
     Back,
     Tab(Tab),
     Tick,
+    // Tests
+    RunTests,
+    TestsDone(String),
     // Diagnostics
     Refresh,
     DiagnosticsReady(String),
@@ -89,6 +99,9 @@ pub struct State {
     log_kind: LogKind,
     log_text: String,
     switches: DevSwitches,
+    test_progress: suite::Progress,
+    test_running: bool,
+    test_report: String,
     state_files: [String; 3],
 }
 
@@ -108,6 +121,9 @@ impl State {
             log_kind: LogKind::App,
             log_text: String::new(),
             switches: DevSwitches::load(),
+            test_progress: Default::default(),
+            test_running: false,
+            test_report: String::new(),
             state_files: Default::default(),
         }
     }
@@ -175,6 +191,23 @@ impl State {
                 if self.tab == Tab::Logs {
                     self.reload_log();
                 }
+            }
+            Message::RunTests => {
+                if self.test_running {
+                    return Task::none();
+                }
+                self.test_running = true;
+                self.test_report.clear();
+                let (settings, progress) = (settings.clone(), self.test_progress.clone());
+                return Task::perform(crate::pages::online::blocking::<String, String>(move || Ok(suite::run(&settings, progress))), |result| Message::TestsDone(result.unwrap_or_default()));
+            }
+            Message::TestsDone(report) => {
+                self.test_running = false;
+                let path = paperloom_common::logs_dir().join("selftest.txt");
+                let _ = std::fs::create_dir_all(paperloom_common::logs_dir());
+                let _ = std::fs::write(&path, &report);
+                log::info(&format!("self-test finished: {}", report.lines().nth(1).unwrap_or_default()));
+                self.test_report = report;
             }
             Message::Refresh => return self.refresh(),
             Message::DiagnosticsReady(text) => {
@@ -249,6 +282,7 @@ impl State {
         let tabs = crate::ui::segmented(
             [
                 (Tab::Overview, "Overview"),
+                (Tab::Tests, "Run all tests"),
                 (Tab::Diagnostics, "Diagnostics"),
                 (Tab::Actions, "Actions"),
                 (Tab::Logs, "Logs"),
@@ -262,6 +296,7 @@ impl State {
         );
         let content = match self.tab {
             Tab::Overview => self.overview(t),
+            Tab::Tests => self.tests_tab(t),
             Tab::Diagnostics => self.diagnostics_tab(t),
             Tab::Actions => self.actions_tab(t),
             Tab::Logs => self.logs_tab(t),
@@ -304,6 +339,34 @@ impl State {
             .into(),
             t,
         )
+    }
+
+    fn tests_tab<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        let running: Vec<String> = self.test_progress.lock().map(|lines| lines.clone()).unwrap_or_default();
+        let bar = row![
+            button(crate::ui::label(if self.test_running { "Running…" } else { "Run all tests" })).on_press_maybe((!self.test_running).then_some(Message::RunTests)),
+            button(crate::ui::label("Copy report")).style(button::secondary).on_press_maybe((!self.test_report.is_empty()).then(|| Message::Copy(self.test_report.clone()))),
+            button(crate::ui::label("Open the saved file")).style(button::secondary).on_press(Message::OpenFolder(Folder::Logs)),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .wrap();
+        let intro = text("Checks everything Paperloom does on this computer — files, video, the wallpaper engine, network, sources, updates — and writes one report you can copy and send. It takes about a minute, plays a short test clip as the wallpaper, and puts your wallpaper back afterwards.")
+            .size(12)
+            .color(t.muted_foreground);
+        let body: Element<'a, Message> = if !self.test_report.is_empty() {
+            let failed = self.test_report.lines().nth(1).unwrap_or_default().to_string();
+            column![text(failed).size(14).color(t.foreground), mono_box(&self.test_report, 560.0, t)].spacing(8).into()
+        } else if self.test_running || !running.is_empty() {
+            let mut list = column![].spacing(2);
+            for line in running {
+                list = list.push(text(line).size(12).font(Font::MONOSPACE).color(t.foreground));
+            }
+            card(list.into(), t)
+        } else {
+            Space::new().into()
+        };
+        column![bar, intro, body].spacing(12).into()
     }
 
     fn diagnostics_tab<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {

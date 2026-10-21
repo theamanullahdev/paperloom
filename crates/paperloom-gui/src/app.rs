@@ -127,11 +127,18 @@ impl App {
             banner_dismissed: false,
         };
         // `--page usage` etc. (from the tray menu).
-        let requested_page = std::env::args().skip_while(|arg| arg != "--page").nth(1).as_deref().and_then(page_named);
+        let requested_page = if std::env::args().any(|arg| arg == "--dev") {
+            Some(Page::Developers)
+        } else {
+            std::env::args().skip_while(|arg| arg != "--page").nth(1).as_deref().and_then(page_named)
+        };
         if let Some(page) = requested_page {
             app.page = page;
             if page == Page::Usage {
                 app.usage_page.open(app.library_page.library());
+            }
+            if page == Page::Developers {
+                let _ = app.developers_page.open();
             }
         }
         // Opened from the tray menu's "Tray icon settings…".

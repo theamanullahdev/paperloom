@@ -65,6 +65,24 @@ pub fn main() -> iced::Result {
         return widget::run(at);
     }
 
+    // `--selftest`: run every check without opening a window; the report is
+    // saved as logs/selftest.txt (and printed where a console exists).
+    if args.iter().any(|arg| arg == "--selftest") {
+        let report = pages::developers::run_suite(&paperloom_common::load());
+        let path = paperloom_common::logs_dir().join("selftest.txt");
+        let _ = std::fs::create_dir_all(paperloom_common::logs_dir());
+        let _ = std::fs::write(&path, &report);
+        println!("{report}\n\nSaved to {}", path.display());
+        return Ok(());
+    }
+
+    // `--dev`: turn developer mode on and open the Developers page.
+    if args.iter().any(|arg| arg == "--dev") {
+        let mut settings = paperloom_common::load();
+        settings.developer_mode = true;
+        let _ = paperloom_common::save(&settings);
+    }
+
     // `--diagnostics`: print the support report and exit (no window).
     if args.iter().any(|arg| arg == "--diagnostics") {
         println!("{}", paperloom_common::diagnostics::gather(&diagnostics_extra()));
@@ -73,7 +91,9 @@ pub fn main() -> iced::Result {
 
     // One Paperloom window: if it's already open, bring it forward (and pass
     // along what this launch asked for) instead of opening a second one.
-    let request = if args.iter().any(|arg| arg == "--tray-settings") {
+    let request = if args.iter().any(|arg| arg == "--dev") {
+        "PAGE developers".to_string()
+    } else if args.iter().any(|arg| arg == "--tray-settings") {
         "TRAY-SETTINGS".to_string()
     } else if let Some(page) = value_of("--page") {
         format!("PAGE {page}")

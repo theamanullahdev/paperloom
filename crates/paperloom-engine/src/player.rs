@@ -58,6 +58,10 @@ pub fn startup_wallpaper(cli_path: Option<&str>) -> Option<String> {
 /// Each is best-effort — an option an older libmpv doesn't know is skipped.
 fn tune(mpv: &Mpv) {
     for (name, value) in TUNING {
+        if name == "msg-level" {
+            let _ = mpv.set_property(name, mpv_log_level().to_string());
+            continue;
+        }
         if let Err(err) = mpv.set_property(name, value.to_string()) {
             paperloom_common::log::debug(&format!("mpv option {name} skipped: {err}"));
         }
@@ -176,6 +180,20 @@ fn publish_pause(auto: bool, user: bool) {
 pub fn set_paused(mpv: &Mpv, paused: bool) {
     AUTO_PAUSED.store(paused && !dev().disable_auto_pause, Ordering::Relaxed);
     apply_pause(mpv);
+}
+
+/// Set by `--selftest` so libmpv logs in detail.
+pub static SELFTEST: AtomicBool = AtomicBool::new(false);
+
+/// libmpv's log level for the current run.
+pub fn mpv_log_level() -> &'static str {
+    if SELFTEST.load(Ordering::Relaxed) {
+        "all=info"
+    } else if dev().verbose_log {
+        "all=warn"
+    } else {
+        "all=error"
+    }
 }
 
 /// Developer switches in force (all off unless developer mode is on).

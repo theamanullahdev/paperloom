@@ -129,6 +129,8 @@ fn build(safe: bool) -> Result<(HWND, Mpv), Box<dyn Error>> {
     let made = (|| -> Result<Mpv, Box<dyn Error>> {
         let mpv = Mpv::with_initializer(|init| {
             init.set_property("wid", window as i64)?;
+            init.set_property("log-file", paperloom_common::logs_dir().join("mpv.log").to_string_lossy().to_string())?;
+            init.set_property("msg-level", player::mpv_log_level())?;
             if safe {
                 init.set_property("vo", "gpu")?;
                 init.set_property("gpu-api", "d3d11")?;
@@ -596,4 +598,155 @@ fn is_descendant(mut window: HWND, ancestor: HWND) -> bool {
 fn any_input_down() -> bool {
     // SAFETY: stateless key-state queries.
     (0x01..=0xFE).any(|vk| unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000 != 0)
+}
+
+// --- Self-test --------------------------------------------------------------
+
+/// Everything that can go wrong when attaching behind the desktop icons,
+/// checked one at a time and printed (see `selftest.rs`).
+pub fn selftest(clip: Option<&str>) {
+    use crate::selftest::{fail, info, pass, text};
+
+    // SAFETY: process-wide setting before any window exists.
+    unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    match register_class(CLASS_NAME) {
+        Ok(()) => pass("window class registered"),
+        Err(err) => {
+            fail(format!("window class: {err}"));
+            return;
+        }
+    }
+
+    info(format!(
+        "screen: {} monitor(s), virtual desktop {}x{}",
+        // SAFETY: plain metric queries.
+        unsafe { GetSystemMetrics(SM_CMONITORS) },
+        screen_size().0,
+        screen_size().1
+    ));
+    info(format!(
+        "state: fullscreen app {}, screen locked {}, idle {} s, battery low {}",
+        fullscreen_app_running(),
+        screen_locked(),
+        idle_milliseconds() / 1000,
+        battery_low(20)
+    ));
+
+    dump_desktop_tree();
+
+    for (label, safe) in [("default video setup", false), ("safe video setup (Direct3D 11, software decoding)", true)] {
+        match build(safe) {
+            Ok((window, mpv)) => {
+                pass(format!("{label}: window attached behind the icons and libmpv started"));
+                if let Some(path) = clip {
+                    window_playback(&mpv, window, path, label);
+                }
+                drop(mpv);
+                // SAFETY: our own window, destroyed once.
+                unsafe { DestroyWindow(window) };
+            }
+            Err(err) => fail(format!("{label}: {err}")),
+        }
+    }
+
+    // What mpv itself complained about while doing the above.
+    let tail = paperloom_common::log::tail("mpv", 25);
+    if !tail.is_empty() {
+        info("libmpv log (last lines):");
+        for line in tail.lines() {
+            info(format!("  {line}"));
+        }
+    }
+
+    fn window_playback(mpv: &Mpv, window: HWND, path: &str, label: &str) {
+        if let Err(err) = mpv.command("loadfile", &[path]) {
+            fail(format!("{label}: loadfile failed: {err}"));
+            return;
+        }
+        let started = Instant::now();
+        let mut position = 0.0;
+        while started.elapsed() < Duration::from_secs(6) {
+            pump_messages();
+            std::thread::sleep(Duration::from_millis(250));
+            position = mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
+            if position > 1.5 {
+                break;
+            }
+        }
+        let configured = mpv.get_property::<bool>("vo-configured").unwrap_or(false);
+        // SAFETY: handle check only.
+        let alive = unsafe { IsWindow(window) } != 0;
+        if position > 0.5 && configured && alive {
+            pass(format!("{label}: video is playing in the wallpaper window ({position:.1}s)"));
+        } else {
+            fail(format!("{label}: no video after 6 s (time {position:.1}s, output ready {configured}, window alive {alive})"));
+        }
+        info(format!(
+            "{label}: output {}, decoder {}, codec {}, size {}x{}, dropped {}",
+            text(mpv, "current-vo"),
+            text(mpv, "hwdec-current"),
+            text(mpv, "video-codec"),
+            mpv.get_property::<i64>("width").unwrap_or(0),
+            mpv.get_property::<i64>("height").unwrap_or(0),
+            mpv.get_property::<i64>("frame-drop-count").unwrap_or(0),
+        ));
+    }
+}
+
+/// Prints the parts of the desktop's window tree that decide where a
+/// wallpaper can go: Progman, its children, and every WorkerW.
+fn dump_desktop_tree() {
+    use crate::selftest::{fail, info, pass};
+    use windows_sys::Win32::UI::WindowsAndMessaging::EnumChildWindows;
+
+    unsafe extern "system" fn child(window: HWND, list: LPARAM) -> windows_sys::core::BOOL {
+        let lines = &mut *(list as *mut Vec<String>);
+        let mut rect: RECT = std::mem::zeroed();
+        GetWindowRect(window, &mut rect);
+        lines.push(format!("    child {} visible={} rect=({},{},{},{})", class_name(window), IsWindowVisible(window) != 0, rect.left, rect.top, rect.right, rect.bottom));
+        1
+    }
+    unsafe extern "system" fn top(window: HWND, list: LPARAM) -> windows_sys::core::BOOL {
+        let lines = &mut *(list as *mut Vec<String>);
+        let class = class_name(window);
+        let has_icons = !FindWindowExW(window, std::ptr::null_mut(), wide("SHELLDLL_DefView").as_ptr(), std::ptr::null()).is_null();
+        if class == "WorkerW" || has_icons {
+            lines.push(format!("  top-level {class} icons-inside={has_icons} visible={}", IsWindowVisible(window) != 0));
+        }
+        1
+    }
+
+    // SAFETY: read-only window queries; the callbacks only push into a Vec
+    // that outlives the enumeration.
+    unsafe {
+        let progman = FindWindowW(wide("Progman").as_ptr(), std::ptr::null());
+        if progman.is_null() {
+            fail("desktop: no Progman window — Explorer is not running (or this is not a normal desktop session)");
+            return;
+        }
+        pass("desktop: Progman found");
+        let mut result = 0usize;
+        SendMessageTimeoutW(progman, 0x052C, 0xD, 0x1, SMTO_NORMAL, 1000, &mut result);
+        SendMessageTimeoutW(progman, 0x052C, 0, 0, SMTO_NORMAL, 1000, &mut result);
+        std::thread::sleep(Duration::from_millis(500));
+
+        let mut lines = Vec::new();
+        EnumChildWindows(progman, Some(child), &mut lines as *mut Vec<String> as LPARAM);
+        info("desktop tree after asking Explorer for a WorkerW:");
+        info("  Progman");
+        for line in &lines {
+            info(line);
+        }
+        let mut tops = Vec::new();
+        EnumWindows(Some(top), &mut tops as *mut Vec<String> as LPARAM);
+        for line in &tops {
+            info(line);
+        }
+        let raised = !FindWindowExW(progman, std::ptr::null_mut(), wide("WorkerW").as_ptr(), std::ptr::null()).is_null();
+        let legacy = find_legacy_workerw().is_some();
+        info(format!("layout: raised (Windows 11 24H2 style) {raised}, classic WorkerW {legacy}"));
+        if !raised && !legacy {
+            fail("desktop: Explorer did not create a WorkerW layer to draw behind the icons");
+        }
+    }
 }
