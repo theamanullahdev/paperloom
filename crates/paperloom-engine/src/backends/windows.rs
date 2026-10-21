@@ -70,10 +70,8 @@ fn wide(value: &str) -> Vec<u16> {
 
 pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     player::validate_cli_path(initial_path)?;
-    // Physical pixels everywhere, so the window really covers a scaled
-    // (125%/150%) screen instead of a DPI-virtualized fraction of it.
-    // SAFETY: process-wide setting, called before any window exists.
-    unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    let awareness = adopt_desktop_dpi();
+    paperloom_common::log::info(&format!("DPI awareness: {awareness}"));
 
     // Binding first doubles as the single-instance check: a second engine
     // fails here (the pipe already exists) before it touches the desktop.
@@ -288,12 +286,59 @@ fn register_class(name: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Takes on the same DPI awareness as the desktop (Explorer's `Progman`)
+/// before any window exists. Windows refuses to parent a window of one
+/// awareness inside a window of another, which shows up as a failing
+/// `CreateWindowExW` ("handle is invalid") — so mimic the parent instead of
+/// guessing. Waits a while for Explorer at login. Returns what was chosen.
+fn adopt_desktop_dpi() -> String {
+    use windows_sys::Win32::UI::HiDpi::{
+        AreDpiAwarenessContextsEqual, GetWindowDpiAwarenessContext, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE, DPI_AWARENESS_CONTEXT_UNAWARE,
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE,
+    };
+    // SAFETY: window lookups and a process-wide setting made before any window exists.
+    unsafe {
+        let mut progman = FindWindowW(wide("Progman").as_ptr(), std::ptr::null());
+        for _ in 0..60 {
+            if !progman.is_null() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+            progman = FindWindowW(wide("Progman").as_ptr(), std::ptr::null());
+        }
+        let (name, context) = if progman.is_null() {
+            ("per-monitor v2 (no desktop window found yet)", DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+        } else {
+            let theirs = GetWindowDpiAwarenessContext(progman);
+            let is = |wanted| AreDpiAwarenessContextsEqual(theirs, wanted) != 0;
+            if is(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) {
+                ("per-monitor v2 (same as the desktop)", DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+            } else if is(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE) {
+                ("per-monitor (same as the desktop)", DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE)
+            } else if is(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE) {
+                ("system (same as the desktop)", DPI_AWARENESS_CONTEXT_SYSTEM_AWARE)
+            } else if is(DPI_AWARENESS_CONTEXT_UNAWARE) {
+                ("unaware (same as the desktop)", DPI_AWARENESS_CONTEXT_UNAWARE)
+            } else {
+                ("per-monitor v2 (desktop's awareness not recognised)", DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+            }
+        };
+        SetProcessDpiAwarenessContext(context);
+        name.to_string()
+    }
+}
+
 /// Builds the wallpaper window inside the desktop's window tree (see the
 /// module docs for the two layouts). It spans the whole virtual screen, so
 /// a multi-monitor setup gets one video across every monitor — the same
 /// thing the X11 backend's root-sized window does.
+///
+/// Several ways of getting a window into another process's window tree are
+/// tried in turn (a child created directly, a pop-up re-parented, then the
+/// pop-up covering the desktop); the one that worked is logged, and every
+/// failure is kept so the self-test report can show them.
 fn create_wallpaper_window() -> Result<HWND, Box<dyn Error>> {
-    let class_name = wide(CLASS_NAME);
+    let mut failures: Vec<String> = Vec::new();
     // SAFETY: plain Win32 calls on handles we just looked up; every pointer
     // passed is either null or a live, NUL-terminated wide string.
     unsafe {
@@ -319,58 +364,106 @@ fn create_wallpaper_window() -> Result<HWND, Box<dyn Error>> {
 
         let (width, height) = (GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN));
         let raised_workerw = FindWindowExW(progman, std::ptr::null_mut(), wide("WorkerW").as_ptr(), std::ptr::null());
+        let raised = !raised_workerw.is_null();
+        let parent = if raised { progman } else { find_legacy_workerw().unwrap_or(std::ptr::null_mut()) };
+        let ex_style = if raised { WS_EX_LAYERED | WS_EX_NOACTIVATE } else { WS_EX_NOACTIVATE };
 
-        let window = if !raised_workerw.is_null() {
-            // 24H2+ layout: child of Progman, between the icons and WorkerW.
-            let window = CreateWindowExW(
-                WS_EX_LAYERED | WS_EX_NOACTIVATE,
-                class_name.as_ptr(),
-                std::ptr::null(),
-                WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-                0,
-                0,
-                width,
-                height,
-                progman,
-                std::ptr::null_mut(),
-                GetModuleHandleW(std::ptr::null()),
-                std::ptr::null(),
-            );
-            if window.is_null() {
-                return Err(format!("CreateWindowExW failed: {}", std::io::Error::last_os_error()).into());
+        if !parent.is_null() {
+            for (label, popup_first) in [("child window", false), ("pop-up moved into the desktop", true)] {
+                match make_window(parent, ex_style, width, height, popup_first) {
+                    Ok(window) => {
+                        if raised {
+                            SetLayeredWindowAttributes(window, 0, 255, LWA_ALPHA);
+                            let icons = FindWindowExW(progman, std::ptr::null_mut(), wide("SHELLDLL_DefView").as_ptr(), std::ptr::null());
+                            if !icons.is_null() {
+                                // "Insert after" the icon view = directly below it.
+                                SetWindowPos(window, icons, 0, 0, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                            }
+                            SetWindowPos(raised_workerw, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | 0x0001 | 0x0002); // NOSIZE | NOMOVE
+                        }
+                        ShowWindow(window, SW_SHOW);
+                        paperloom_common::log::info(&format!("wallpaper window attached ({label}, {} layout)", if raised { "raised" } else { "classic" }));
+                        return Ok(window);
+                    }
+                    Err(err) => failures.push(format!("{label}: {err}")),
+                }
             }
-            SetLayeredWindowAttributes(window, 0, 255, LWA_ALPHA);
-            let icons = FindWindowExW(progman, std::ptr::null_mut(), wide("SHELLDLL_DefView").as_ptr(), std::ptr::null());
-            if !icons.is_null() {
-                // "Insert after" the icon view = directly below it.
-                SetWindowPos(window, icons, 0, 0, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-            }
-            SetWindowPos(raised_workerw, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | 0x0001 | 0x0002); // NOSIZE | NOMOVE
-            window
         } else {
-            let workerw = find_legacy_workerw().ok_or("couldn't find the desktop's WorkerW window")?;
-            let window = CreateWindowExW(
-                WS_EX_NOACTIVATE,
-                class_name.as_ptr(),
-                std::ptr::null(),
-                WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-                0,
-                0,
-                width,
-                height,
-                workerw,
-                std::ptr::null_mut(),
-                GetModuleHandleW(std::ptr::null()),
-                std::ptr::null(),
-            );
-            if window.is_null() {
-                return Err(format!("CreateWindowExW failed: {}", std::io::Error::last_os_error()).into());
+            failures.push("no desktop layer (WorkerW) to attach to".into());
+        }
+
+        // Last resort: a plain window over the desktop but under every other
+        // window. The desktop icons are hidden beneath it, but the video shows.
+        match make_cover_window(progman, width, height) {
+            Ok(window) => {
+                paperloom_common::log::warn(&format!("wallpaper window is covering the desktop (icons hidden); attach failed: {}", failures.join(" | ")));
+                return Ok(window);
             }
-            window
-        };
-        ShowWindow(window, SW_SHOW);
-        Ok(window)
+            Err(err) => failures.push(format!("cover the desktop: {err}")),
+        }
     }
+    Err(format!("couldn't create the wallpaper window — {}", failures.join(" | ")).into())
+}
+
+/// One attempt at a window parented into the desktop: directly as a child,
+/// or as a pop-up that is then moved in with `SetParent`.
+unsafe fn make_window(parent: HWND, ex_style: u32, width: i32, height: i32, popup_first: bool) -> Result<HWND, String> {
+    use windows_sys::Win32::Foundation::{GetLastError, SetLastError};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetParent, SetWindowLongPtrW, GWL_STYLE, SWP_FRAMECHANGED, SWP_NOZORDER};
+
+    let class_name = wide(CLASS_NAME);
+    let module = GetModuleHandleW(std::ptr::null());
+    SetLastError(0);
+    let window = if popup_first {
+        CreateWindowExW(ex_style, class_name.as_ptr(), std::ptr::null(), WS_POPUP, 0, 0, width, height, std::ptr::null_mut(), std::ptr::null_mut(), module, std::ptr::null())
+    } else {
+        CreateWindowExW(ex_style, class_name.as_ptr(), std::ptr::null(), WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, 0, 0, width, height, parent, std::ptr::null_mut(), module, std::ptr::null())
+    };
+    if window.is_null() {
+        let code = GetLastError();
+        return Err(format!("CreateWindowExW failed: {} (code {code})", std::io::Error::from_raw_os_error(code as i32)));
+    }
+    if popup_first {
+        SetLastError(0);
+        if SetParent(window, parent).is_null() {
+            let code = GetLastError();
+            DestroyWindow(window);
+            return Err(format!("SetParent failed: {} (code {code})", std::io::Error::from_raw_os_error(code as i32)));
+        }
+        SetWindowLongPtrW(window, GWL_STYLE, (WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN) as isize);
+        SetWindowPos(window, std::ptr::null_mut(), 0, 0, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    }
+    Ok(window)
+}
+
+/// A top-level window just above the desktop (see the last resort above).
+unsafe fn make_cover_window(progman: HWND, width: i32, height: i32) -> Result<HWND, String> {
+    use windows_sys::Win32::Foundation::{GetLastError, SetLastError};
+    let class_name = wide(CLASS_NAME);
+    SetLastError(0);
+    let window = CreateWindowExW(
+        WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+        class_name.as_ptr(),
+        std::ptr::null(),
+        WS_POPUP | WS_VISIBLE,
+        GetSystemMetrics(windows_sys::Win32::UI::WindowsAndMessaging::SM_XVIRTUALSCREEN),
+        GetSystemMetrics(windows_sys::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN),
+        width,
+        height,
+        std::ptr::null_mut(),
+        std::ptr::null_mut(),
+        GetModuleHandleW(std::ptr::null()),
+        std::ptr::null(),
+    );
+    if window.is_null() {
+        let code = GetLastError();
+        return Err(format!("CreateWindowExW failed: {} (code {code})", std::io::Error::from_raw_os_error(code as i32)));
+    }
+    // Under every normal window, over the desktop: sink it, then sink the desktop below it.
+    SetWindowPos(window, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | 0x0001 | 0x0002);
+    SetWindowPos(progman, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | 0x0001 | 0x0002);
+    ShowWindow(window, SW_SHOW);
+    Ok(window)
 }
 
 /// Pre-24H2: the top-level `WorkerW` that comes right after the top-level
@@ -646,8 +739,7 @@ fn any_input_down() -> bool {
 pub fn selftest(clip: Option<&str>) {
     use crate::selftest::{fail, info, pass, text};
 
-    // SAFETY: process-wide setting before any window exists.
-    unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    info(format!("DPI awareness: {}", adopt_desktop_dpi()));
     match register_class(CLASS_NAME) {
         Ok(()) => pass("window class registered"),
         Err(err) => {
