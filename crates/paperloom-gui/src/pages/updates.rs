@@ -42,6 +42,8 @@ pub struct State {
     tab: DetailTab,
     /// Taps on the version number (seven switch developer mode).
     taps: u8,
+    /// Why the last install didn't work, shown on the download card.
+    install_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +84,7 @@ fn now_unix() -> u64 {
 impl State {
     pub fn new() -> Self {
         let (kind, kind_reason) = InstallKind::detect_with_reason();
-        Self { kind, kind_reason, check: Check::NotYet, download: None, speed: None, log: Vec::new(), installing: false, installed: None, selected: None, tab: DetailTab::Release, taps: 0 }
+        Self { kind, kind_reason, check: Check::NotYet, download: None, speed: None, log: Vec::new(), installing: false, installed: None, selected: None, tab: DetailTab::Release, taps: 0, install_error: None }
     }
 
     fn note(&mut self, message: impl Into<String>) {
@@ -203,6 +205,7 @@ impl State {
                 }
                 let path = download.snapshot().path;
                 self.installing = true;
+                self.install_error = None;
                 self.note(if cfg!(target_os = "linux") {
                     format!("Installing {} — your system asks for your password", path.display())
                 } else {
@@ -224,7 +227,10 @@ impl State {
                         self.note(format!("Installed{} — restart Paperloom to use it", version.as_ref().map(|v| format!(" version {v}")).unwrap_or_default()));
                         self.installed = version;
                     }
-                    Err(error) => self.note(format!("Not installed: {error}")),
+                    Err(error) => {
+                        self.note(format!("Not installed: {error}"));
+                        self.install_error = Some(error);
+                    }
                 }
             }
             Message::OpenFolder => {
@@ -586,6 +592,9 @@ impl State {
         .spacing(2);
         if let Some(message) = &s.message {
             details = details.push(detail("Last message", message.clone(), t));
+        }
+        if let Some(error) = &self.install_error {
+            details = details.push(text(format!("The install did not finish: {error}")).size(12).color(t.destructive));
         }
 
         let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(button::secondary).padding([4, 10]).on_press(message);

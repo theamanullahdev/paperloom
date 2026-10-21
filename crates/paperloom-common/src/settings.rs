@@ -200,6 +200,8 @@ pub struct Settings {
     /// Global shortcuts such as "Ctrl+Alt+Right"; empty = none.
     pub hotkey_next: String,
     pub hotkey_pause: String,
+    /// Online → Browse leaves out wallpapers already in the library.
+    pub browse_hide_owned: bool,
 }
 
 /// The Library page's view: grid of cards or list of rows, in three sizes.
@@ -290,6 +292,7 @@ impl Default for Settings {
             pause_when_idle_minutes: 0,
             hotkey_next: String::new(),
             hotkey_pause: String::new(),
+            browse_hide_owned: true,
         }
     }
 }

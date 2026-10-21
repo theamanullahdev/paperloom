@@ -161,7 +161,7 @@ impl State {
             auto_rounds: 0,
             cache_key: String::new(),
             saved_pending: false,
-            hide_owned: true,
+            hide_owned: paperloom_common::load().browse_hide_owned,
             selected: None,
             thumb_tries: HashMap::new(),
             thumb_pending: HashSet::new(),
@@ -377,7 +377,12 @@ impl State {
                     }
                 }
             }
-            Message::ToggleHideOwned => self.hide_owned = !self.hide_owned,
+            Message::ToggleHideOwned => {
+                self.hide_owned = !self.hide_owned;
+                let mut settings = paperloom_common::load();
+                settings.browse_hide_owned = self.hide_owned;
+                let _ = paperloom_common::save(&settings);
+            }
             Message::LinkChanged(text) => {
                 self.link = text;
                 self.link_note = None;
