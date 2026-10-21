@@ -53,6 +53,10 @@ pub struct State {
     tab: Tab,
     actions: Option<Actions>,
     collection_edit: Option<CollectionEdit>,
+    /// Collections tab: showing the automatic groups instead of the user's.
+    auto_mode: bool,
+    /// The automatic group that's open, by name.
+    auto_open: Option<String>,
     /// The wallpaper under the cursor — the only one that animates.
     hovered: Option<u64>,
     /// Frames elapsed since the hover began (see `ping_pong`).
@@ -93,6 +97,11 @@ pub enum Message {
     NewCollection,
     RenameCollection(u64),
     CollectionNameChanged(String),
+    /// Collections tab: automatic groups (true) or the user's own.
+    AutoMode(bool),
+    OpenAuto(Option<String>),
+    /// Turns an automatic group into a real collection.
+    SaveAuto(String),
     SaveCollectionEdit,
     CancelCollectionEdit,
     SetCollectionHidden(u64, bool),
@@ -120,6 +129,8 @@ impl State {
             tab: Tab::All,
             actions: None,
             collection_edit: None,
+            auto_mode: false,
+            auto_open: None,
             hovered: None,
             preview_tick: 0,
             preview_cache: HashMap::new(),
@@ -157,6 +168,29 @@ impl State {
             Message::TabSelected(tab) => {
                 self.tab = tab;
                 self.collection_edit = None;
+                self.auto_open = None;
+            }
+            Message::AutoMode(auto) => {
+                self.auto_mode = auto;
+                self.auto_open = None;
+            }
+            Message::OpenAuto(name) => self.auto_open = name,
+            Message::SaveAuto(name) => {
+                let visible: Vec<&LibraryEntry> = self.library.entries.iter().filter(|entry| !entry.hidden).collect();
+                if let Some(group) = super::auto_groups::groups(&visible).into_iter().find(|group| group.name == name) {
+                    match self.library.create_collection(&group.name) {
+                        Ok(id) => {
+                            for member in group.members {
+                                let result = self.library.set_in_collection(id, member, true);
+                                self.saved(result);
+                            }
+                            self.auto_mode = false;
+                            self.auto_open = None;
+                            self.tab = Tab::Collection(id);
+                        }
+                        Err(err) => self.status = Some(format!("Couldn't save the collection: {err}")),
+                    }
+                }
             }
             Message::LayoutSelected(layout) => {
                 settings.library_view.layout = layout;
@@ -458,7 +492,7 @@ impl State {
                 };
                 self.wallpapers(entries, view, empty, t)
             }
-            Tab::Collections => self.collections_page(t),
+            Tab::Collections => self.collections_page(view, t),
             Tab::Collection(id) => self.collection_page(id, view, t),
             Tab::Hidden => self.hidden_page(view, t),
         };
@@ -636,8 +670,15 @@ impl State {
 
     // --- Collections -------------------------------------------------------
 
-    fn collections_page<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let mut page = column![self.new_collection_bar(t)].spacing(14);
+    fn collections_page<'a>(&'a self, view: LibraryView, t: theme::Tokens) -> Element<'a, Message> {
+        let modes = segmented(
+            vec![("Custom".to_string(), !self.auto_mode, Message::AutoMode(false)), ("Auto".to_string(), self.auto_mode, Message::AutoMode(true))],
+            t,
+        );
+        if self.auto_mode {
+            return column![modes, self.auto_page(view, t)].spacing(14).into();
+        }
+        let mut page = column![modes, self.new_collection_bar(t)].spacing(14);
         let shown: Vec<&Collection> = self.library.collections.iter().filter(|collection| !collection.hidden).collect();
         if shown.is_empty() {
             page = page.push(
@@ -684,8 +725,12 @@ impl State {
 
     /// A cover of up to four of its wallpapers, its name and size.
     fn collection_card<'a>(&'a self, collection: &'a Collection, t: theme::Tokens) -> Element<'a, Message> {
+        self.group_card(&collection.name, &collection.members, Message::TabSelected(Tab::Collection(collection.id)), t)
+    }
+
+    fn group_card<'a>(&'a self, name: &str, members: &[u64], on_press: Message, t: theme::Tokens) -> Element<'a, Message> {
         let posters: Vec<&std::path::PathBuf> =
-            collection.members.iter().filter_map(|id| self.library.entry(*id)).filter_map(|entry| entry.thumbnail.as_ref()).take(4).collect();
+            members.iter().filter_map(|id| self.library.entry(*id)).filter_map(|entry| entry.thumbnail.as_ref()).take(4).collect();
         let tile = |path: &std::path::PathBuf| -> Element<'a, Message> {
             image(image::Handle::from_path(path)).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(Length::Fill).into()
         };
@@ -697,9 +742,9 @@ impl State {
             1..=3 => tile(posters[0]),
             _ => column![row![tile(posters[0]), tile(posters[1])].spacing(2), row![tile(posters[2]), tile(posters[3])].spacing(2)].spacing(2).into(),
         };
-        let count = collection.members.iter().filter(|id| self.library.entry(**id).is_some_and(|entry| !entry.hidden)).count();
+        let count = members.iter().filter(|id| self.library.entry(**id).is_some_and(|entry| !entry.hidden)).count();
         let label = column![
-            text(collection.name.clone()).size(14).color(t.foreground).wrapping(text::Wrapping::None),
+            text(name.to_string()).size(14).color(t.foreground).wrapping(text::Wrapping::None),
             text(match count {
                 1 => "1 wallpaper".to_string(),
                 n => format!("{n} wallpapers"),
@@ -713,8 +758,36 @@ impl State {
         button(surface(column![container(cover).clip(true).width(Length::Fill).height(Length::Fill), label].width(Length::Fill).height(Length::Fill), 12.0, t))
             .padding(0)
             .style(|_theme, _status| button::Style::default())
-            .on_press(Message::TabSelected(Tab::Collection(collection.id)))
+            .on_press(on_press)
             .into()
+    }
+
+    /// The automatic groups, or one of them opened.
+    fn auto_page<'a>(&'a self, view: LibraryView, t: theme::Tokens) -> Element<'a, Message> {
+        let visible: Vec<&LibraryEntry> = self.library.entries.iter().filter(|entry| !entry.hidden).collect();
+        let groups = super::auto_groups::groups(&visible);
+        if visible.is_empty() {
+            return text("Import or download wallpapers and they are sorted here by themselves.").color(t.muted_foreground).into();
+        }
+        if let Some(open) = self.auto_open.as_ref().and_then(|name| groups.iter().find(|group| &group.name == name)) {
+            let back = button(crate::ui::label("All groups").size(13)).style(button::text).padding([4, 6]).on_press(Message::OpenAuto(None));
+            let save = button(crate::ui::label("Save as a collection").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::SaveAuto(open.name.clone()));
+            let entries = self.visible(|entry| open.members.contains(&entry.id) && !entry.hidden);
+            return column![
+                back,
+                row![text(open.name.clone()).font(theme::DISPLAY_FONT).size(20).color(t.foreground), Space::new().width(Length::Fill), save].spacing(12).align_y(Alignment::Center),
+                self.wallpapers(entries, view, "Nothing here.", t),
+            ]
+            .spacing(12)
+            .into();
+        }
+        let cards: Vec<Element<'a, Message>> = groups.iter().map(|group| self.group_card(&group.name, &group.members, Message::OpenAuto(Some(group.name.clone())), t)).collect();
+        column![
+            text("Sorted automatically from each wallpaper's title and where it came from. A wallpaper can appear in several groups; nothing is copied.").size(12).color(t.muted_foreground),
+            grid::Grid::with_children(cards).fluid(240.0).spacing(16).height(grid::aspect_ratio(super::gallery::card_ratio_for(240.0, 52.0), 1.0)),
+        ]
+        .spacing(12)
+        .into()
     }
 
     fn collection_page<'a>(&'a self, id: u64, view: LibraryView, t: theme::Tokens) -> Element<'a, Message> {
