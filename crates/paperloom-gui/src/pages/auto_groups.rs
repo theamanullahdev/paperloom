@@ -115,6 +115,8 @@ mod tests {
             source_id: source.map(Into::into),
             hidden: false,
             added: id,
+            optimize: Default::default(),
+            fingerprint: None,
         }
     }
 

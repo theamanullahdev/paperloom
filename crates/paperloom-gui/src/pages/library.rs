@@ -69,6 +69,7 @@ pub struct State {
     preview_cache: HashMap<u64, Vec<Option<Allocation>>>,
     /// The Stop button was clicked and the choice is showing.
     confirm_stop: bool,
+    optimizer: crate::optimizer::Optimizer,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +83,7 @@ pub enum Message {
     OpenActions(u64),
     CloseActions,
     SetAsWallpaper(u64),
+    OptimizeTick,
     /// The engine answered (or didn't): the text to show.
     PlayFinished(Result<String, String>),
     OpenPreview(u64),
@@ -122,7 +124,7 @@ pub enum Message {
 
 impl State {
     pub fn new() -> Self {
-        Self {
+        let state = Self {
             library: Library::load(),
             search: String::new(),
             status: None,
@@ -135,6 +137,16 @@ impl State {
             preview_tick: 0,
             preview_cache: HashMap::new(),
             confirm_stop: false,
+            optimizer: crate::optimizer::Optimizer::default(),
+        };
+        state.queue_optimizations();
+        state
+    }
+
+    /// Hands wallpapers waiting for the background optimizer to its worker.
+    fn queue_optimizations(&self) {
+        for (id, path) in self.library.pending_optimizations() {
+            self.optimizer.enqueue(id, path);
         }
     }
 
@@ -143,11 +155,12 @@ impl State {
     /// schedules nothing, so an open-but-idle library costs nothing.
     pub fn subscription(&self, active: bool) -> Subscription<Message> {
         let animating = self.hovered.is_some_and(|id| self.preview_ready(id));
-        if active && animating {
-            iced::time::every(Duration::from_millis(100)).map(|_| Message::PreviewTick)
-        } else {
-            Subscription::none()
-        }
+        let optimizing = self.optimizer.busy();
+        Subscription::batch([
+            if active && animating { iced::time::every(Duration::from_millis(100)).map(|_| Message::PreviewTick) } else { Subscription::none() },
+            // Only while a wallpaper is being optimized (after an import).
+            if optimizing { iced::time::every(Duration::from_secs(1)).map(|_| Message::OptimizeTick) } else { Subscription::none() },
+        ])
     }
 
     fn preview_ready(&self, id: u64) -> bool {
@@ -164,6 +177,13 @@ impl State {
     pub fn update(&mut self, settings: &mut Settings, message: Message) -> Task<Message> {
         match message {
             Message::SearchChanged(value) => self.search = value,
+            Message::OptimizeTick => {
+                for (id, outcome) in self.optimizer.take_finished() {
+                    let result = self.library.finish_optimize(id, outcome);
+                    self.saved(result);
+                    self.preview_cache.remove(&id);
+                }
+            }
             Message::ImportClicked => self.import(settings),
             Message::TabSelected(tab) => {
                 self.tab = tab;
@@ -392,6 +412,7 @@ impl State {
             }
         }
         self.preview_cache.clear();
+        self.queue_optimizations();
         self.status = if failed.is_empty() {
             None
         } else if failed.len() == total {
@@ -406,9 +427,12 @@ impl State {
     pub fn import_downloaded(&mut self, settings: &Settings, job: &paperloom_fetch::Job) -> Result<(), String> {
         self.preview_cache.clear();
         self.hovered = None;
-        self.library
+        let result = self
+            .library
             .import_named(&job.final_path(), settings.import_mode, &job.title, &job.id)
-            .map_err(|err| format!("Couldn't add \"{}\" to your library: {err}", job.title))
+            .map_err(|err| format!("Couldn't add \"{}\" to your library: {err}", job.title));
+        self.queue_optimizations();
+        result
     }
 
     pub fn set_status(&mut self, message: String) {
@@ -610,7 +634,21 @@ impl State {
 
     fn card<'a>(&self, entry: &'a LibraryEntry, size: ViewSize, t: theme::Tokens) -> Element<'a, Message> {
         let menu = container(kebab(entry.id)).padding(6).align_x(Alignment::End).width(Length::Fill);
-        let poster = container(stack![self.poster(entry, t), menu]).clip(true).width(Length::Fill).height(Length::Fill);
+        let status: Element<'a, Message> = match self.optimizer.progress(entry.id) {
+            Some(percent) => container(
+                container(text(if percent == 0 { "Optimizing…".to_string() } else { format!("Optimizing {percent}%") }).size(11).color(Color::WHITE)).padding([2, 6]).style(|_theme| container::Style {
+                    background: Some(Background::Color(Color { a: 0.6, ..Color::BLACK })),
+                    border: Border { radius: 6.0.into(), ..Border::default() },
+                    ..container::Style::default()
+                }),
+            )
+            .padding(6)
+            .align_y(iced::alignment::Vertical::Bottom)
+            .height(Length::Fill)
+            .into(),
+            None => Space::new().into(),
+        };
+        let poster = container(stack![self.poster(entry, t), status, menu]).clip(true).width(Length::Fill).height(Length::Fill);
 
         let name = text(entry.display_name.clone()).size(if size == ViewSize::Small { 12 } else { 13 }).color(t.foreground).wrapping(text::Wrapping::None);
         let chrome: Element<'a, Message> = match size {

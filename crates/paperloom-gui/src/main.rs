@@ -13,6 +13,7 @@ mod desktop_colors;
 mod engine_client;
 mod icons;
 mod instance;
+mod optimizer;
 mod pages;
 mod search;
 mod telemetry;

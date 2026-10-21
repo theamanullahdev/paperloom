@@ -45,6 +45,29 @@ pub struct LibraryEntry {
     /// When it was imported (Unix seconds; 0 for older entries).
     #[serde(default)]
     pub added: u64,
+    /// Where this file is in the background "make it cheap to play" step.
+    #[serde(default)]
+    pub optimize: Optimize,
+    /// Size plus a few kilobytes from both ends, to notice the same video
+    /// imported twice (even under another name).
+    #[serde(default)]
+    pub fingerprint: Option<String>,
+}
+
+/// Background optimization state of an imported wallpaper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Optimize {
+    /// Older entries, and ones that are never touched: left exactly as they are.
+    #[default]
+    Untouched,
+    /// Waiting for (or in) the background step.
+    Pending,
+    /// Looked at and already suitable.
+    NotNeeded,
+    /// Re-encoded for cheaper playback.
+    Done,
+    /// The re-encode didn't work out; the original stays.
+    Failed,
 }
 
 /// A named group of wallpapers. Members are wallpaper ids — a link, never a
@@ -228,6 +251,28 @@ impl Library {
         self.save()
     }
 
+    /// Wallpapers waiting for the background optimizer.
+    pub fn pending_optimizations(&self) -> Vec<(u64, PathBuf)> {
+        self.entries.iter().filter(|entry| entry.optimize == Optimize::Pending).map(|entry| (entry.id, entry.path.clone())).collect()
+    }
+
+    /// Records the optimizer's verdict: `Ok(Some(path))` the file was
+    /// replaced by a cheaper one, `Ok(None)` it was already fine.
+    pub fn finish_optimize(&mut self, id: u64, result: Result<Option<PathBuf>, String>) -> std::io::Result<()> {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
+            match result {
+                Ok(Some(path)) => {
+                    entry.path = path;
+                    entry.optimize = Optimize::Done;
+                }
+                Ok(None) => entry.optimize = Optimize::NotNeeded,
+                Err(_) => entry.optimize = Optimize::Failed,
+            }
+            entry.fingerprint = fingerprint(&entry.path);
+        }
+        self.save()
+    }
+
     pub fn contains_source(&self, source_id: &str) -> bool {
         self.entries.iter().any(|entry| entry.source_id.as_deref() == Some(source_id))
     }
@@ -246,6 +291,12 @@ impl Library {
             source.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| "wallpaper".to_string())
         });
 
+        if let Some(print) = fingerprint(source) {
+            if let Some(existing) = self.entries.iter().find(|entry| entry.fingerprint.as_deref() == Some(print.as_str())) {
+                return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("already in your library as “{}”", existing.display_name)));
+            }
+        }
+
         let path = match mode {
             ImportMode::ReferenceInPlace => source.to_path_buf(),
             // Re-encoding needs the engine's decode pipeline, which doesn't
@@ -261,6 +312,7 @@ impl Library {
         let preview_frames = generate_preview_frames(&path);
         let thumbnail = preview_frames.first().cloned();
 
+        let fingerprint = fingerprint(&path);
         let id = self.next_id();
         let added = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         self.entries.push(LibraryEntry {
@@ -274,6 +326,8 @@ impl Library {
             source_id,
             hidden: false,
             added,
+            optimize: if mode == ImportMode::CopyAndOptimize { Optimize::Pending } else { Optimize::Untouched },
+            fingerprint,
         });
         Ok(())
     }
@@ -311,6 +365,25 @@ impl Library {
 
         Ok(())
     }
+}
+
+/// Cheap identity of a file: its size and 64 KB from the start, middle and
+/// end. Collisions between different videos are practically impossible and
+/// it never reads more than a few hundred kilobytes.
+pub fn fingerprint(path: &Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = fs::File::open(path).ok()?;
+    let size = file.metadata().ok()?.len();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325 ^ size;
+    let mut buffer = vec![0u8; 64 * 1024];
+    for offset in [0, size.saturating_sub(size / 2), size.saturating_sub(buffer.len() as u64)] {
+        file.seek(SeekFrom::Start(offset.min(size))).ok()?;
+        let read = file.read(&mut buffer).ok()?;
+        for byte in &buffer[..read] {
+            hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    Some(format!("{size:x}-{hash:016x}"))
 }
 
 /// Bump when the extraction scheme changes so existing entries regenerate.
@@ -510,6 +583,8 @@ mod tests {
             id: 7,
             hidden: true,
             added: 1,
+            optimize: Optimize::Untouched,
+            fingerprint: None,
         });
         library.collections.push(Collection { id: 8, name: "Rainy".into(), members: vec![7], hidden: false });
         library.save_to(&manifest_path).unwrap();
@@ -533,6 +608,8 @@ mod tests {
                 source_id: None,
                 hidden: false,
                 added: 0,
+                optimize: Optimize::Untouched,
+                fingerprint: None,
             });
         }
         library.collections.push(Collection { id: 50, name: "Old".into(), members: vec![99], hidden: false });

@@ -7,11 +7,10 @@ use serde::{Deserialize, Serialize};
 /// the file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ImportMode {
-    /// Copy into the managed library and re-encode for efficient playback.
-    ///
-    /// Re-encoding isn't implemented yet (needs the engine's decode
-    /// pipeline), so this currently behaves like `CopyNoReencode` until
-    /// that lands.
+    /// Copy into the managed library; in the background, re-encode the
+    /// copy only if that makes it cheaper to play (a format graphics cards
+    /// can't decode, more pixels than the screen shows, more than 30 fps).
+    /// Files that already suit are left exactly as they are.
     #[default]
     CopyAndOptimize,
     /// Copy into the managed library as-is, no transcoding.
