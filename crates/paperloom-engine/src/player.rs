@@ -19,6 +19,8 @@ use paperloom_common::EngineState;
 /// every failure mode (corrupt file, unsupported codec) — only "no such file".
 pub fn validate_cli_path(path: Option<&str>) -> Result<(), Box<dyn Error>> {
     match path {
+        // A web address (the app's preview of an online wallpaper) streams.
+        Some(path) if path.starts_with("http://") || path.starts_with("https://") => Ok(()),
         Some(path) if !Path::new(path).is_file() => Err(format!("no such video file: {path}").into()),
         _ => Ok(()),
     }

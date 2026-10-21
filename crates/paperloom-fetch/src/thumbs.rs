@@ -7,7 +7,7 @@ use paperloom_common::online_cache_dir;
 
 use crate::http::{self, FetchError};
 
-const MAX_IMAGE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_IMAGE_BYTES: u64 = 12 * 1024 * 1024;
 
 fn path_for(url: &str) -> PathBuf {
     let extension = if url.ends_with(".png") { "png" } else { "jpg" };

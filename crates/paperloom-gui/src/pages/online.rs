@@ -8,12 +8,12 @@
 //! by `app.rs`. Offline is detected up front (`paperloom_fetch::is_online`)
 //! and reported immediately, then re-checked every few seconds.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use iced::widget::{button, column, container, grid, image, row, stack, svg, text, Space};
+use iced::widget::{button, column, container, grid, image, mouse_area, opaque, row, stack, svg, text, Space};
 use iced::{Background, Border, Element, Length, Shadow, Subscription, Task};
 
 use paperloom_common::Settings;
@@ -97,6 +97,14 @@ pub struct State {
     /// `FRESH_FOR`: replaced as soon as fresh results arrive, kept if the
     /// network never answers.
     saved_pending: bool,
+    /// Leave out wallpapers that are already in the library.
+    hide_owned: bool,
+    /// The wallpaper whose detail pop-up is open.
+    selected: Option<String>,
+    /// Preview images that failed to download, and how often we tried.
+    thumb_tries: HashMap<String, u8>,
+    /// Keys being retried right now (so a retry isn't started twice).
+    thumb_pending: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +120,12 @@ pub enum Message {
     Retry(String),
     Cancel(String),
     Recheck,
+    ToggleHideOwned,
+    Open(String),
+    CloseDetail,
+    /// Streams a short look at the wallpaper (the HD file) full screen.
+    Watch(String),
+    OpenPage(String),
 }
 
 /// Runs blocking work (HTTP) on its own thread and awaits the result, so
@@ -142,6 +156,10 @@ impl State {
             auto_rounds: 0,
             cache_key: String::new(),
             saved_pending: false,
+            hide_owned: true,
+            selected: None,
+            thumb_tries: HashMap::new(),
+            thumb_pending: HashSet::new(),
         }
     }
 
@@ -327,9 +345,43 @@ impl State {
                 return Task::batch(fetches);
             }
             Message::ThumbLoaded(key, result) => {
-                if let Ok(path) = result {
-                    self.thumbs.insert(key, path);
+                self.thumb_pending.remove(&key);
+                match result {
+                    Ok(path) => {
+                        self.thumbs.insert(key, path);
+                    }
+                    // A preview that didn't arrive (busy server, blip) is
+                    // retried a couple of times instead of staying blank.
+                    Err(_) => {
+                        let tries = self.thumb_tries.entry(key.clone()).or_insert(0);
+                        *tries += 1;
+                        let attempt = *tries;
+                        if attempt <= 3 && self.thumb_pending.insert(key.clone()) {
+                            if let Some(url) = self.items.iter().find(|item| item.key() == key).map(|item| item.thumb_url.clone()) {
+                                return Task::perform(
+                                    blocking(move || {
+                                        std::thread::sleep(Duration::from_secs(u64::from(attempt) * 2));
+                                        paperloom_fetch::fetch_thumbnail(&url).map_err(|err| err.to_string())
+                                    }),
+                                    move |result| Message::ThumbLoaded(key.clone(), result),
+                                );
+                            }
+                        }
+                    }
                 }
+            }
+            Message::ToggleHideOwned => self.hide_owned = !self.hide_owned,
+            Message::Open(key) => self.selected = Some(key),
+            Message::CloseDetail => self.selected = None,
+            Message::Watch(key) => {
+                if let Some(item) = self.items.iter().find(|item| item.key() == key) {
+                    if let Some(variant) = item.variants.first() {
+                        let _ = crate::engine_client::preview_url(&variant.url);
+                    }
+                }
+            }
+            Message::OpenPage(url) => {
+                let _ = paperloom_fetch::update::open_url(&url);
             }
             Message::Download(key, quality) => {
                 if let Some(item) = self.items.iter().find(|item| item.key() == key) {
@@ -356,6 +408,13 @@ impl State {
             .spacing(8)
             .align_y(iced::Alignment::Center);
 
+        header = header.push(
+            button(crate::ui::label(if self.hide_owned { "Hiding ones you have" } else { "Showing ones you have" }).size(13))
+                .style(if self.hide_owned { button::primary } else { button::secondary })
+                .padding([6, 10])
+                .on_press(Message::ToggleHideOwned),
+        );
+
         if active > 0 {
             header = header.push(text(format!("{active} downloading")).size(13).color(t.muted_foreground));
         }
@@ -371,9 +430,12 @@ impl State {
     }
 
     pub fn body<'a>(&'a self, t: theme::Tokens, in_library: &dyn Fn(&str) -> bool) -> Element<'a, Message> {
-        let visible: Vec<(usize, &OnlineItem)> = self.visible().collect();
+        let all: Vec<(usize, &OnlineItem)> = self.visible().collect();
+        let hidden = if self.hide_owned { all.iter().filter(|(_, item)| in_library(&item.key())).count() } else { 0 };
+        let visible: Vec<(usize, &OnlineItem)> =
+            if self.hide_owned { all.into_iter().filter(|(_, item)| !in_library(&item.key())).collect() } else { all };
 
-        if visible.is_empty() {
+        if visible.is_empty() && hidden == 0 {
             return self.empty_state(t);
         }
 
@@ -383,7 +445,8 @@ impl State {
             .into_iter()
             .map(|(_, item)| {
                 let key = item.key();
-                card(item, self.thumbs.get(&key), jobs.get(&key), in_library(&key), t)
+                let card = card(item, self.thumbs.get(&key), jobs.get(&key), in_library(&key), t);
+                mouse_area(card).on_press(Message::Open(key)).interaction(iced::mouse::Interaction::Pointer).into()
             })
             .collect();
 
@@ -395,6 +458,9 @@ impl State {
         let mut page = column![self.search_summary(t)].spacing(12);
         for notice in &self.notices {
             page = page.push(text(notice.clone()).size(12).color(t.muted_foreground));
+        }
+        if hidden > 0 {
+            page = page.push(text(format!("{hidden} already in your library {}hidden", if hidden == 1 { "is " } else { "are " })).size(12).color(t.muted_foreground));
         }
         page = page.push(container(fluid).padding([4, 4]));
 
@@ -414,7 +480,78 @@ impl State {
             page = page.push(button(crate::ui::label("Load more")).style(button::secondary).on_press(Message::LoadMore));
         }
 
-        crate::ui::scroll_page(page).into()
+        let grid_page: Element<'a, Message> = crate::ui::scroll_page(page).into();
+        match self.selected.as_ref().and_then(|key| self.items.iter().find(|item| &item.key() == key)) {
+            Some(item) => {
+                let key = item.key();
+                stack![grid_page, self.detail(item, self.thumbs.get(&key), jobs.get(&key), in_library(&key), t)].into()
+            }
+            None => grid_page,
+        }
+    }
+
+    /// The half-screen pop-up for one wallpaper: bigger preview, where it
+    /// comes from, what it is, and the download choices.
+    fn detail<'a>(&'a self, item: &'a OnlineItem, thumb: Option<&'a PathBuf>, job: Option<&Job>, in_library: bool, t: theme::Tokens) -> Element<'a, Message> {
+        let key = item.key();
+        let picture: Element<'a, Message> = match thumb {
+            Some(path) => image(image::Handle::from_path(path)).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(Length::Fixed(280.0)).into(),
+            None => container(svg(icons::film()).width(40).height(40).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) }))
+                .center(Length::Fill)
+                .height(Length::Fixed(280.0))
+                .style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), ..container::Style::default() })
+                .into(),
+        };
+        let qualities = item.variants.iter().map(|variant| variant.label.as_str()).collect::<Vec<_>>().join(" · ");
+        let download: Element<'a, Message> = if in_library {
+            text("In your library").size(14).color(t.success).into()
+        } else if let Some(job) = job {
+            job_status(job, t)
+        } else {
+            let pick = |label: &'static str, quality: &'static str| button(crate::ui::label(label).center()).style(button::primary).on_press(Message::Download(key.clone(), quality));
+            if item.has_4k() {
+                row![pick("Download HD", "HD"), pick("Download 4K", "4K")].spacing(8).into()
+            } else {
+                pick("Download", "HD").into()
+            }
+        };
+        let mut actions = row![download].spacing(8).align_y(iced::Alignment::Center);
+        actions = actions.push(button(crate::ui::label("Watch preview")).style(button::secondary).on_press(Message::Watch(key.clone())));
+        if !item.page_url.is_empty() {
+            actions = actions.push(button(crate::ui::label(format!("Open on {}", item.source_name))).style(button::text).on_press(Message::OpenPage(item.page_url.clone())));
+        }
+
+        let card = container(
+            column![
+                row![
+                    text(item.title.clone()).size(20).color(t.foreground).width(Length::Fill),
+                    button(crate::ui::label("Close")).style(button::secondary).on_press(Message::CloseDetail),
+                ]
+                .spacing(12)
+                .align_y(iced::Alignment::Center),
+                container(picture).clip(true).style(|_theme| container::Style { border: Border { radius: 10.0.into(), ..Border::default() }, ..container::Style::default() }),
+                text(format!("{} · {}", item.source_name, qualities)).size(13).color(t.muted_foreground),
+                actions.wrap().vertical_spacing(8),
+            ]
+            .spacing(14),
+        )
+        .padding(20)
+        .max_width(640)
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(t.surface)),
+            border: Border { color: t.border, width: 1.0, radius: 14.0.into() },
+            shadow: Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 8.0), blur_radius: 28.0 },
+            ..container::Style::default()
+        });
+
+        // The dimmed backdrop closes the pop-up when clicked; `opaque` keeps
+        // clicks on the card itself from reaching it.
+        let backdrop = mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
+            background: Some(Background::Color(iced::Color { a: 0.55, ..iced::Color::BLACK })),
+            ..container::Style::default()
+        }))
+        .on_press(Message::CloseDetail);
+        stack![backdrop, container(opaque(card)).center(Length::Fill).padding(24)].into()
     }
 
     /// "Results for X" plus the related keywords that were searched too

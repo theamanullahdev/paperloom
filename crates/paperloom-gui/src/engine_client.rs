@@ -74,6 +74,15 @@ pub fn restart_app() -> ! {
 /// Opens a full-screen preview window (`paperloom-engine --preview`). One
 /// at a time: if the previous preview is still open, does nothing.
 pub fn preview(path: &Path) -> Result<(), Error> {
+    preview_target(&path.to_string_lossy())
+}
+
+/// Same, for a web address: mpv streams it.
+pub fn preview_url(url: &str) -> Result<(), Error> {
+    preview_target(url)
+}
+
+fn preview_target(target: &str) -> Result<(), Error> {
     use std::sync::Mutex;
     static CURRENT: Mutex<Option<std::process::Child>> = Mutex::new(None);
 
@@ -86,7 +95,7 @@ pub fn preview(path: &Path) -> Result<(), Error> {
     let engine = process::sibling_binary("paperloom-engine").ok_or(Error::EngineNotFound)?;
     let mut command = std::process::Command::new(engine);
     process::hide_console(&mut command);
-    let child = command.arg("--preview").arg(path).spawn().map_err(Error::Io)?;
+    let child = command.arg("--preview").arg(target).spawn().map_err(Error::Io)?;
     *current = Some(child);
     Ok(())
 }
