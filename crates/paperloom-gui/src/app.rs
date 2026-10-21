@@ -7,7 +7,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Size, 
 
 use paperloom_common::Settings;
 
-use crate::pages::{downloads, library, online, settings, sources, updates, usage};
+use crate::pages::{developers, downloads, library, online, settings, sources, updates, usage};
 use crate::ui::Width;
 use crate::{icons, search, theme};
 
@@ -21,6 +21,7 @@ pub struct App {
     sources_page: sources::State,
     updates_page: updates::State,
     usage_page: usage::State,
+    developers_page: developers::State,
     /// Short usage history so the graphs are already filled when opened.
     recorder: crate::telemetry::Recorder,
     /// Which sidebar groups are open (the tree is collapsible).
@@ -49,6 +50,7 @@ pub(crate) enum Page {
     Settings,
     Updates,
     Usage,
+    Developers,
 }
 
 /// A collapsible group in the sidebar tree.
@@ -77,6 +79,7 @@ pub enum Message {
     Sources(sources::Message),
     Updates(updates::Message),
     Usage(usage::Message),
+    Developers(developers::Message),
     /// Another launch of Paperloom (tray click, app menu…) asked this
     /// window for something: "SHOW", "PAGE usage", "TRAY-SETTINGS".
     OtherLaunch(String),
@@ -113,6 +116,7 @@ impl App {
             sources_page: sources::State::default(),
             updates_page: updates::State::new(),
             usage_page: usage::State::new(),
+            developers_page: developers::State::new(),
             recorder: crate::telemetry::Recorder::new(),
             expanded: HashSet::from([Group::Library, Group::Online, Group::Settings]),
             online_stale: false,
@@ -231,6 +235,12 @@ impl App {
                 self.settings_page.refresh(self.library_page.library());
                 Task::none()
             }
+            Message::Developers(developers::Message::Back) => {
+                self.page = Page::Settings;
+                self.settings_page.refresh(self.library_page.library());
+                Task::none()
+            }
+            Message::Developers(msg) => self.developers_page.update(&self.settings, msg).map(Message::Developers),
             Message::Usage(msg) => self.usage_page.update(msg).map(Message::Usage),
             Message::Settings(settings::Message::OpenUsage) => self.update(Message::SwitchPage(Page::Usage)),
             Message::SwitchPage(page) => {
@@ -241,7 +251,7 @@ impl App {
                     Page::Online | Page::Downloads | Page::Sources => {
                         self.expanded.insert(Group::Online);
                     }
-                    Page::Settings | Page::Updates | Page::Usage => {
+                    Page::Settings | Page::Updates | Page::Usage | Page::Developers => {
                         self.expanded.insert(Group::Settings);
                     }
                     Page::Library => {
@@ -250,6 +260,9 @@ impl App {
                 }
                 if page == Page::Usage {
                     self.usage_page.open(self.library_page.library());
+                }
+                if page == Page::Developers {
+                    return self.developers_page.open().map(Message::Developers);
                 }
                 if page == Page::Settings {
                     self.settings_page.refresh(self.library_page.library());
@@ -342,6 +355,7 @@ impl App {
             self.library_page.subscription(self.page == Page::Library).map(Message::Library),
             self.online_page.subscription(self.page == Page::Online).map(Message::Online),
             self.usage_page.subscription(self.page == Page::Usage).map(Message::Usage),
+            self.developers_page.subscription(self.page == Page::Developers).map(Message::Developers),
             iced::time::every(crate::telemetry::EVERY).map(|_| Message::Record),
             Subscription::run(|| crate::instance::requests().map(Message::OtherLaunch)),
             if self.online_page.queue().is_busy() || !self.online_page.queue().finished().is_empty() || self.page == Page::Downloads {
@@ -454,6 +468,7 @@ impl App {
             Page::Sources => ("Sources", Space::new().into(), self.sources_page.body(&self.settings, t).map(Message::Sources)),
             Page::Settings => ("Settings", Space::new().into(), self.settings_page.body(&self.settings, self.updates_page.summary(&self.settings), t).map(Message::Settings)),
             Page::Updates => ("Updates", self.updates_page.header().map(Message::Updates), self.updates_page.body(&self.settings, t).map(Message::Updates)),
+            Page::Developers => ("Developers", self.developers_page.header().map(Message::Developers), self.developers_page.body(t).map(Message::Developers)),
             Page::Usage => ("Usage", self.usage_page.header().map(Message::Usage), self.usage_page.body(&self.settings, t, &self.recorder.history).map(Message::Usage)),
         };
 
@@ -591,7 +606,7 @@ impl App {
     fn is_active(&self, page: Page) -> bool {
         match page {
             Page::Online => matches!(self.page, Page::Online | Page::Downloads | Page::Sources),
-            Page::Settings => matches!(self.page, Page::Settings | Page::Updates | Page::Usage),
+            Page::Settings => matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers),
             other => self.page == other,
         }
     }
@@ -792,16 +807,19 @@ impl App {
             "Settings",
             Group::Settings,
             go_page(Page::Settings),
-            matches!(self.page, Page::Settings | Page::Updates | Page::Usage),
+            matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers),
             None,
             t,
         ));
         if self.expanded.contains(&Group::Settings) {
-            let rows = vec![
+            let mut rows = vec![
                 self.tree_row(icons::dashboard(), "Overview".into(), 1, self.page == Page::Settings, None, go_page(Page::Settings), t),
                 self.tree_row(icons::activity(), "Usage".into(), 1, self.page == Page::Usage, None, go_page(Page::Usage), t),
                 self.tree_row(icons::refresh(), "Updates".into(), 1, self.page == Page::Updates, update.then(|| "new".to_string()), go_page(Page::Updates), t),
             ];
+            if self.settings.developer_mode {
+                rows.push(self.tree_row(icons::terminal(), "Developers".into(), 1, self.page == Page::Developers, None, go_page(Page::Developers), t));
+            }
             tree = tree.push(self.children(rows, 0, t));
         }
         tree.into()
@@ -906,6 +924,7 @@ fn page_named(name: &str) -> Option<Page> {
         "settings" => Some(Page::Settings),
         "updates" => Some(Page::Updates),
         "usage" => Some(Page::Usage),
+        "developers" if paperloom_common::load().developer_mode => Some(Page::Developers),
         _ => None,
     }
 }

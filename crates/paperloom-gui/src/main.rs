@@ -20,7 +20,37 @@ mod theme;
 mod ui;
 mod widget;
 
+/// What the GUI knows that the shared diagnostics report doesn't: how it was
+/// installed, the machine's CPU/memory, the library.
+pub fn diagnostics_extra() -> Vec<(String, Vec<String>)> {
+    let (kind, reason) = paperloom_fetch::update::InstallKind::detect_with_reason();
+    let mut system = sysinfo::System::new();
+    system.refresh_cpu_all();
+    system.refresh_memory();
+    let cpu = system.cpus().first().map(|cpu| cpu.brand().to_string()).unwrap_or_default();
+    let library = paperloom_common::Library::load();
+    vec![
+        ("Install".into(), vec![format!("kind: {} ({reason})", kind.label())]),
+        (
+            "Machine".into(),
+            vec![
+                format!("cpu: {cpu} ({} logical cores)", std::thread::available_parallelism().map_or(0, |n| n.get())),
+                format!("memory: {} MB used of {} MB", system.used_memory() / 1_048_576, system.total_memory() / 1_048_576),
+            ],
+        ),
+        (
+            "Library".into(),
+            vec![
+                format!("wallpapers: {}", library.entries.len()),
+                format!("collections: {}", library.collections.len()),
+                format!("folder: {}", paperloom_common::wallpapers_dir().display()),
+            ],
+        ),
+    ]
+}
+
 pub fn main() -> iced::Result {
+    paperloom_common::log::init("gui");
     let args: Vec<String> = std::env::args().collect();
     let value_of = |flag: &str| args.iter().position(|arg| arg == flag).and_then(|at| args.get(at + 1)).cloned();
 
@@ -32,6 +62,12 @@ pub fn main() -> iced::Result {
         }
         let at = args.iter().position(|arg| arg == "--at").and_then(|at| Some((args.get(at + 1)?.parse().ok()?, args.get(at + 2)?.parse().ok()?)));
         return widget::run(at);
+    }
+
+    // `--diagnostics`: print the support report and exit (no window).
+    if args.iter().any(|arg| arg == "--diagnostics") {
+        println!("{}", paperloom_common::diagnostics::gather(&diagnostics_extra()));
+        return Ok(());
     }
 
     // One Paperloom window: if it's already open, bring it forward (and pass

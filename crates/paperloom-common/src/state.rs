@@ -24,6 +24,28 @@ pub struct EngineState {
     pub user_paused: bool,
     /// Paused by an automatic trigger (fullscreen app, lock, battery…).
     pub auto_paused: bool,
+    /// What the engine itself reports about the running engine and the video
+    /// it is playing (read by Usage, the Developers page and diagnostics).
+    pub engine: EngineInfo,
+}
+
+/// Written by the engine, only when a value changes.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EngineInfo {
+    pub pid: u32,
+    pub version: String,
+    /// Unix seconds when this engine process started.
+    pub started: u64,
+    /// mpv's `hwdec-current`: "no" or empty means software decoding.
+    pub hwdec: String,
+    pub codec: String,
+    pub width: i64,
+    pub height: i64,
+    pub fps: f64,
+    pub video_output: String,
+    /// Frames dropped so far (kept up to date only in developer mode).
+    pub dropped_frames: i64,
 }
 
 /// One `gsettings` value: schema, key, and the value exactly as

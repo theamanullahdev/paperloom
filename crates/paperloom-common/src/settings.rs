@@ -186,6 +186,9 @@ pub struct Settings {
     /// Where imported wallpapers are copied (any folder, e.g. on another
     /// disk). `None`: `paths::library_dir()`.
     pub library_folder: Option<std::path::PathBuf>,
+    /// Shows the Developers page (diagnostics, test actions, logs) and
+    /// honours the switches in `dev.toml`.
+    pub developer_mode: bool,
 }
 
 /// The Library page's view: grid of cards or list of rows, in three sizes.
@@ -270,6 +273,7 @@ impl Default for Settings {
             updates: UpdateSettings::default(),
             library_view: LibraryView::default(),
             library_folder: None,
+            developer_mode: false,
         }
     }
 }

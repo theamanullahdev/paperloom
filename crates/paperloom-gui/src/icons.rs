@@ -107,3 +107,7 @@ pub fn activity() -> svg::Handle {
 pub fn refresh() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/refresh-cw.svg").as_slice())
 }
+
+pub fn terminal() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/terminal.svg").as_slice())
+}

@@ -27,6 +27,8 @@ pub enum Command {
     /// Mute or unmute the playing wallpaper right now (the tray widget's
     /// switch); the saved setting is changed by whoever sends this.
     Mute(bool),
+    /// Does nothing; answers "is the engine alive" (Developers page, CLI).
+    Ping,
 }
 
 impl Command {
@@ -39,6 +41,7 @@ impl Command {
             Command::Resume => "RESUME\n".to_string(),
             Command::Mute(true) => "MUTE\n".to_string(),
             Command::Mute(false) => "UNMUTE\n".to_string(),
+            Command::Ping => "PING\n".to_string(),
         }
     }
 
@@ -51,6 +54,7 @@ impl Command {
             "RESUME" => Some(Command::Resume),
             "MUTE" => Some(Command::Mute(true)),
             "UNMUTE" => Some(Command::Mute(false)),
+            "PING" => Some(Command::Ping),
             _ => line.strip_prefix("PLAY ").map(|path| Command::Play(PathBuf::from(path))),
         }
     }

@@ -22,6 +22,18 @@ pub fn engine_log() -> PathBuf {
     project_dirs().data_dir().join("engine.log")
 }
 
+/// Where the app's own logs live (`gui.log`, `engine.log`-style rotating
+/// files, `crash.log`).
+pub fn logs_dir() -> PathBuf {
+    project_dirs().data_dir().join("logs")
+}
+
+/// Developer switches (see `dev.rs`); a separate file so they are never
+/// mixed into the user's settings.
+pub fn dev_file() -> PathBuf {
+    project_dirs().config_dir().join("dev.toml")
+}
+
 /// Still frames the engine hands to the desktop as its background.
 pub fn background_frames_dir() -> PathBuf {
     project_dirs().data_dir().join("background")

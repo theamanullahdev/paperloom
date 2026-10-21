@@ -29,6 +29,7 @@ pub fn validate_cli_path(path: Option<&str>) -> Result<(), Box<dyn Error>> {
 /// Remembers why the engine couldn't start (its console is hidden on
 /// Windows) so the app can show the reason; cleared once playback works.
 pub fn record_failure(reason: &dyn std::fmt::Display) {
+    paperloom_common::log::error(&format!("engine failure: {reason}"));
     let log = paperloom_common::engine_log();
     if let Some(dir) = log.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -73,7 +74,7 @@ pub fn configure_wallpaper(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
 fn apply_mute_from_settings(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
     let settings = paperloom_common::load();
     mpv.set_property("mute", settings.muted)?;
-    mpv.set_property("hwdec", if settings.hardware_decoding { "auto-safe" } else { "no" }.to_string())?;
+    mpv.set_property("hwdec", if settings.hardware_decoding && !dev().force_software { "auto-safe" } else { "no" }.to_string())?;
     Ok(())
 }
 
@@ -88,6 +89,7 @@ pub fn play(mpv: &Mpv, path: &str) {
         eprintln!("paperloom-engine: failed to play {path}: {err}");
         return;
     }
+    paperloom_common::log::info(&format!("playing {path}"));
     remember(Some(path));
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -135,16 +137,68 @@ fn publish_pause(auto: bool, user: bool) {
 
 /// Called by the backends with the automatic pause triggers' verdict.
 pub fn set_paused(mpv: &Mpv, paused: bool) {
-    AUTO_PAUSED.store(paused, Ordering::Relaxed);
+    AUTO_PAUSED.store(paused && !dev().disable_auto_pause, Ordering::Relaxed);
     apply_pause(mpv);
 }
 
+/// Developer switches in force (all off unless developer mode is on).
+static DEV: std::sync::Mutex<Option<paperloom_common::dev::DevSwitches>> = std::sync::Mutex::new(None);
+
+pub fn dev() -> paperloom_common::dev::DevSwitches {
+    DEV.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone().unwrap_or_default()
+}
+
+/// Re-reads the switches (only when developer mode is on; otherwise they
+/// are cleared) — called at start and on the ~2s tick.
+pub fn refresh_dev(settings: &paperloom_common::Settings) {
+    let switches = if settings.developer_mode { paperloom_common::dev::DevSwitches::load() } else { Default::default() };
+    paperloom_common::log::set_verbose(switches.verbose_log);
+    *DEV.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(switches);
+}
+
 /// Housekeeping on the backends' ~2s tick (with freshly loaded settings):
-/// show or hide the tray icon to match the setting.
-#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(unused_variables))]
-pub fn periodic(settings: &paperloom_common::Settings) {
+/// the developer switches, the tray icon, and the engine's own status.
+pub fn periodic(settings: &paperloom_common::Settings, mpv: &Mpv) {
+    refresh_dev(settings);
+    publish_status(mpv, settings.developer_mode);
     #[cfg(all(unix, not(target_os = "macos")))]
-    crate::tray::sync(settings);
+    {
+        let mut settings = settings.clone();
+        settings.show_tray_icon &= !dev().disable_tray;
+        crate::tray::sync(&settings);
+    }
+}
+
+/// Tells the rest of the app what the engine and its video look like
+/// (decoder in use, codec, size, frame rate…). Written only when something
+/// changed; the property reads are a few microseconds.
+fn publish_status(mpv: &Mpv, with_drops: bool) {
+    use paperloom_common::EngineInfo;
+    static LAST: std::sync::Mutex<Option<EngineInfo>> = std::sync::Mutex::new(None);
+    static STARTED: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    let started = *STARTED.get_or_init(paperloom_common::log::now_unix);
+
+    let text = |name: &str| mpv.get_property::<String>(name).unwrap_or_default();
+    let info = EngineInfo {
+        pid: std::process::id(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        started,
+        hwdec: text("hwdec-current"),
+        codec: text("video-codec"),
+        width: mpv.get_property::<i64>("width").unwrap_or(0),
+        height: mpv.get_property::<i64>("height").unwrap_or(0),
+        fps: mpv.get_property::<f64>("container-fps").unwrap_or(0.0),
+        video_output: text("current-vo"),
+        dropped_frames: if with_drops { mpv.get_property::<i64>("frame-drop-count").unwrap_or(0) } else { 0 },
+    };
+    let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if last.as_ref() == Some(&info) {
+        return;
+    }
+    let mut state = EngineState::load();
+    state.engine = info.clone();
+    let _ = state.save();
+    *last = Some(info);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,6 +243,7 @@ pub fn poll_ipc(listener: &mut Listener, mpv: &Mpv) -> Flow {
         Command::Mute(muted) => {
             let _ = mpv.set_property("mute", muted);
         }
+        Command::Ping => {}
         Command::Pause | Command::Resume => {
             let paused = command == Command::Pause;
             USER_PAUSED.store(paused, Ordering::Relaxed);

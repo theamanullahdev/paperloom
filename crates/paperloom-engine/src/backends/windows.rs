@@ -84,7 +84,7 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     let mut failures = 0u32;
     loop {
         // After two failures, fall back to the most compatible video setup.
-        let (window, mpv) = match build(failures >= 2) {
+        let (window, mpv) = match build(failures >= 2 || player::dev().safe_video) {
             Ok(pair) => {
                 failures = 0;
                 player::clear_failure();
@@ -194,7 +194,7 @@ fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Fl
                 unsafe { SetWindowPos(window, std::ptr::null_mut(), 0, 0, now.0, now.1, 0x0004 | SWP_NOACTIVATE) };
             }
             let settings = paperloom_common::load();
-            player::periodic(&settings);
+            player::periodic(&settings, mpv);
             let should_pause = should_pause(&settings, window);
             if should_pause != is_paused {
                 is_paused = should_pause;

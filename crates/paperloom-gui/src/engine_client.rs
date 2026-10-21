@@ -26,6 +26,11 @@ impl std::fmt::Display for Error {
     }
 }
 
+/// Makes sure an engine is running (starting one if needed).
+pub fn start() -> Result<(), Error> {
+    send_or_spawn(&Command::Ping)
+}
+
 pub fn play(path: &Path) -> Result<(), Error> {
     send_or_spawn(&Command::Play(path.to_path_buf()))
 }

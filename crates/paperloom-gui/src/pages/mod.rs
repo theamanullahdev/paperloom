@@ -1,5 +1,6 @@
 pub mod auto_groups;
 pub mod charts;
+pub mod developers;
 pub mod downloads;
 pub mod gallery;
 pub mod library;

@@ -110,6 +110,7 @@ impl State {
                     }
                     SettingId::AllowMature => settings.allow_mature = value,
                     SettingId::TrayIcon => settings.show_tray_icon = value,
+                    SettingId::DeveloperMode => settings.developer_mode = value,
                     SettingId::ImportMode
                     | SettingId::Theme
                     | SettingId::LowBatteryPercent
@@ -334,6 +335,21 @@ impl State {
             t,
         );
 
+        let advanced = card(
+            "Advanced",
+            "For testing and support.",
+            item(
+                SettingId::DeveloperMode,
+                column![
+                    toggler(settings.developer_mode).label("Developer mode").on_toggle(|v| Message::Toggle(SettingId::DeveloperMode, v)),
+                    hint("Adds a Developers page under Settings: diagnostics you can copy, test actions, logs and switches."),
+                ]
+                .spacing(6)
+                .into(),
+            ),
+            t,
+        );
+
         let startup = card(
             "Startup & tray",
             "What runs when you log in, and the icon in your panel.",
@@ -405,12 +421,12 @@ impl State {
         let cards: Element<'a, Message> = if width >= 760.0 {
             row![
                 column![pausing, playback, content].spacing(16).width(Length::FillPortion(1)),
-                column![appearance, library, startup, about].spacing(16).width(Length::FillPortion(1)),
+                column![appearance, library, startup, about, advanced].spacing(16).width(Length::FillPortion(1)),
             ]
             .spacing(16)
             .into()
         } else {
-            column![pausing, appearance, playback, library, content, startup, about].spacing(16).into()
+            column![pausing, appearance, playback, library, content, startup, about, advanced].spacing(16).into()
         };
 
         let mut page = column![].spacing(16);

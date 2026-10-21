@@ -40,6 +40,8 @@ pub struct State {
     /// else this version).
     selected: Option<String>,
     tab: DetailTab,
+    /// Taps on the version number (seven switch developer mode).
+    taps: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +59,7 @@ pub enum Message {
     Restart,
     CheckNow,
     Select(String),
+    VersionTapped,
     Tab(DetailTab),
     Checked(Result<Box<CheckReport>, String>),
     Download { version: String, asset: String },
@@ -79,7 +82,7 @@ fn now_unix() -> u64 {
 impl State {
     pub fn new() -> Self {
         let (kind, kind_reason) = InstallKind::detect_with_reason();
-        Self { kind, kind_reason, check: Check::NotYet, download: None, speed: None, log: Vec::new(), installing: false, installed: None, selected: None, tab: DetailTab::Release }
+        Self { kind, kind_reason, check: Check::NotYet, download: None, speed: None, log: Vec::new(), installing: false, installed: None, selected: None, tab: DetailTab::Release, taps: 0 }
     }
 
     fn note(&mut self, message: impl Into<String>) {
@@ -139,6 +142,15 @@ impl State {
         match message {
             Message::Back | Message::Restart | Message::Tick => self.sample_speed(),
             Message::CheckNow => return self.start_check(settings),
+            Message::VersionTapped => {
+                self.taps += 1;
+                if self.taps >= 7 {
+                    self.taps = 0;
+                    settings.developer_mode = !settings.developer_mode;
+                    let _ = paperloom_common::save(settings);
+                    self.note(format!("Developer mode {}", if settings.developer_mode { "on" } else { "off" }));
+                }
+            }
             Message::Select(tag) => {
                 self.selected = Some(tag);
                 self.tab = DetailTab::Release;
@@ -283,7 +295,7 @@ impl State {
         let top = card(
             row![
                 column![
-                    text(format!("Paperloom {}", Version::current())).font(theme::DISPLAY_FONT).size(18).color(t.foreground),
+                    iced::widget::mouse_area(text(format!("Paperloom {}", Version::current())).font(theme::DISPLAY_FONT).size(18).color(t.foreground)).on_press(Message::VersionTapped),
                     text(status).size(13).color(color),
                 ]
                 .spacing(2),

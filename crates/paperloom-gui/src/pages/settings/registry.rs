@@ -23,6 +23,7 @@ pub enum SettingId {
     TrayStyle,
     TraySize,
     LibraryFolder,
+    DeveloperMode,
 }
 
 pub struct Entry {
@@ -122,6 +123,12 @@ pub const ENTRIES: &[Entry] = &[
         label: "Tray icon size",
         section: "Startup",
         aliases: &["tray size", "icon size", "applet size", "bigger icon", "smaller icon"],
+    },
+    Entry {
+        id: SettingId::DeveloperMode,
+        label: "Developer mode",
+        section: "Advanced",
+        aliases: &["developer", "dev", "debug", "diagnostics", "logs", "advanced", "testing", "support"],
     },
     Entry {
         id: SettingId::Updates,
