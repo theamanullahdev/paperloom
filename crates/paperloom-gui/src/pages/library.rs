@@ -39,6 +39,29 @@ struct Actions {
     entry: u64,
     confirm_remove: bool,
     new_collection: String,
+    tags: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Sort {
+    #[default]
+    Added,
+    Newest,
+    Name,
+    FavoritesFirst,
+}
+
+const SORTS: [Sort; 4] = [Sort::Added, Sort::Newest, Sort::Name, Sort::FavoritesFirst];
+
+impl std::fmt::Display for Sort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Sort::Added => "Oldest first",
+            Sort::Newest => "Newest first",
+            Sort::Name => "Name A–Z",
+            Sort::FavoritesFirst => "Favorites first",
+        })
+    }
 }
 
 /// Creating, renaming or deleting a collection.
@@ -71,6 +94,7 @@ pub struct State {
     preview_cache: HashMap<u64, Vec<Option<Allocation>>>,
     /// The Stop button was clicked and the choice is showing.
     confirm_stop: bool,
+    sort: Sort,
     optimizer: crate::optimizer::Optimizer,
     rotation: super::rotation::State,
 }
@@ -94,6 +118,10 @@ pub enum Message {
     SetHidden(u64, bool),
     SetInCollection { collection: u64, entry: u64, member: bool },
     ActionsCollectionName(String),
+    ActionsTags(String),
+    SaveTags(u64),
+    ToggleFavorite(u64, bool),
+    SortSelected(Sort),
     /// Creates a collection named in the dialog, with this wallpaper in it.
     CreateCollectionWith(u64),
     RemoveClicked,
@@ -141,6 +169,7 @@ impl State {
             preview_tick: 0,
             preview_cache: HashMap::new(),
             confirm_stop: false,
+            sort: Sort::default(),
             optimizer: crate::optimizer::Optimizer::default(),
             rotation: super::rotation::State::new(),
         };
@@ -227,7 +256,26 @@ impl State {
                 let _ = paperloom_common::save(settings);
             }
 
-            Message::OpenActions(entry) => self.actions = Some(Actions { entry, confirm_remove: false, new_collection: String::new() }),
+            Message::OpenActions(entry) => {
+                let tags = self.library.entry(entry).map(|found| found.tags.join(", ")).unwrap_or_default();
+                self.actions = Some(Actions { entry, confirm_remove: false, new_collection: String::new(), tags });
+            }
+            Message::ActionsTags(text) => {
+                if let Some(actions) = &mut self.actions {
+                    actions.tags = text;
+                }
+            }
+            Message::SaveTags(id) => {
+                if let Some(tags) = self.actions.as_ref().map(|actions| actions.tags.clone()) {
+                    let result = self.library.set_tags(id, &tags);
+                    self.saved(result);
+                }
+            }
+            Message::ToggleFavorite(id, favorite) => {
+                let result = self.library.set_favorite(id, favorite);
+                self.saved(result);
+            }
+            Message::SortSelected(sort) => self.sort = sort,
             Message::CloseActions => self.actions = None,
             Message::SetAsWallpaper(id) => {
                 self.actions = None;
@@ -550,7 +598,19 @@ impl State {
     /// Entries passing `keep` and the search box.
     fn visible(&self, keep: impl Fn(&LibraryEntry) -> bool) -> Vec<&LibraryEntry> {
         let query = self.search.to_lowercase();
-        self.library.entries.iter().filter(|entry| keep(entry) && (query.is_empty() || entry.display_name.to_lowercase().contains(&query))).collect()
+        let mut entries: Vec<&LibraryEntry> = self
+            .library
+            .entries
+            .iter()
+            .filter(|entry| keep(entry) && (query.is_empty() || entry.display_name.to_lowercase().contains(&query) || entry.tags.iter().any(|tag| tag.contains(query.trim_start_matches('#')))))
+            .collect();
+        match self.sort {
+            Sort::Added => {}
+            Sort::Newest => entries.sort_by_key(|entry| std::cmp::Reverse((entry.added, entry.id))),
+            Sort::Name => entries.sort_by_key(|entry| entry.display_name.to_lowercase()),
+            Sort::FavoritesFirst => entries.sort_by_key(|entry| !entry.favorite),
+        }
+        entries
     }
 
     /// Tabs on the left, view switches on the right.
@@ -588,7 +648,8 @@ impl State {
 
         // No spacer: in a wrapping row it would push the view switches onto
         // their own line.
-        row![tabs, Space::new().width(12), layout, size]
+        let sort = iced::widget::pick_list(SORTS, Some(self.sort), Message::SortSelected);
+        row![tabs, Space::new().width(12), layout, size, sort]
             .spacing(8)
             .align_y(Alignment::Center)
             .wrap()
@@ -658,7 +719,7 @@ impl State {
         };
         let poster = container(stack![self.poster(entry, t), status, menu]).clip(true).width(Length::Fill).height(Length::Fill);
 
-        let name = text(entry.display_name.clone()).size(if size == ViewSize::Small { 12 } else { 13 }).color(t.foreground).wrapping(text::Wrapping::None);
+        let name = text(if entry.favorite { format!("★ {}", entry.display_name) } else { entry.display_name.clone() }).size(if size == ViewSize::Small { 12 } else { 13 }).color(t.foreground).wrapping(text::Wrapping::None);
         let chrome: Element<'a, Message> = match size {
             ViewSize::Small => row![container(name).width(Length::Fill).clip(true), play_button(entry.id, t)].spacing(6).align_y(Alignment::Center).padding([6, 6]).into(),
             ViewSize::Medium | ViewSize::Large => column![
@@ -933,6 +994,13 @@ impl State {
             .spacing(8)
             .wrap()
             .vertical_spacing(6),
+            toggler(entry.favorite).label("Favorite ★").on_toggle(move |favorite| Message::ToggleFavorite(id, favorite)),
+            row![
+                text_input("Tags, separated by commas", &actions.tags).on_input(Message::ActionsTags).on_submit(Message::SaveTags(id)).padding(6).width(Length::Fill),
+                button(crate::ui::label("Save tags")).style(button::secondary).on_press(Message::SaveTags(id)),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
             section("Collections", t),
         ]
         .spacing(10);

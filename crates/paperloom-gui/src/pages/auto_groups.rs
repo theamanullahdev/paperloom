@@ -84,7 +84,23 @@ pub fn groups(entries: &[&LibraryEntry]) -> Vec<AutoGroup> {
     recent.sort_by_key(|entry| std::cmp::Reverse((entry.added, entry.id)));
     let recent = AutoGroup { name: "Recently added".into(), members: recent.into_iter().take(12).map(|entry| entry.id).collect() };
 
+    let favorites = AutoGroup { name: "Favorites".into(), members: entries.iter().filter(|entry| entry.favorite).map(|entry| entry.id).collect() };
+    let mut tagged: Vec<AutoGroup> = Vec::new();
+    for entry in entries {
+        for tag in &entry.tags {
+            match tagged.iter_mut().find(|group| group.name == format!("#{tag}")) {
+                Some(group) => group.members.push(entry.id),
+                None => tagged.push(AutoGroup { name: format!("#{tag}"), members: vec![entry.id] }),
+            }
+        }
+    }
+    tagged.sort_by(|a, b| a.name.cmp(&b.name));
+
     let mut all = Vec::new();
+    if !favorites.members.is_empty() {
+        all.push(favorites);
+    }
+    all.extend(tagged);
     all.extend(topics);
     if !other.members.is_empty() && !all.is_empty() {
         all.push(other);
@@ -117,6 +133,8 @@ mod tests {
             added: id,
             optimize: Default::default(),
             fingerprint: None,
+            favorite: false,
+            tags: Vec::new(),
         }
     }
 

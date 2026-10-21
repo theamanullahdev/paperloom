@@ -52,6 +52,12 @@ pub struct LibraryEntry {
     /// imported twice (even under another name).
     #[serde(default)]
     pub fingerprint: Option<String>,
+    /// Starred by the user.
+    #[serde(default)]
+    pub favorite: bool,
+    /// Free-form labels ("rain", "work"), lower-case, no duplicates.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Background optimization state of an imported wallpaper.
@@ -251,6 +257,27 @@ impl Library {
         self.save()
     }
 
+    pub fn set_favorite(&mut self, id: u64, favorite: bool) -> std::io::Result<()> {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
+            entry.favorite = favorite;
+        }
+        self.save()
+    }
+
+    /// Replaces the wallpaper's tags (trimmed, lower-cased, de-duplicated).
+    pub fn set_tags(&mut self, id: u64, tags: &str) -> std::io::Result<()> {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
+            let mut list: Vec<String> = Vec::new();
+            for tag in tags.split(',').map(|tag| tag.trim().trim_start_matches('#').to_lowercase()).filter(|tag| !tag.is_empty()) {
+                if !list.contains(&tag) {
+                    list.push(tag);
+                }
+            }
+            entry.tags = list;
+        }
+        self.save()
+    }
+
     /// Wallpapers waiting for the background optimizer.
     pub fn pending_optimizations(&self) -> Vec<(u64, PathBuf)> {
         self.entries.iter().filter(|entry| entry.optimize == Optimize::Pending).map(|entry| (entry.id, entry.path.clone())).collect()
@@ -328,6 +355,8 @@ impl Library {
             added,
             optimize: if mode == ImportMode::CopyAndOptimize { Optimize::Pending } else { Optimize::Untouched },
             fingerprint,
+            favorite: false,
+            tags: Vec::new(),
         });
         Ok(())
     }
@@ -585,6 +614,8 @@ mod tests {
             added: 1,
             optimize: Optimize::Untouched,
             fingerprint: None,
+            favorite: false,
+            tags: Vec::new(),
         });
         library.collections.push(Collection { id: 8, name: "Rainy".into(), members: vec![7], hidden: false });
         library.save_to(&manifest_path).unwrap();
@@ -610,6 +641,8 @@ mod tests {
                 added: 0,
                 optimize: Optimize::Untouched,
                 fingerprint: None,
+                favorite: false,
+                tags: Vec::new(),
             });
         }
         library.collections.push(Collection { id: 50, name: "Old".into(), members: vec![99], hidden: false });
