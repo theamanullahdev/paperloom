@@ -131,6 +131,27 @@ jobs:
           }
           Write-Host "exit code: $($p.ExitCode)"
           if ($p.ExitCode -ne 1) { throw "paperloom-engine.exe failed to start (exit $($p.ExitCode))" }
+      - name: Engine self-test (libmpv starts, a clip decodes)
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          New-Item -ItemType Directory -Force C:\selftest | Out-Null
+          C:\stage\ffmpeg.exe -y -f lavfi -i testsrc2=size=1280x720:rate=30 -t 3 -pix_fmt yuv420p C:\selftest\clip.mp4
+          # Redirected so the GUI-subsystem engine's text can be read.
+          $p = Start-Process C:\stage\paperloom-engine.exe -ArgumentList "--selftest","C:\selftest\clip.mp4" -RedirectStandardOutput C:\selftest\out.txt -PassThru
+          if (-not $p.WaitForExit(240000)) { Stop-Process -Id $p.Id -Force; throw "engine self-test hung" }
+          $text = Get-Content C:\selftest\out.txt -Raw
+          Write-Host $text
+          # A CI runner has no real desktop, so attaching behind the icons may
+          # fail there; libmpv starting and a clip decoding must not.
+          if ($text -notmatch "\[PASS\] libmpv starts headless") { throw "libmpv did not start" }
+          if ($text -notmatch "\[PASS\] decode: playing") { Write-Warning "the test clip did not decode on this runner" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-engine-selftest
+          path: C:\selftest\out.txt
+          if-no-files-found: ignore
       - name: Build .msi
         shell: pwsh
         working-directory: packaging/windows
