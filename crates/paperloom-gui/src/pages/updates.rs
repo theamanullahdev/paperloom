@@ -1,10 +1,10 @@
 //! Settings → Updates: check GitHub Releases, download the matching
 //! installer (resumable, checksum-verified), install it, or skip a version.
 //!
-//! Like the Downloads page, this deliberately shows *everything* — API URL,
-//! HTTP status, rate limit, every asset with its checksum, file paths,
-//! attempts, an activity log — for people who want to see what the updater
-//! is doing. (Collapsing details is a later, app-wide change.)
+//! A workspace: every release on the left (this version, newer, older), the
+//! chosen one on the right with its installers and notes, and the technical
+//! details (API, checksums, file paths, activity log) on their own tabs.
+//! Any version can be downloaded and installed, older ones included.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -36,6 +36,17 @@ pub struct State {
     installing: bool,
     /// Installed by this session; restarting switches to it.
     installed: Option<Version>,
+    /// The release open on the right, by tag (default: the newest newer one,
+    /// else this version).
+    selected: Option<String>,
+    tab: DetailTab,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailTab {
+    Release,
+    Details,
+    Activity,
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +56,8 @@ pub enum Message {
     /// Handled by the app: restart into the installed version.
     Restart,
     CheckNow,
+    Select(String),
+    Tab(DetailTab),
     Checked(Result<Box<CheckReport>, String>),
     Download { version: String, asset: String },
     CancelDownload,
@@ -66,7 +79,7 @@ fn now_unix() -> u64 {
 impl State {
     pub fn new() -> Self {
         let (kind, kind_reason) = InstallKind::detect_with_reason();
-        Self { kind, kind_reason, check: Check::NotYet, download: None, speed: None, log: Vec::new(), installing: false, installed: None }
+        Self { kind, kind_reason, check: Check::NotYet, download: None, speed: None, log: Vec::new(), installing: false, installed: None, selected: None, tab: DetailTab::Release }
     }
 
     fn note(&mut self, message: impl Into<String>) {
@@ -126,6 +139,11 @@ impl State {
         match message {
             Message::Back | Message::Restart | Message::Tick => self.sample_speed(),
             Message::CheckNow => return self.start_check(settings),
+            Message::Select(tag) => {
+                self.selected = Some(tag);
+                self.tab = DetailTab::Release;
+            }
+            Message::Tab(tab) => self.tab = tab,
             Message::Checked(Ok(report)) => {
                 settings.updates.last_checked = Some(now_unix());
                 let _ = paperloom_common::save(settings);
@@ -255,18 +273,116 @@ impl State {
     }
 
     pub fn body<'a>(&'a self, settings: &'a Settings, t: theme::Tokens) -> Element<'a, Message> {
-        let mut page = column![self.this_copy(t), self.check_card(settings, t)].spacing(12);
-        if let Some(download) = &self.download {
-            page = page.push(self.download_card(download, t));
-        }
-        if let Check::Done(report) = &self.check {
-            if let Some(release) = report.newest_newer() {
-                page = page.push(self.release_card(release, settings, t));
+        let checking = matches!(self.check, Check::Running(_));
+        let (status, color) = match &self.check {
+            Check::NotYet => ("Not checked yet this session".to_string(), t.muted_foreground),
+            Check::Running(since) => (format!("Checking… ({:.1}s)", since.elapsed().as_secs_f32()), t.primary),
+            Check::Failed(error) => (format!("Check failed: {error}"), t.destructive),
+            Check::Done(_) => (self.summary(settings), t.success),
+        };
+        let top = card(
+            row![
+                column![
+                    text(format!("Paperloom {}", Version::current())).font(theme::DISPLAY_FONT).size(18).color(t.foreground),
+                    text(status).size(13).color(color),
+                ]
+                .spacing(2),
+                Space::new().width(Length::Fill),
+                button(crate::ui::label(if checking { "Checking…" } else { "Check now" })).on_press_maybe((!checking).then_some(Message::CheckNow)),
+            ]
+            .align_y(Alignment::Center)
+            .into(),
+            t,
+        );
+
+        let Check::Done(report) = &self.check else {
+            // Nothing to list yet: the same details and activity, stacked.
+            let mut page = column![top, self.this_copy(t), self.check_card(settings, t)].spacing(12);
+            if let Some(download) = &self.download {
+                page = page.push(self.download_card(download, t));
             }
-            page = page.push(all_releases(report, t));
+            page = page.push(self.log_card(t));
+            return crate::ui::scroll_page(page).height(Length::Fill).into();
+        };
+
+        let selected = self.selected_release(report, settings);
+        let list = {
+            let mut items = column![].spacing(6);
+            for release in &report.releases {
+                items = items.push(self.release_row(release, report, settings, selected.is_some_and(|chosen| chosen.tag == release.tag), t));
+            }
+            if report.releases.is_empty() {
+                items = items.push(text("No releases published yet.").size(12).color(t.muted_foreground));
+            }
+            container(iced::widget::scrollable(items.padding([0, 8])).height(Length::Fill).direction(iced::widget::scrollable::Direction::Vertical(
+                iced::widget::scrollable::Scrollbar::hidden(),
+            )))
+            .width(Length::Fixed(250.0))
+            .height(Length::Fill)
+        };
+
+        let tabs = crate::ui::segmented(
+            vec![
+                ("Release".to_string(), self.tab == DetailTab::Release, Message::Tab(DetailTab::Release)),
+                ("Details".to_string(), self.tab == DetailTab::Details, Message::Tab(DetailTab::Details)),
+                ("Activity".to_string(), self.tab == DetailTab::Activity, Message::Tab(DetailTab::Activity)),
+            ],
+            t,
+        );
+        let mut pane = column![tabs].spacing(12);
+        if let Some(download) = &self.download {
+            pane = pane.push(self.download_card(download, t));
         }
-        page = page.push(self.log_card(t));
-        crate::ui::scroll_page(page).into()
+        pane = pane.push(match self.tab {
+            DetailTab::Release => match selected {
+                Some(release) => self.release_card(release, report, settings, t),
+                None => text("No release selected.").color(t.muted_foreground).into(),
+            },
+            DetailTab::Details => column![self.this_copy(t), self.check_card(settings, t)].spacing(12).into(),
+            DetailTab::Activity => self.log_card(t),
+        });
+        let detail = iced::widget::scrollable(pane.padding([0, 8])).width(Length::Fill).height(Length::Fill).direction(
+            iced::widget::scrollable::Direction::Vertical(iced::widget::scrollable::Scrollbar::hidden()),
+        );
+
+        column![top, row![list, detail].spacing(12).height(Length::Fill)].spacing(12).height(Length::Fill).into()
+    }
+
+    /// The release shown on the right.
+    fn selected_release<'a>(&'a self, report: &'a CheckReport, settings: &Settings) -> Option<&'a Release> {
+        if let Some(tag) = &self.selected {
+            if let Some(release) = report.releases.iter().find(|release| &release.tag == tag) {
+                return Some(release);
+            }
+        }
+        report.available(settings.updates.ignored_version.as_deref()).or_else(|| report.releases.iter().find(|release| release.version == report.current)).or(report.releases.first())
+    }
+
+    /// One line in the list: tag, date and how it relates to this copy.
+    fn release_row<'a>(&'a self, release: &'a Release, report: &'a CheckReport, settings: &Settings, active: bool, t: theme::Tokens) -> Element<'a, Message> {
+        let (relation, color) = match release.version.cmp(&report.current) {
+            std::cmp::Ordering::Greater if settings.updates.ignored_version.as_deref().and_then(Version::parse).as_ref() == Some(&release.version) => ("skipped", t.muted_foreground),
+            std::cmp::Ordering::Greater => ("newer", t.primary),
+            std::cmp::Ordering::Equal => ("installed", t.success),
+            std::cmp::Ordering::Less => ("older", t.muted_foreground),
+        };
+        let date = release.published_at.split('T').next().unwrap_or_default().to_string();
+        let body = column![
+            row![text(release.tag.clone()).size(14).color(t.foreground), Space::new().width(Length::Fill), text(relation).size(11).color(color)].align_y(Alignment::Center),
+            text(format!("{date}{}", if release.prerelease { " · pre-release" } else { "" })).size(11).color(t.muted_foreground),
+        ]
+        .spacing(2);
+        button(container(body).padding([8, 10]).width(Length::Fill))
+            .padding(0)
+            .width(Length::Fill)
+            .style(move |_theme, _status| button::Style {
+                background: Some(Background::Color(if active { t.muted } else { t.surface })),
+                text_color: t.foreground,
+                border: Border { color: if active { t.primary } else { t.border }, width: 1.0, radius: 8.0.into() },
+                ..button::Style::default()
+            })
+            .on_press(Message::Select(release.tag.clone()))
+            .into()
     }
 
     fn this_copy<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
@@ -346,13 +462,13 @@ impl State {
         )
     }
 
-    fn release_card<'a>(&'a self, release: &'a Release, settings: &'a Settings, t: theme::Tokens) -> Element<'a, Message> {
+    fn release_card<'a>(&'a self, release: &'a Release, report: &'a CheckReport, settings: &'a Settings, t: theme::Tokens) -> Element<'a, Message> {
         let version = release.version.to_string();
         let ignored = settings.updates.ignored_version.as_deref().and_then(Version::parse).as_ref() == Some(&release.version);
         let preferred = release.asset_for(self.kind).map(|asset| asset.name.clone());
 
         let mut actions = row![button(crate::ui::label("Release page")).style(button::secondary).on_press(Message::OpenUrl(release.page_url.clone()))].spacing(8);
-        if !ignored {
+        if release.version > report.current && !ignored {
             actions = actions.push(button(crate::ui::label("Skip this version")).style(button::secondary).on_press(Message::Ignore(version.clone())));
         }
 
@@ -360,7 +476,13 @@ impl State {
             row![
                 heading(&release.title, t),
                 Space::new().width(Length::Fill),
-                text(if release.prerelease { "Pre-release" } else { "New version" }).size(12).color(t.primary),
+                text(match release.version.cmp(&report.current) {
+                    std::cmp::Ordering::Greater => "New version",
+                    std::cmp::Ordering::Equal => "Installed version",
+                    std::cmp::Ordering::Less => "Older version",
+                })
+                .size(12)
+                .color(t.primary),
             ]
             .align_y(Alignment::Center),
             detail("Version", format!("{} (you have {})", release.version, Version::current()), t),
@@ -378,6 +500,9 @@ impl State {
                     .color(t.muted_foreground),
             );
         } else {
+            if release.version < report.current {
+                body = body.push(text("An older version: installing it replaces the one you have now. Your library and settings are kept.").size(12).color(t.muted_foreground));
+            }
             body = body.push(text("Installers for this computer").size(13).color(t.muted_foreground));
             let assets = release.platform_assets();
             if assets.is_empty() {
@@ -544,29 +669,6 @@ fn asset_row<'a>(version: &str, asset: &'a update::Asset, matches_install: bool,
         ..container::Style::default()
     })
     .into()
-}
-
-fn all_releases<'a>(report: &'a CheckReport, t: theme::Tokens) -> Element<'a, Message> {
-    let mut list = column![heading("All releases", t)].spacing(3);
-    if report.releases.is_empty() {
-        list = list.push(text("No releases published yet.").size(12).color(t.muted_foreground));
-    }
-    for release in &report.releases {
-        let relation = match release.version.cmp(&report.current) {
-            std::cmp::Ordering::Greater => "newer",
-            std::cmp::Ordering::Equal => "this version",
-            std::cmp::Ordering::Less => "older",
-        };
-        let date = release.published_at.split('T').next().unwrap_or_default().to_string();
-        list = list.push(row![
-            text(release.tag.clone()).size(12).color(t.foreground).width(Length::Fixed(120.0)),
-            text(date).size(12).color(t.muted_foreground).width(Length::Fixed(100.0)),
-            text(relation).size(12).color(if relation == "newer" { t.primary } else { t.muted_foreground }).width(Length::Fixed(100.0)),
-            text(format!("{} files{}", release.assets.len(), if release.prerelease { ", pre-release" } else { "" })).size(12).color(t.muted_foreground),
-        ]
-        .wrap());
-    }
-    card(list.into(), t)
 }
 
 fn heading<'a>(label: &str, t: theme::Tokens) -> Element<'a, Message> {
