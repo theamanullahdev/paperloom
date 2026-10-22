@@ -87,6 +87,10 @@ impl Listener {
         let Some(line) = self.0.accept_line()? else {
             return Ok(None);
         };
+        // A client that connected and sent nothing (a probe) isn't an error.
+        if line.trim().is_empty() {
+            return Ok(None);
+        }
         let command = Command::decode(&line);
         if command.is_none() {
             eprintln!("paperloom-engine: bad ipc command: {}", line.trim());
@@ -178,6 +182,10 @@ mod imp {
     /// write access to its creator (and admins/SYSTEM), so another user
     /// can't send commands to ours either.
     fn pipe_name() -> String {
+        // `PAPERLOOM_IPC_NAME` gives tests their own pipe so they never meet a running engine.
+        if let Ok(name) = std::env::var("PAPERLOOM_IPC_NAME") {
+            return format!(r"\\.\pipe\paperloom-engine-{name}");
+        }
         let user = std::env::var("USERNAME").unwrap_or_else(|_| "default".to_string());
         let user: String = user.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
         format!(r"\\.\pipe\paperloom-engine-{user}")
@@ -244,11 +252,10 @@ mod imp {
                 match unsafe { GetLastError() } {
                     ERROR_PIPE_CONNECTED => {}
                     ERROR_PIPE_LISTENING => return Ok(None),
-                    // A client connected and already went away: reset.
-                    ERROR_NO_DATA => {
-                        self.disconnect();
-                        return Ok(None);
-                    }
+                    // A client wrote its command and closed its end between two
+                    // polls. The bytes are still in the pipe and readable below;
+                    // disconnecting here would throw the command away.
+                    ERROR_NO_DATA => {}
                     code => return Err(io::Error::from_raw_os_error(code as i32)),
                 }
             }
@@ -353,5 +360,21 @@ mod tests {
     #[test]
     fn garbage_decodes_to_none() {
         assert_eq!(Command::decode("not a command\n"), None);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    /// A client that writes its command and closes before the engine's next
+    /// poll must still be heard (the command used to be dropped).
+    #[test]
+    fn a_command_from_a_client_that_already_left_is_delivered() {
+        std::env::set_var("PAPERLOOM_IPC_NAME", format!("test-{}", std::process::id()));
+        let mut listener = Listener::bind().expect("pipe binds");
+        send(&Command::Next).expect("client sends");
+        std::thread::sleep(std::time::Duration::from_millis(300)); // the engine polls ~5 times a second
+        assert_eq!(listener.accept_command().unwrap(), Some(Command::Next));
     }
 }

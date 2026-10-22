@@ -495,6 +495,27 @@ fn should_pause(settings: &Settings, window: HWND) -> bool {
         || (settings.pause_when_idle_minutes > 0 && idle_milliseconds() >= u64::from(settings.pause_when_idle_minutes) * 60_000)
 }
 
+/// Lower-case file name of the program with this process id ("" if unknown).
+fn process_file_name(pid: u32) -> String {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
+    // SAFETY: read-only query; the process handle is closed right away.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return String::new();
+        }
+        let mut buffer = [0u16; 520];
+        let mut length = buffer.len() as u32;
+        let ok = QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut length) != 0;
+        CloseHandle(process);
+        if !ok {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buffer[..length as usize]).rsplit(['\\', '/']).next().unwrap_or_default().to_lowercase()
+    }
+}
+
 /// The focused window's program (file name) or window class contains one of `apps`.
 fn foreground_app_matches(apps: &[String]) -> bool {
     use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
@@ -593,7 +614,9 @@ unsafe fn is_ordinary_visible_window(window: HWND, our_process: u32) -> bool {
     }
     let mut pid = 0u32;
     GetWindowThreadProcessId(window, &mut pid);
-    if pid == our_process {
+    // Neither the engine nor Paperloom's own window (open while you pick a
+    // wallpaper) counts as "something covering the desktop".
+    if pid == our_process || process_file_name(pid).starts_with("paperloom") {
         return false;
     }
     // Windows on another virtual desktop (and some UWP shells) are "cloaked":
