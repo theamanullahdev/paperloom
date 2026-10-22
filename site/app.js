@@ -126,7 +126,23 @@
       a.href = "#platforms";
       a.querySelector(".btn-title").textContent = "Download Paperloom";
       sub.textContent = v + " · choose your system";
-      if (os === "mobile") note.textContent = "Paperloom runs on desktop computers.";
+      if (os === "mobile") {
+        a.removeAttribute("href");
+        a.setAttribute("role", "button");
+        a.querySelector(".btn-title").textContent = "Send the link to my computer";
+        sub.textContent = v + " · Windows, macOS and Linux";
+        note.textContent = "Paperloom is a desktop app. Pick your computer's system below, or send yourself this page.";
+        a.addEventListener("click", function (e) {
+          e.preventDefault();
+          var data = { title: "Paperloom", text: "Download Paperloom for your computer", url: location.href.split("#")[0] };
+          if (navigator.share) { navigator.share(data).catch(function () {}); return; }
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(data.url).then(function () { note.textContent = "Link copied. Open it on your computer."; });
+          } else {
+            location.href = "mailto:?subject=" + encodeURIComponent("Paperloom") + "&body=" + encodeURIComponent(data.url);
+          }
+        });
+      }
     }
   }
 
