@@ -29,6 +29,7 @@ pub enum SettingId {
     PauseIdle,
     Hotkeys,
     HiddenPassword,
+    ScreenTarget,
 }
 
 pub struct Entry {
@@ -128,6 +129,12 @@ pub const ENTRIES: &[Entry] = &[
         label: "Tray icon size",
         section: "Startup",
         aliases: &["tray size", "icon size", "applet size", "bigger icon", "smaller icon"],
+    },
+    Entry {
+        id: SettingId::ScreenTarget,
+        label: "Which screen shows the wallpaper",
+        section: "Playback",
+        aliases: &["monitor", "display", "primary screen", "second screen", "secondary", "both screens", "multi monitor", "dual monitor", "extend"],
     },
     Entry {
         id: SettingId::HiddenPassword,

@@ -32,6 +32,9 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     let (conn, screen_num) = x11rb::connect(None)?;
     let screen = conn.setup().roots[screen_num].clone();
 
+    let settings = paperloom_common::load();
+    let area = target_area(&conn, screen.root, settings.screen_target).unwrap_or((0, 0, screen.width_in_pixels, screen.height_in_pixels));
+
     let window = conn.generate_id()?;
     let aux = CreateWindowAux::new()
         .background_pixel(screen.black_pixel)
@@ -41,10 +44,10 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
         screen.root_depth,
         window,
         screen.root,
-        0,
-        0,
-        screen.width_in_pixels,
-        screen.height_in_pixels,
+        area.0,
+        area.1,
+        area.2,
+        area.3,
         0,
         WindowClass::INPUT_OUTPUT,
         screen.root_visual,
@@ -78,6 +81,7 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
     // `gdbus`/`upower`, and none of lock/battery/fullscreen state changes
     // fast enough to need checking faster than that.
     let mut tick: u32 = 0;
+    let mut current_area = area;
 
     loop {
         while let Some(event) = conn.poll_for_event()? {
@@ -94,6 +98,13 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
         if tick.is_multiple_of(10) {
             let settings = paperloom_common::load();
             player::periodic(&settings, &mpv);
+            // The "which screen" setting changed (or a monitor was plugged in/out).
+            let wanted = target_area(&conn, screen.root, settings.screen_target).unwrap_or((0, 0, screen.width_in_pixels, screen.height_in_pixels));
+            if wanted != current_area {
+                current_area = wanted;
+                let _ = conn.configure_window(window, &ConfigureWindowAux::new().x(i32::from(wanted.0)).y(i32::from(wanted.1)).width(u32::from(wanted.2)).height(u32::from(wanted.3)));
+                let _ = conn.flush();
+            }
             hotkeys.sync(&conn, &settings.hotkey_next, &settings.hotkey_pause);
             let should_be_paused =
                 pause_detector.should_pause(&conn, screen.width_in_pixels, screen.height_in_pixels, window, &settings);
@@ -115,6 +126,18 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
 
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+/// The rectangle (x, y, width, height) of the monitor the setting picks, or
+/// `None` to cover the whole screen (all monitors, or only one exists).
+fn target_area(conn: &impl Connection, root: u32, target: paperloom_common::ScreenTarget) -> Option<(i16, i16, u16, u16)> {
+    use x11rb::protocol::randr::ConnectionExt as _;
+    if target == paperloom_common::ScreenTarget::All {
+        return None;
+    }
+    let monitors = conn.randr_get_monitors(root, true).ok()?.reply().ok()?.monitors;
+    let list: Vec<((i16, i16, u16, u16), bool)> = monitors.iter().map(|monitor| ((monitor.x, monitor.y, monitor.width, monitor.height), monitor.primary)).collect();
+    paperloom_common::pick_monitor(target, &list)
 }
 
 /// Explicitly stacks `window` below every other window, including Nemo's

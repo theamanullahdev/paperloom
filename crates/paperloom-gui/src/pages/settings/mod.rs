@@ -14,6 +14,8 @@ const THEME_OPTIONS: &[ThemeMode] = &[ThemeMode::System, ThemeMode::Light, Theme
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Idle(u32);
 
+const SCREEN_OPTIONS: [paperloom_common::ScreenTarget; 3] = [paperloom_common::ScreenTarget::All, paperloom_common::ScreenTarget::Primary, paperloom_common::ScreenTarget::Secondary];
+
 const IDLE_OPTIONS: [Idle; 5] = [Idle(0), Idle(5), Idle(10), Idle(30), Idle(60)];
 
 impl std::fmt::Display for Idle {
@@ -80,6 +82,7 @@ pub enum Message {
     ThemeSelected(ThemeMode),
     LowBatteryChanged(u8),
     PauseAppsChanged(String),
+    ScreenTargetSelected(paperloom_common::ScreenTarget),
     LockCurrent(String),
     LockNew(String),
     LockConfirm(String),
@@ -157,6 +160,7 @@ impl State {
                     | SettingId::PauseIdle
                     | SettingId::Hotkeys
                     | SettingId::HiddenPassword
+                    | SettingId::ScreenTarget
                     | SettingId::LibraryFolder => {}
                 }
                 self.flash(id);
@@ -171,6 +175,11 @@ impl State {
                 settings.pause_apps = text.split(',').map(|app| app.trim().to_string()).filter(|app| !app.is_empty()).collect();
                 self.pause_apps_text = text;
                 self.flash(SettingId::PauseApps);
+                let _ = paperloom_common::save(settings);
+            }
+            Message::ScreenTargetSelected(target) => {
+                settings.screen_target = target;
+                self.flash(SettingId::ScreenTarget);
                 let _ = paperloom_common::save(settings);
             }
             Message::LockCurrent(text) => self.lock_current = text,
@@ -383,6 +392,20 @@ impl State {
                         hint("Much less CPU and battery. Applies the next time a wallpaper starts. Turn off only if a wallpaper shows black or glitches."),
                     ]
                     .spacing(4)
+                    .into(),
+                ),
+                item(
+                    SettingId::ScreenTarget,
+                    column![
+                        row![
+                            text("Show the wallpaper on").size(13),
+                            Space::new().width(Length::Fill),
+                            pick_list(SCREEN_OPTIONS, Some(settings.screen_target), Message::ScreenTargetSelected)
+                        ]
+                        .align_y(iced::Alignment::Center),
+                        hint("Linux (X11) and Windows. Screens left out keep their normal background. Applies within a couple of seconds."),
+                    ]
+                    .spacing(6)
                     .into(),
                 ),
                 item(

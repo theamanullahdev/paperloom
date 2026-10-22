@@ -1,5 +1,37 @@
 use serde::{Deserialize, Serialize};
 
+/// Which screen(s) the wallpaper covers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ScreenTarget {
+    /// One video across every screen (the default).
+    #[default]
+    All,
+    Primary,
+    /// The first screen that is not the primary one.
+    Secondary,
+}
+
+impl std::fmt::Display for ScreenTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ScreenTarget::All => "All screens",
+            ScreenTarget::Primary => "Primary screen only",
+            ScreenTarget::Secondary => "Second screen only",
+        })
+    }
+}
+
+/// The monitor to cover for `target` among `(monitor, is_primary)` pairs, or
+/// `None` to cover everything (target `All`, or no second screen to pick).
+pub fn pick_monitor<T: Copy>(target: ScreenTarget, monitors: &[(T, bool)]) -> Option<T> {
+    match target {
+        ScreenTarget::All => None,
+        ScreenTarget::Primary => monitors.iter().find(|(_, primary)| *primary).or(monitors.first()).map(|(monitor, _)| *monitor),
+        // With a single screen there is no "second": cover it all.
+        ScreenTarget::Secondary => monitors.iter().find(|(_, primary)| !*primary).map(|(monitor, _)| *monitor),
+    }
+}
+
 /// How a video file gets added to the library when the user imports it.
 ///
 /// See PROJECT.md §7 — this is deliberately a setting, not a mandate, because
@@ -204,6 +236,8 @@ pub struct Settings {
     pub browse_hide_owned: bool,
     /// Salted hash of the password in front of the Hidden section (see `lock.rs`).
     pub hidden_lock: Option<String>,
+    /// Which screen(s) the wallpaper covers.
+    pub screen_target: ScreenTarget,
 }
 
 /// The Library page's view: grid of cards or list of rows, in three sizes.
@@ -296,6 +330,23 @@ impl Default for Settings {
             hotkey_pause: String::new(),
             browse_hide_owned: true,
             hidden_lock: None,
+            screen_target: ScreenTarget::All,
         }
+    }
+}
+
+#[cfg(test)]
+mod screen_tests {
+    use super::*;
+
+    #[test]
+    fn picks_the_right_monitor() {
+        let two = [(1, false), (2, true)];
+        assert_eq!(pick_monitor(ScreenTarget::All, &two), None);
+        assert_eq!(pick_monitor(ScreenTarget::Primary, &two), Some(2));
+        assert_eq!(pick_monitor(ScreenTarget::Secondary, &two), Some(1));
+        // One screen: nothing to select as "second".
+        assert_eq!(pick_monitor(ScreenTarget::Secondary, &[(2, true)]), None);
+        assert_eq!(pick_monitor(ScreenTarget::Primary, &[(7, false)]), Some(7));
     }
 }

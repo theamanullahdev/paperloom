@@ -36,6 +36,7 @@ use libmpv2::Mpv;
 use paperloom_common::ipc::{Command, Listener};
 use paperloom_common::Settings;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetParent, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, GetStockObject, MonitorFromWindow, BLACK_BRUSH, HBRUSH, MONITORINFO, MONITOR_DEFAULTTONULL,
@@ -173,7 +174,7 @@ fn wait_for_retry(listener: &mut Listener, startup: &mut Option<String>, wait: D
 fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Flow {
     let mut is_paused = false;
     let mut last_check = Instant::now();
-    let mut size = screen_size();
+    let mut area = wallpaper_area(paperloom_common::load().screen_target, true);
     loop {
         pump_messages();
         run_hotkeys(mpv);
@@ -187,15 +188,19 @@ fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Fl
             if unsafe { IsWindow(window) } == 0 {
                 return Flow::Continue;
             }
-            // A monitor was plugged in/out or the resolution changed: refit.
-            let now = screen_size();
-            if now != size && now.0 > 0 && now.1 > 0 {
-                size = now;
-                // SAFETY: our own window; NOZORDER | NOACTIVATE.
-                unsafe { SetWindowPos(window, std::ptr::null_mut(), 0, 0, now.0, now.1, 0x0004 | SWP_NOACTIVATE) };
-            }
             let settings = paperloom_common::load();
             player::periodic(&settings, mpv);
+            // A monitor was plugged in/out, the resolution changed, or the
+            // "which screen" setting did: refit.
+            // SAFETY: handle queries and one move of our own window.
+            unsafe {
+                let child = !GetParent(window).is_null();
+                let wanted = wallpaper_area(settings.screen_target, child);
+                if wanted != area && wanted.2 > 0 && wanted.3 > 0 {
+                    area = wanted;
+                    SetWindowPos(window, std::ptr::null_mut(), wanted.0, wanted.1, wanted.2, wanted.3, 0x0004 | SWP_NOACTIVATE);
+                }
+            }
             sync_hotkeys(&settings.hotkey_next, &settings.hotkey_pause);
             let should_pause = should_pause(&settings, window);
             if should_pause != is_paused {
@@ -205,6 +210,41 @@ fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Fl
         }
 
         std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// The monitors as (left, top, width, height, is_primary), in virtual-screen coordinates.
+fn monitors() -> Vec<(i32, i32, i32, i32, bool)> {
+    use windows_sys::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR};
+    const MONITORINFOF_PRIMARY: u32 = 1;
+    unsafe extern "system" fn visit(monitor: HMONITOR, _hdc: HDC, _rect: *mut RECT, list: LPARAM) -> windows_sys::core::BOOL {
+        let found = &mut *(list as *mut Vec<(i32, i32, i32, i32, bool)>);
+        let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..std::mem::zeroed() };
+        if GetMonitorInfoW(monitor, &mut info) != 0 {
+            let r = info.rcMonitor;
+            found.push((r.left, r.top, r.right - r.left, r.bottom - r.top, info.dwFlags & MONITORINFOF_PRIMARY != 0));
+        }
+        1
+    }
+    let mut found = Vec::new();
+    // SAFETY: the callback only pushes into `found`, which outlives the call.
+    unsafe { EnumDisplayMonitors(std::ptr::null_mut(), std::ptr::null(), Some(visit), &mut found as *mut _ as LPARAM) };
+    found
+}
+
+/// Where the wallpaper window should sit: (x, y, width, height). `relative`:
+/// coordinates inside the desktop window (whose origin is the top-left of
+/// the whole virtual screen) rather than on the screen.
+fn wallpaper_area(target: paperloom_common::ScreenTarget, relative: bool) -> (i32, i32, i32, i32) {
+    // SAFETY: plain metric queries.
+    let (vx, vy, vw, vh) = unsafe {
+        (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN), GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN))
+    };
+    let list = monitors();
+    let chosen = paperloom_common::pick_monitor(target, &list.iter().map(|m| (*m, m.4)).collect::<Vec<_>>());
+    match chosen {
+        Some((left, top, width, height, _)) => if relative { (left - vx, top - vy, width, height) } else { (left, top, width, height) },
+        None => if relative { (0, 0, vw, vh) } else { (vx, vy, vw, vh) },
     }
 }
 
@@ -362,7 +402,8 @@ fn create_wallpaper_window() -> Result<HWND, Box<dyn Error>> {
             std::thread::sleep(Duration::from_millis(150));
         }
 
-        let (width, height) = (GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN));
+        let target = paperloom_common::load().screen_target;
+        let (x, y, width, height) = wallpaper_area(target, true);
         let raised_workerw = FindWindowExW(progman, std::ptr::null_mut(), wide("WorkerW").as_ptr(), std::ptr::null());
         let raised = !raised_workerw.is_null();
         let parent = if raised { progman } else { find_legacy_workerw().unwrap_or(std::ptr::null_mut()) };
@@ -370,14 +411,14 @@ fn create_wallpaper_window() -> Result<HWND, Box<dyn Error>> {
 
         if !parent.is_null() {
             for (label, popup_first) in [("child window", false), ("pop-up moved into the desktop", true)] {
-                match make_window(parent, ex_style, width, height, popup_first) {
+                match make_window(parent, ex_style, (x, y, width, height), popup_first) {
                     Ok(window) => {
                         if raised {
                             SetLayeredWindowAttributes(window, 0, 255, LWA_ALPHA);
                             let icons = FindWindowExW(progman, std::ptr::null_mut(), wide("SHELLDLL_DefView").as_ptr(), std::ptr::null());
                             if !icons.is_null() {
                                 // "Insert after" the icon view = directly below it.
-                                SetWindowPos(window, icons, 0, 0, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                                SetWindowPos(window, icons, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
                             }
                             SetWindowPos(raised_workerw, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | 0x0001 | 0x0002); // NOSIZE | NOMOVE
                         }
@@ -394,7 +435,7 @@ fn create_wallpaper_window() -> Result<HWND, Box<dyn Error>> {
 
         // Last resort: a plain window over the desktop but under every other
         // window. The desktop icons are hidden beneath it, but the video shows.
-        match make_cover_window(progman, width, height) {
+        match make_cover_window(progman, wallpaper_area(target, false)) {
             Ok(window) => {
                 paperloom_common::log::warn(&format!("wallpaper window is covering the desktop (icons hidden); attach failed: {}", failures.join(" | ")));
                 return Ok(window);
@@ -407,7 +448,8 @@ fn create_wallpaper_window() -> Result<HWND, Box<dyn Error>> {
 
 /// One attempt at a window parented into the desktop: directly as a child,
 /// or as a pop-up that is then moved in with `SetParent`.
-unsafe fn make_window(parent: HWND, ex_style: u32, width: i32, height: i32, popup_first: bool) -> Result<HWND, String> {
+unsafe fn make_window(parent: HWND, ex_style: u32, area: (i32, i32, i32, i32), popup_first: bool) -> Result<HWND, String> {
+    let (x, y, width, height) = area;
     use windows_sys::Win32::Foundation::{GetLastError, SetLastError};
     use windows_sys::Win32::UI::WindowsAndMessaging::{SetParent, SetWindowLongPtrW, GWL_STYLE, SWP_FRAMECHANGED, SWP_NOZORDER};
 
@@ -415,9 +457,9 @@ unsafe fn make_window(parent: HWND, ex_style: u32, width: i32, height: i32, popu
     let module = GetModuleHandleW(std::ptr::null());
     SetLastError(0);
     let window = if popup_first {
-        CreateWindowExW(ex_style, class_name.as_ptr(), std::ptr::null(), WS_POPUP, 0, 0, width, height, std::ptr::null_mut(), std::ptr::null_mut(), module, std::ptr::null())
+        CreateWindowExW(ex_style, class_name.as_ptr(), std::ptr::null(), WS_POPUP, x, y, width, height, std::ptr::null_mut(), std::ptr::null_mut(), module, std::ptr::null())
     } else {
-        CreateWindowExW(ex_style, class_name.as_ptr(), std::ptr::null(), WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, 0, 0, width, height, parent, std::ptr::null_mut(), module, std::ptr::null())
+        CreateWindowExW(ex_style, class_name.as_ptr(), std::ptr::null(), WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, x, y, width, height, parent, std::ptr::null_mut(), module, std::ptr::null())
     };
     if window.is_null() {
         let code = GetLastError();
@@ -431,13 +473,14 @@ unsafe fn make_window(parent: HWND, ex_style: u32, width: i32, height: i32, popu
             return Err(format!("SetParent failed: {} (code {code})", std::io::Error::from_raw_os_error(code as i32)));
         }
         SetWindowLongPtrW(window, GWL_STYLE, (WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN) as isize);
-        SetWindowPos(window, std::ptr::null_mut(), 0, 0, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        SetWindowPos(window, std::ptr::null_mut(), x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
     }
     Ok(window)
 }
 
 /// A top-level window just above the desktop (see the last resort above).
-unsafe fn make_cover_window(progman: HWND, width: i32, height: i32) -> Result<HWND, String> {
+unsafe fn make_cover_window(progman: HWND, area: (i32, i32, i32, i32)) -> Result<HWND, String> {
+    let (x, y, width, height) = area;
     use windows_sys::Win32::Foundation::{GetLastError, SetLastError};
     let class_name = wide(CLASS_NAME);
     SetLastError(0);
@@ -446,8 +489,8 @@ unsafe fn make_cover_window(progman: HWND, width: i32, height: i32) -> Result<HW
         class_name.as_ptr(),
         std::ptr::null(),
         WS_POPUP | WS_VISIBLE,
-        GetSystemMetrics(windows_sys::Win32::UI::WindowsAndMessaging::SM_XVIRTUALSCREEN),
-        GetSystemMetrics(windows_sys::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN),
+        x,
+        y,
         width,
         height,
         std::ptr::null_mut(),

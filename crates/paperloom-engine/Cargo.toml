@@ -17,7 +17,7 @@ libmpv2 = "6.0"
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 # X11 desktop integration (root-window wallpaper embedding).
-x11rb = { version = "0.14", features = ["screensaver"] }
+x11rb = { version = "0.14", features = ["screensaver", "randr"] }
 
 # Wayland desktop integration (wlr-layer-shell background layer).
 # "system" feature: links real libwayland-client.so instead of the default

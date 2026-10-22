@@ -135,7 +135,9 @@ pub fn play(mpv: &Mpv, path: &str) {
     remember(Some(path));
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        crate::desktop_background::show_frame_of_in_background(path);
+        if paperloom_common::load().screen_target == paperloom_common::ScreenTarget::All {
+            crate::desktop_background::show_frame_of_in_background(path);
+        }
         crate::tray::set_wallpaper(path);
     }
 }
