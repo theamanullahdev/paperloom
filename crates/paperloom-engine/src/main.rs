@@ -13,9 +13,8 @@
 //! (`paperloom_common::ipc`) for `paperloom-gui` to tell it what to play,
 //! and polls its pause triggers to decide when to actually render. The
 //! initial video path is an optional CLI arg (useful for direct testing
-//! without the GUI); without one, the last wallpaper is restored. Only the
-//! X11 backend has been run on a real desktop so far — see each backend's
-//! own doc comment for what has and hasn't been verified.
+//! without the GUI); without one, the last wallpaper is restored. See each
+//! backend's own doc comment for how it attaches to the desktop.
 
 // No console window when the GUI (or the login autostart) launches us.
 #![cfg_attr(windows, windows_subsystem = "windows")]
