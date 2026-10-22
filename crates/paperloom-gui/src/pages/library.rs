@@ -95,6 +95,11 @@ pub struct State {
     /// The Stop button was clicked and the choice is showing.
     confirm_stop: bool,
     sort: Sort,
+    /// The Hidden section's password hash (from the settings), and whether it is open now.
+    lock: Option<String>,
+    unlocked: bool,
+    unlock_text: String,
+    unlock_wrong: bool,
     optimizer: crate::optimizer::Optimizer,
     rotation: super::rotation::State,
 }
@@ -122,6 +127,8 @@ pub enum Message {
     SaveTags(u64),
     ToggleFavorite(u64, bool),
     SortSelected(Sort),
+    UnlockText(String),
+    Unlock,
     /// Creates a collection named in the dialog, with this wallpaper in it.
     CreateCollectionWith(u64),
     RemoveClicked,
@@ -170,6 +177,10 @@ impl State {
             preview_cache: HashMap::new(),
             confirm_stop: false,
             sort: Sort::default(),
+            lock: paperloom_common::load().hidden_lock,
+            unlocked: false,
+            unlock_text: String::new(),
+            unlock_wrong: false,
             optimizer: crate::optimizer::Optimizer::default(),
             rotation: super::rotation::State::new(),
         };
@@ -221,6 +232,10 @@ impl State {
             }
             Message::ImportClicked => self.import(settings),
             Message::TabSelected(tab) => {
+                // Leaving the Hidden section closes it again.
+                if tab != Tab::Hidden {
+                    self.unlocked = false;
+                }
                 self.tab = tab;
                 self.collection_edit = None;
                 self.auto_open = None;
@@ -276,6 +291,19 @@ impl State {
                 self.saved(result);
             }
             Message::SortSelected(sort) => self.sort = sort,
+            Message::UnlockText(text) => {
+                self.unlock_text = text;
+                self.unlock_wrong = false;
+            }
+            Message::Unlock => {
+                if self.lock.as_deref().is_some_and(|stored| paperloom_common::lock::verify(stored, &self.unlock_text)) {
+                    self.unlocked = true;
+                    self.unlock_wrong = false;
+                } else {
+                    self.unlock_wrong = true;
+                }
+                self.unlock_text.clear();
+            }
             Message::CloseActions => self.actions = None,
             Message::SetAsWallpaper(id) => {
                 self.actions = None;
@@ -956,7 +984,35 @@ impl State {
         .into()
     }
 
+    /// Called when the settings change (the password may have been set or removed).
+    pub fn set_lock(&mut self, lock: Option<String>) {
+        if lock != self.lock {
+            self.lock = lock;
+            self.unlocked = false;
+            self.unlock_text.clear();
+            self.unlock_wrong = false;
+        }
+    }
+
     fn hidden_page<'a>(&'a self, view: LibraryView, t: theme::Tokens) -> Element<'a, Message> {
+        if self.lock.is_some() && !self.unlocked {
+            return container(
+                column![
+                    text("The Hidden section is locked").font(theme::DISPLAY_FONT).size(20).color(t.foreground),
+                    text("Enter your password to see what is hidden.").size(13).color(t.muted_foreground),
+                    row![
+                        text_input("Password", &self.unlock_text).secure(true).on_input(Message::UnlockText).on_submit(Message::Unlock).padding(8).width(Length::Fixed(260.0)),
+                        button(crate::ui::label("Unlock")).on_press(Message::Unlock),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                    text(if self.unlock_wrong { "That password is not right." } else { "" }).size(12).color(t.destructive),
+                ]
+                .spacing(10),
+            )
+            .padding(24)
+            .into();
+        }
         let entries = self.visible(|entry| entry.hidden);
         let collections: Vec<&Collection> = self.library.collections.iter().filter(|collection| collection.hidden).collect();
         let mut page = column![

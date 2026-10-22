@@ -15,6 +15,7 @@ pub mod hotkey;
 /// engine.
 pub mod ipc;
 mod library;
+pub mod lock;
 pub mod log;
 pub mod media;
 mod paths;

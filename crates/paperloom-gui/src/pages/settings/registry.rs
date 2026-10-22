@@ -28,6 +28,7 @@ pub enum SettingId {
     PauseApps,
     PauseIdle,
     Hotkeys,
+    HiddenPassword,
 }
 
 pub struct Entry {
@@ -127,6 +128,12 @@ pub const ENTRIES: &[Entry] = &[
         label: "Tray icon size",
         section: "Startup",
         aliases: &["tray size", "icon size", "applet size", "bigger icon", "smaller icon"],
+    },
+    Entry {
+        id: SettingId::HiddenPassword,
+        label: "Password for the Hidden section",
+        section: "Privacy",
+        aliases: &["password", "lock", "hidden", "private", "pin", "protect", "privacy"],
     },
     Entry {
         id: SettingId::Hotkeys,

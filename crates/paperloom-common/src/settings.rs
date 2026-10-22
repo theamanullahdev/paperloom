@@ -202,6 +202,8 @@ pub struct Settings {
     pub hotkey_pause: String,
     /// Online → Browse leaves out wallpapers already in the library.
     pub browse_hide_owned: bool,
+    /// Salted hash of the password in front of the Hidden section (see `lock.rs`).
+    pub hidden_lock: Option<String>,
 }
 
 /// The Library page's view: grid of cards or list of rows, in three sizes.
@@ -293,6 +295,7 @@ impl Default for Settings {
             hotkey_next: String::new(),
             hotkey_pause: String::new(),
             browse_hide_owned: true,
+            hidden_lock: None,
         }
     }
 }

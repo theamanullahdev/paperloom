@@ -293,7 +293,11 @@ impl App {
                 self.page = Page::Updates;
                 Task::none()
             }
-            Message::Settings(msg) => self.settings_page.update(&mut self.settings, msg).map(Message::Settings),
+            Message::Settings(msg) => {
+                let task = self.settings_page.update(&mut self.settings, msg).map(Message::Settings);
+                self.library_page.set_lock(self.settings.hidden_lock.clone());
+                task
+            }
             Message::Updates(updates::Message::Back) => {
                 self.page = Page::Settings;
                 self.settings_page.refresh(self.library_page.library());

@@ -8,6 +8,7 @@ license.workspace = true
 serde = { version = "1", features = ["derive"] }
 toml = "1"
 directories = "6"
+sha2 = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

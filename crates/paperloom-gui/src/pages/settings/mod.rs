@@ -48,6 +48,10 @@ pub struct State {
     stats: Option<Stats>,
     /// The pause-by-app list as typed (commas included).
     pause_apps_text: String,
+    lock_current: String,
+    lock_new: String,
+    lock_confirm: String,
+    lock_note: Option<String>,
 }
 
 impl Default for State {
@@ -59,6 +63,10 @@ impl Default for State {
             autostart_error: None,
             stats: None,
             pause_apps_text: String::new(),
+            lock_current: String::new(),
+            lock_new: String::new(),
+            lock_confirm: String::new(),
+            lock_note: None,
         }
     }
 }
@@ -72,6 +80,11 @@ pub enum Message {
     ThemeSelected(ThemeMode),
     LowBatteryChanged(u8),
     PauseAppsChanged(String),
+    LockCurrent(String),
+    LockNew(String),
+    LockConfirm(String),
+    LockSet,
+    LockRemove,
     HotkeyNext(String),
     HotkeyPause(String),
     PauseIdleSelected(Idle),
@@ -143,6 +156,7 @@ impl State {
                     | SettingId::PauseApps
                     | SettingId::PauseIdle
                     | SettingId::Hotkeys
+                    | SettingId::HiddenPassword
                     | SettingId::LibraryFolder => {}
                 }
                 self.flash(id);
@@ -158,6 +172,37 @@ impl State {
                 self.pause_apps_text = text;
                 self.flash(SettingId::PauseApps);
                 let _ = paperloom_common::save(settings);
+            }
+            Message::LockCurrent(text) => self.lock_current = text,
+            Message::LockNew(text) => self.lock_new = text,
+            Message::LockConfirm(text) => self.lock_confirm = text,
+            Message::LockSet | Message::LockRemove => {
+                let removing = matches!(message, Message::LockRemove);
+                let current_ok = match &settings.hidden_lock {
+                    Some(stored) => paperloom_common::lock::verify(stored, &self.lock_current),
+                    None => true,
+                };
+                self.lock_note = Some(if !current_ok {
+                    "The current password is not right.".into()
+                } else if removing {
+                    settings.hidden_lock = None;
+                    let _ = paperloom_common::save(settings);
+                    "Password removed.".into()
+                } else if self.lock_new.chars().count() < 4 {
+                    "Use at least 4 characters.".into()
+                } else if self.lock_new != self.lock_confirm {
+                    "The two passwords are different.".into()
+                } else {
+                    settings.hidden_lock = Some(paperloom_common::lock::make(&self.lock_new));
+                    let _ = paperloom_common::save(settings);
+                    "Password set. The Hidden section asks for it from now on.".into()
+                });
+                if current_ok {
+                    self.lock_current.clear();
+                    self.lock_new.clear();
+                    self.lock_confirm.clear();
+                }
+                self.flash(SettingId::HiddenPassword);
             }
             Message::HotkeyNext(text) => {
                 settings.hotkey_next = text;
@@ -447,6 +492,34 @@ impl State {
             t,
         );
 
+        let privacy = card(
+            "Privacy",
+            "Keep the Hidden section to yourself.",
+            item(
+                SettingId::HiddenPassword,
+                {
+                    let has_password = settings.hidden_lock.is_some();
+                    let mut body = column![text(if has_password { "The Hidden section is protected by a password." } else { "No password: anyone with this window can open the Hidden section." }).size(13)].spacing(8);
+                    if has_password {
+                        body = body.push(text_input("Current password", &self.lock_current).secure(true).on_input(Message::LockCurrent).padding(6).width(Length::Fixed(260.0)));
+                    }
+                    body = body.push(text_input(if has_password { "New password" } else { "Choose a password" }, &self.lock_new).secure(true).on_input(Message::LockNew).padding(6).width(Length::Fixed(260.0)));
+                    body = body.push(text_input("Type it again", &self.lock_confirm).secure(true).on_input(Message::LockConfirm).on_submit(Message::LockSet).padding(6).width(Length::Fixed(260.0)));
+                    let mut buttons = row![button(crate::ui::label(if has_password { "Change password" } else { "Set password" })).on_press(Message::LockSet)].spacing(8);
+                    if has_password {
+                        buttons = buttons.push(button(crate::ui::label("Remove password")).style(button::secondary).on_press(Message::LockRemove));
+                    }
+                    body = body.push(buttons);
+                    if let Some(note) = &self.lock_note {
+                        body = body.push(text(note.clone()).size(12).color(t.muted_foreground));
+                    }
+                    body = body.push(hint("This keeps people who sit at your computer out of the Hidden section. It does not encrypt the files, which stay on your disk."));
+                    body.into()
+                },
+            ),
+            t,
+        );
+
         let advanced = card(
             "Advanced",
             "For testing and support.",
@@ -533,12 +606,12 @@ impl State {
         let cards: Element<'a, Message> = if width >= 760.0 {
             row![
                 column![pausing, playback, content].spacing(16).width(Length::FillPortion(1)),
-                column![appearance, library, shortcuts, startup, about, advanced].spacing(16).width(Length::FillPortion(1)),
+                column![appearance, library, shortcuts, privacy, startup, about, advanced].spacing(16).width(Length::FillPortion(1)),
             ]
             .spacing(16)
             .into()
         } else {
-            column![pausing, appearance, playback, shortcuts, library, content, startup, about, advanced].spacing(16).into()
+            column![pausing, appearance, playback, shortcuts, library, content, privacy, startup, about, advanced].spacing(16).into()
         };
 
         let mut page = column![].spacing(16);
