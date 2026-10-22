@@ -5,6 +5,7 @@ name: Apt repository
 #   /releases.json — the release list the in-app updater reads (the GitHub
 #                    API's own answer, saved as a static file, so updates
 #                    don't depend on the API's 60-requests-an-hour limit).
+#   /              — the download page (source: site/ on the default branch).
 #   /apt           — a signed apt repository, so Ubuntu / Mint / Debian
 #                    users get updates through their normal `apt upgrade`.
 #
@@ -24,6 +25,9 @@ on:
       APT_GPG_PRIVATE_KEY:
         required: false
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['site/**']
 
 permissions:
   contents: write
@@ -36,6 +40,11 @@ jobs:
   publish:
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          sparse-checkout: site
+
       - name: Check for the signing key
         id: key
         env:
@@ -56,7 +65,7 @@ jobs:
           # An empty answer is never published: the in-app updater would show
           # "no releases". Retry, then fall back to the list already live.
           for attempt in 1 2 3 4 5; do
-            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" > site/releases.json || true
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > site/releases.json || true
             count="$(python3 -c "import json; print(len(json.load(open('site/releases.json'))))" 2>/dev/null || echo 0)"
             [ "$count" -gt 0 ] && break
             echo "attempt $attempt: GitHub listed no releases, trying again"
@@ -121,18 +130,12 @@ jobs:
           gpgv --keyring /tmp/paperloom.gpg dists/stable/InRelease
           gpgv --keyring /tmp/paperloom.gpg dists/stable/Release.gpg dists/stable/Release
 
-      - name: Landing page
+      - name: Download page
         run: |
+          # The page's source lives in site/ on the default branch; the apt
+          # repository and releases.json are built into the same output.
           touch site/.nojekyll
-          cat > site/index.html <<'HTML'
-          <!doctype html><meta charset="utf-8"><title>Paperloom apt repository</title>
-          <h1>Paperloom apt repository</h1>
-          <p>Install on Ubuntu, Linux Mint or Debian, and get updates with your normal system updates:</p>
-          <pre>sudo curl -fsSLo /usr/share/keyrings/paperloom.asc https://theamanullahdev.github.io/paperloom/apt/paperloom.asc
-          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/paperloom.asc] https://theamanullahdev.github.io/paperloom/apt stable main" | sudo tee /etc/apt/sources.list.d/paperloom.list
-          sudo apt update &amp;&amp; sudo apt install paperloom</pre>
-          <p><a href="https://github.com/theamanullahdev/paperloom">Paperloom on GitHub</a></p>
-          HTML
+          cp -r src/site/. site/
 
       - name: Publish to gh-pages
         working-directory: site

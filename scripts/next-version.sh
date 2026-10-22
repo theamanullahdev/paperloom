@@ -5,7 +5,7 @@
 #   - "feat:" / "feat(scope):"       -> minor
 #   - anything else                  -> patch
 # Prints nothing when nothing release-worthy happened: no new commits, or
-# they only touched docs (*.md, docs/). A forced bump always prints.
+# they only touched docs (*.md, docs/, site/). A forced bump always prints.
 #
 #   scripts/next-version.sh [auto|patch|minor|major]
 #
@@ -26,7 +26,7 @@ fi
 
 range="$last_tag..HEAD"
 commits="$(git log --format=%H "$range" --invert-grep --grep='^chore(release):')"
-changed="$(git log --format= --name-only "$range" --invert-grep --grep='^chore(release):' | sort -u | grep -Ev '(\.md$|^docs/)' || true)"
+changed="$(git log --format= --name-only "$range" --invert-grep --grep='^chore(release):' | sort -u | grep -Ev '(\.md$|^docs/|^site/)' || true)"
 if [ "$force" = "auto" ] && { [ -z "$commits" ] || [ -z "$changed" ]; }; then
   exit 0
 fi
