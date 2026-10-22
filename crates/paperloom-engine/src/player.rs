@@ -276,12 +276,14 @@ pub fn set_user_pause(mpv: &Mpv, paused: bool) {
     crate::tray::set_paused(paused);
 }
 
-/// A global shortcut fired.
+/// A global shortcut fired (macOS has none yet).
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub enum Shortcut {
     Next,
     TogglePause,
 }
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn shortcut(mpv: &Mpv, which: Shortcut) {
     match which {
         Shortcut::Next => crate::rotation::next(mpv),
