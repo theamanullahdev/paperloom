@@ -53,7 +53,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p site
-          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" > site/releases.json
+          # An empty answer is never published: the in-app updater would show
+          # "no releases". Retry, then fall back to the list already live.
+          for attempt in 1 2 3 4 5; do
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" > site/releases.json || true
+            count="$(python3 -c "import json; print(len(json.load(open('site/releases.json'))))" 2>/dev/null || echo 0)"
+            [ "$count" -gt 0 ] && break
+            echo "attempt $attempt: GitHub listed no releases, trying again"
+            sleep 20
+          done
+          if [ "${count:-0}" -eq 0 ]; then
+            curl -fsSL "https://${GITHUB_REPOSITORY_OWNER}.github.io/paperloom/releases.json" -o site/releases.json
+            count="$(python3 -c "import json; print(len(json.load(open('site/releases.json'))))")"
+            [ "$count" -gt 0 ] || { echo "::error::no release list to publish"; exit 1; }
+            echo "::warning::kept the release list that was already published"
+          fi
           python3 -c "import json; r = json.load(open('site/releases.json')); print(len(r), 'releases:', [x['tag_name'] for x in r][:5])"
 
       - name: Import the signing key

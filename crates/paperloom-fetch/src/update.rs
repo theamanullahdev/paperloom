@@ -228,6 +228,9 @@ pub fn check(include_prereleases: bool) -> Result<CheckReport, FetchError> {
     }
     let started = Instant::now();
     let mirror_error = match fetch_mirror(include_prereleases) {
+        // A mirror that lists no releases at all is broken (there is always at
+        // least the one you are running): ask GitHub directly instead.
+        Ok((_, releases)) if releases.is_empty() => "the release list was empty".to_string(),
         Ok((url, releases)) => {
             return Ok(CheckReport {
                 current: Version::current(),
