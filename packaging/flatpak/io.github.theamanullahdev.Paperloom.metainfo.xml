@@ -53,6 +53,7 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.16.2" date="2026-10-22" />
     <release version="0.16.1" date="2026-10-21" />
     <release version="0.16.0" date="2026-10-21" />
     <release version="0.15.0" date="2026-10-21" />
