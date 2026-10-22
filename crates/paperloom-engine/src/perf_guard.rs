@@ -78,7 +78,7 @@ fn apply(mpv: &Mpv, level: u8) {
 
 /// Total CPU time this process has used, in seconds.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn cpu_seconds() -> Option<f64> {
+pub fn cpu_seconds() -> Option<f64> {
     let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
     // The command name may contain spaces; fields after the last ')' are fixed.
     let fields: Vec<&str> = stat.rsplit_once(')')?.1.split_whitespace().collect();
@@ -87,7 +87,7 @@ fn cpu_seconds() -> Option<f64> {
 }
 
 #[cfg(windows)]
-fn cpu_seconds() -> Option<f64> {
+pub fn cpu_seconds() -> Option<f64> {
     use windows_sys::Win32::Foundation::FILETIME;
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
     let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
@@ -99,6 +99,6 @@ fn cpu_seconds() -> Option<f64> {
 }
 
 #[cfg(target_os = "macos")]
-fn cpu_seconds() -> Option<f64> {
+pub fn cpu_seconds() -> Option<f64> {
     None
 }

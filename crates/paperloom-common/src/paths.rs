@@ -34,6 +34,11 @@ pub fn dev_file() -> PathBuf {
     project_dirs().config_dir().join("dev.toml")
 }
 
+/// The engine's recent CPU/memory readings (see `usage_history.rs`).
+pub fn usage_history_file() -> PathBuf {
+    project_dirs().data_dir().join("engine-usage.txt")
+}
+
 /// Rotation and schedule (see `rotation.rs`).
 pub fn rotation_file() -> PathBuf {
     project_dirs().config_dir().join("rotation.toml")

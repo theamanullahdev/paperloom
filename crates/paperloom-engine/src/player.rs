@@ -220,6 +220,7 @@ pub fn periodic(settings: &paperloom_common::Settings, mpv: &Mpv) {
     refresh_dev(settings);
     publish_status(mpv, settings.developer_mode);
     crate::rotation::tick(mpv);
+    crate::usage_history::tick();
     let paused = AUTO_PAUSED.load(Ordering::Relaxed) || USER_PAUSED.load(Ordering::Relaxed);
     let hardware = mpv.get_property::<String>("hwdec-current").is_ok_and(|name| !name.is_empty() && name != "no");
     crate::perf_guard::tick(mpv, settings.performance_guard, paused, hardware);

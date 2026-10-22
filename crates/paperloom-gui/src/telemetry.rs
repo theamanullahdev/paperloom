@@ -54,7 +54,7 @@ impl Recorder {
             ticks: 0,
             last: Instant::now(),
             last_network: paperloom_fetch::bytes_received(),
-            history: History::default(),
+            history: seed_from_engine(),
         }
     }
 
@@ -123,4 +123,18 @@ fn push(series: &mut VecDeque<f32>, value: f32) {
         series.pop_front();
     }
     series.push_back(value);
+}
+
+/// The engine runs whenever a wallpaper plays, so it kept the last minutes of
+/// its own use while this window was closed: start the wallpaper's lines
+/// from that (each 10-second reading stands for five 2-second steps).
+fn seed_from_engine() -> History {
+    let mut history = History::default();
+    for (cpu, memory) in paperloom_common::usage_history::load() {
+        for _ in 0..5 {
+            push(&mut history.cpu_engine, cpu);
+            push(&mut history.memory_engine, memory as f32);
+        }
+    }
+    history
 }

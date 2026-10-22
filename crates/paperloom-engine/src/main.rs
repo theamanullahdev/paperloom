@@ -28,6 +28,7 @@ mod hotkeys_x11;
 mod pause;
 mod perf_guard;
 mod rotation;
+mod usage_history;
 mod selftest;
 mod player;
 #[cfg(all(unix, not(target_os = "macos")))]
