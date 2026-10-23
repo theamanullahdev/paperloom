@@ -562,21 +562,24 @@ impl State {
             actions = actions.push(button(crate::ui::label(format!("Open on {}", item.source_name))).style(crate::ui::ghost).on_press(Message::OpenPage(item.page_url.clone())));
         }
 
-        let picture: Element<'a, Message> = match thumb {
-            Some(path) => image(image::Handle::from_path(path)).content_fit(iced::ContentFit::Contain).width(Length::Fill).height(Length::Fill).into(),
-            None => container(svg(icons::film()).width(40).height(40).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) }))
-                .center(Length::Fill)
-                .into(),
-        };
-        let left = container::<Message, iced::Theme, iced::Renderer>(picture)
+        // Shaped like the user's screen; the small picture is shown at its own
+        // size (smaller if the box is smaller), never blown up.
+        let left = {
+            let path = thumb.cloned();
+            container(crate::ui::screen_box(move || {
+                let picture: Element<'a, Message> = match &path {
+                    Some(path) => container(image(image::Handle::from_path(path)).content_fit(iced::ContentFit::ScaleDown)).center(Length::Fill).into(),
+                    None => container(svg(icons::film()).width(40).height(40).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) })).center(Length::Fill).into(),
+                };
+                container(picture)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), border: Border { color: t.border, width: 1.0, radius: 6.0.into() }, ..container::Style::default() })
+                    .into()
+            }))
             .width(Length::FillPortion(6))
             .height(Length::Fill)
-            .clip(true)
-            .style(move |_theme| container::Style {
-                background: Some(Background::Color(t.muted)),
-                border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
-                ..container::Style::default()
-            });
+        };
         let right = column![
             text(item.title.clone()).font(theme::DISPLAY_FONT).size(22).color(t.foreground),
             text(format!("{} · {}", item.source_name, qualities)).size(13).color(t.muted_foreground),

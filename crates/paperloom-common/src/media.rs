@@ -21,6 +21,29 @@ pub struct MediaInfo {
     pub duration_secs: f32,
 }
 
+/// Saves one sharp still of `video` (a second in, `width` pixels wide) to
+/// `out`, for big previews. `false` when ffmpeg is missing or fails.
+pub fn sharp_frame(video: &Path, out: &Path, width: u32) -> bool {
+    if let Some(dir) = out.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let temp = out.with_extension("part.jpg");
+    let ok = crate::process::command("ffmpeg")
+        .args(["-y", "-ss", "1", "-i"])
+        .arg(video)
+        .args(["-frames:v", "1", "-vf", &format!("scale={width}:-1"), "-q:v", "3"])
+        .arg(&temp)
+        .output()
+        .is_ok_and(|result| result.status.success())
+        && temp.metadata().is_ok_and(|meta| meta.len() > 0);
+    if ok {
+        ok && std::fs::rename(&temp, out).is_ok()
+    } else {
+        let _ = std::fs::remove_file(&temp);
+        false
+    }
+}
+
 /// Runs `ffmpeg -i` and parses what it prints. `None` when ffmpeg is
 /// missing or the file isn't a readable video.
 pub fn probe(path: &Path) -> Option<MediaInfo> {

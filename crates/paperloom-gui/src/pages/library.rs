@@ -11,7 +11,7 @@
 //! action: set, preview, collections, hide, remove.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use iced::widget::image::Allocation;
 use iced::widget::{
@@ -106,6 +106,29 @@ pub struct State {
     share: super::share::State,
     /// The Share button's choices are showing.
     hub: bool,
+    /// The Import button's choices are showing.
+    import_menu: bool,
+    /// A sharp still per wallpaper for the big preview; `since` is when it
+    /// arrived, so it can fade in over the blurry small one.
+    sharp: HashMap<u64, Sharp>,
+}
+
+struct Sharp {
+    path: std::path::PathBuf,
+    since: Option<Instant>,
+}
+
+/// How long the sharp picture takes to fade in.
+const FADE: Duration = Duration::from_millis(900);
+
+impl Sharp {
+    fn opacity(&self) -> f32 {
+        self.since.map_or(1.0, |since| (since.elapsed().as_secs_f32() / FADE.as_secs_f32()).clamp(0.0, 1.0))
+    }
+
+    fn fading(&self) -> bool {
+        self.since.is_some_and(|since| since.elapsed() < FADE)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -158,6 +181,11 @@ pub enum Message {
     Share(super::share::Message),
     ShareEntry(u64),
     OpenHub,
+    ImportMenu,
+    CloseImportMenu,
+    /// The sharp still for a wallpaper's big preview is ready.
+    SharpReady(u64, Option<std::path::PathBuf>),
+    FadeTick,
     /// Escape: closes the topmost pop-up, or leaves picking.
     Escape,
     /// Where older downloads came from, found in the background.
@@ -205,6 +233,8 @@ impl State {
             selection: super::selection::Selection::default(),
             share: super::share::State::default(),
             hub: false,
+            import_menu: false,
+            sharp: HashMap::new(),
         };
         state.queue_optimizations();
         state
@@ -227,6 +257,8 @@ impl State {
             if active && animating { iced::time::every(Duration::from_millis(100)).map(|_| Message::PreviewTick) } else { Subscription::none() },
             // Only while a wallpaper is being optimized (after an import).
             if optimizing { iced::time::every(Duration::from_secs(1)).map(|_| Message::OptimizeTick) } else { Subscription::none() },
+            // Only for the second a sharp preview is fading in.
+            if self.sharp.values().any(Sharp::fading) { iced::time::every(Duration::from_millis(33)).map(|_| Message::FadeTick) } else { Subscription::none() },
         ])
     }
 
@@ -252,7 +284,10 @@ impl State {
                     self.preview_cache.remove(&id);
                 }
             }
-            Message::ImportClicked => self.import(settings),
+            Message::ImportClicked => {
+                self.import_menu = false;
+                self.import(settings);
+            }
             Message::TabSelected(tab) => {
                 // Leaving the Hidden section closes it again.
                 if tab != Tab::Hidden {
@@ -297,7 +332,16 @@ impl State {
             Message::OpenActions(entry) => {
                 let tags = self.library.entry(entry).map(|found| found.tags.join(", ")).unwrap_or_default();
                 self.actions = Some(Actions { entry, confirm_remove: false, new_collection: String::new(), tags });
+                return self.begin_sharp(entry);
             }
+            Message::SharpReady(id, path) => {
+                if let Some(path) = path {
+                    self.sharp.insert(id, Sharp { path, since: Some(Instant::now()) });
+                }
+            }
+            Message::FadeTick => {}
+            Message::ImportMenu => self.import_menu = true,
+            Message::CloseImportMenu => self.import_menu = false,
             Message::ActionsTags(text) => {
                 if let Some(actions) = &mut self.actions {
                     actions.tags = text;
@@ -442,6 +486,8 @@ impl State {
                 } else if self.share.close() {
                 } else if self.hub {
                     self.hub = false;
+                } else if self.import_menu {
+                    self.import_menu = false;
                 } else if self.selection.close_dialog() {
                 } else if self.actions.is_some() {
                     self.actions = None;
@@ -598,6 +644,27 @@ impl State {
         )
     }
 
+    /// Starts making the sharp still for `id`'s big preview (or finds the one
+    /// made before). The small thumbnail shows until it arrives.
+    fn begin_sharp(&mut self, id: u64) -> Task<Message> {
+        if self.sharp.contains_key(&id) {
+            return Task::none();
+        }
+        let Some(entry) = self.library.entry(id) else { return Task::none() };
+        let out = paperloom_common::thumbnails_dir().join(format!("sharp-{id}.jpg"));
+        if out.metadata().is_ok_and(|meta| meta.len() > 0) {
+            self.sharp.insert(id, Sharp { path: out, since: None });
+            return Task::none();
+        }
+        let video = entry.path.clone();
+        Task::perform(
+            super::online::blocking(move || -> Result<Option<std::path::PathBuf>, String> {
+                Ok(paperloom_common::media::sharp_frame(&video, &out, 1600).then_some(out))
+            }),
+            move |result| Message::SharpReady(id, result.ok().flatten()),
+        )
+    }
+
     /// Opens the sender screen for the wallpapers with these ids.
     fn open_sender(&mut self, title: String, kind: paperloom_fetch::share::Kind, name: &str, ids: &[u64]) {
         let entries: Vec<&LibraryEntry> = self.library.entries.iter().filter(|entry| ids.contains(&entry.id)).collect();
@@ -626,6 +693,7 @@ impl State {
     pub fn share_update(&mut self, settings: &Settings, queue: &paperloom_fetch::Queue, message: super::share::Message) -> Task<Message> {
         if matches!(message, super::share::Message::OpenImport) {
             self.hub = false;
+            self.import_menu = false;
         }
         let mut status = None;
         let mut ctx = super::share::Ctx { settings, library: &mut self.library, queue, status: &mut status };
@@ -729,7 +797,7 @@ impl State {
                 .align_y(Alignment::Center),
         )
         .style(crate::ui::primary)
-        .on_press(Message::ImportClicked);
+        .on_press(Message::ImportMenu);
         row![import, button(crate::ui::label("Stop wallpaper")).style(crate::ui::secondary).on_press(Message::StopClicked)]
             .spacing(8)
             .align_y(Alignment::Center)
@@ -749,6 +817,18 @@ impl State {
         ]
         .spacing(10);
         crate::ui::modal(content, 440.0, Message::CancelStop, t)
+    }
+
+    /// What the Import button offers.
+    fn import_menu_dialog<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        let content = column![
+            text("Import wallpapers").font(theme::DISPLAY_FONT).size(20).color(t.foreground),
+            crate::ui::tile("From this computer", "Pick video or image files from your folders.", Message::ImportClicked, false, t),
+            crate::ui::tile("From a share code or file", "A friend sent you a code or a .paperloomshare file.", Message::Share(super::share::Message::OpenImport), false, t),
+            button(crate::ui::label("Close")).style(crate::ui::ghost).padding([8, 14]).on_press(Message::CloseImportMenu),
+        ]
+        .spacing(10);
+        crate::ui::modal(content, 460.0, Message::CloseImportMenu, t)
     }
 
     /// What the Share button offers.
@@ -821,6 +901,9 @@ impl State {
         }
         if self.hub {
             return Some(self.hub_dialog(t));
+        }
+        if self.import_menu {
+            return Some(self.import_menu_dialog(t));
         }
         if let Some(dialog) = self.selection.dialog(&self.library, t) {
             return Some(dialog.map(Message::Select));
@@ -1301,15 +1384,27 @@ impl State {
             facts = facts.push(detail("From", origin.source_name.clone(), t));
         }
         facts = facts.push(detail("Collections", if collections.is_empty() { "none".into() } else { collections.join(", ") }, t));
-        let left = column![
-            container(self.poster(entry, t)).width(Length::Fill).height(Length::Fill).clip(true).style(move |_theme| container::Style {
-                border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
-                ..container::Style::default()
-            }),
-            facts,
-        ]
-        .spacing(14)
-        .width(Length::FillPortion(5));
+        let preview = {
+            let thumb = entry.thumbnail.clone();
+            let sharp = self.sharp.get(&id).map(|sharp| (sharp.path.clone(), sharp.opacity()));
+            crate::ui::screen_box(move || {
+                // The small thumbnail first (soft, because it is small), then the
+                // sharp still fades in over it.
+                let base: Element<'a, Message> = match &thumb {
+                    Some(path) => image(image::Handle::from_path(path)).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(Length::Fill).into(),
+                    None => container(svg(icons::film()).width(28).height(28).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) }))
+                        .center(Length::Fill)
+                        .style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), ..container::Style::default() })
+                        .into(),
+                };
+                let mut layers = stack![base];
+                if let Some((path, opacity)) = &sharp {
+                    layers = layers.push(image(image::Handle::from_path(path)).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(Length::Fill).opacity(*opacity));
+                }
+                layers.into()
+            })
+        };
+        let left = column![preview, facts].spacing(14).width(Length::FillPortion(5));
 
         let mut right = column![
             section("Play", t),

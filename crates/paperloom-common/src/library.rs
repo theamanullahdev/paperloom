@@ -431,6 +431,8 @@ impl Library {
                 }
             }
         }
+        // The big-preview still the GUI made for it, if any.
+        let _ = fs::remove_file(paths::thumbnails_dir().join(format!("sharp-{}.jpg", entry.id)));
         for frame in &entry.preview_frames {
             let _ = fs::remove_file(frame);
         }

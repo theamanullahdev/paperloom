@@ -16,7 +16,9 @@ pub fn primary_size() -> Option<(u32, u32)> {
 }
 
 pub fn primary_aspect_ratio() -> (u32, u32) {
-    primary_resolution().map(|(w, h)| reduce(w, h)).unwrap_or((16, 10))
+    // Asked once: on Linux this runs `xrandr`.
+    static RATIO: std::sync::OnceLock<(u32, u32)> = std::sync::OnceLock::new();
+    *RATIO.get_or_init(|| primary_resolution().map(|(w, h)| reduce(w, h)).unwrap_or((16, 10)))
 }
 
 fn reduce(width: u32, height: u32) -> (u32, u32) {

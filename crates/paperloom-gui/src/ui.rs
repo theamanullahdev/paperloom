@@ -1,7 +1,7 @@
 //! Small layout helpers shared by every page, so the UI holds up at any
 //! window size — from a phone-narrow strip to a very short, very wide one.
 
-use iced::widget::{button, column, container, mouse_area, opaque, row, scrollable, stack, text, Row, Space, Text};
+use iced::widget::{button, column, container, mouse_area, opaque, responsive, row, scrollable, stack, text, Row, Space, Text};
 use iced::{Background, Border, Color, Element, Padding, Shadow};
 
 use crate::theme;
@@ -199,8 +199,27 @@ pub fn screen<'a, Message: Clone + 'a>(title: impl text::IntoFragment<'a>, subti
             ..container::Style::default()
         }))
         .on_press(on_close),
-        container(opaque(panel)).padding(18).width(iced::Length::Fill).height(iced::Length::Fill),
+        // About 80% of the window's width and 72% of its height, centred.
+        column![
+            Space::new().height(iced::Length::FillPortion(14)),
+            row![Space::new().width(iced::Length::FillPortion(10)), opaque(panel.width(iced::Length::FillPortion(80))), Space::new().width(iced::Length::FillPortion(10))].height(iced::Length::FillPortion(72)),
+            Space::new().height(iced::Length::FillPortion(14)),
+        ]
+        .width(iced::Length::Fill)
+        .height(iced::Length::Fill),
     ]
+    .into()
+}
+
+/// A box with the shape of the user's screen, as large as fits in the space
+/// it is given (never stretched). `content` fills it.
+pub fn screen_box<'a, Message: 'a>(content: impl Fn() -> Element<'a, Message> + 'a) -> Element<'a, Message> {
+    let (w, h) = paperloom_common::primary_aspect_ratio();
+    let ratio = w as f32 / h as f32;
+    responsive(move |size| {
+        let (width, height) = if size.width / size.height.max(1.0) > ratio { (size.height * ratio, size.height) } else { (size.width, size.width / ratio) };
+        container(container(content()).width(iced::Length::Fixed(width)).height(iced::Length::Fixed(height)).clip(true)).center(iced::Length::Fill).into()
+    })
     .into()
 }
 
