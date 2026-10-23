@@ -7,6 +7,8 @@ pub mod library;
 pub mod network;
 pub mod online;
 pub mod rotation;
+pub mod selection;
+pub mod share;
 pub mod settings;
 pub mod sources;
 pub mod updates;

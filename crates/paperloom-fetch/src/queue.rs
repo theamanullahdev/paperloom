@@ -62,6 +62,9 @@ pub struct Job {
     /// `Queue::snapshot`; never persisted.
     #[serde(skip)]
     pub retry_in: Option<u64>,
+    /// Public details of the wallpaper, kept in the library once imported.
+    #[serde(default)]
+    pub origin: Option<paperloom_common::Origin>,
 }
 
 impl Job {
@@ -149,6 +152,7 @@ impl Queue {
             attempts: 0,
             last_error: None,
             retry_in: None,
+            origin: Some(item.origin()),
         });
         save(&state);
         drop(state);
@@ -471,6 +475,7 @@ mod tests {
             attempts: 0,
             last_error: None,
             retry_in: None,
+            origin: None,
         }
     }
 

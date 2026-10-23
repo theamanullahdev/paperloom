@@ -135,6 +135,7 @@ mod tests {
             fingerprint: None,
             favorite: false,
             tags: Vec::new(),
+            origin: None,
         }
     }
 

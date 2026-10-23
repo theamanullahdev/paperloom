@@ -116,7 +116,10 @@ impl State {
             Message::DragEnd => self.dragging = None,
             Message::MoveToTop(id) => queue.move_job(&id, 0),
             Message::Retry(id) => queue.retry(&id),
-            Message::Cancel(id) => queue.cancel(&id),
+            Message::Cancel(id) => {
+                super::share::forget_promise(&id);
+                queue.cancel(&id)
+            }
             Message::Pause(id) => queue.pause(&id),
             Message::Resume(id) => queue.resume(&id),
             Message::PauseAll => queue.pause_all(),

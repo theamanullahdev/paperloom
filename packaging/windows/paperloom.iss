@@ -55,6 +55,10 @@ Name: "{autoprograms}\Paperloom"; Filename: "{app}\paperloom-gui.exe"
 Name: "{autodesktop}\Paperloom"; Filename: "{app}\paperloom-gui.exe"; Tasks: desktopicon
 
 [Registry]
+; Double-clicking a .paperloomshare file opens it in Paperloom.
+Root: HKA; Subkey: "Software\Classes\.paperloomshare"; ValueType: string; ValueName: ""; ValueData: "Paperloom.Share"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Paperloom.Share"; ValueType: string; ValueName: ""; ValueData: "Paperloom share"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Paperloom.Share\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\paperloom-gui.exe"" ""%1"""
 ; Removes the "start at login" entry the app may have created.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "Paperloom"; Flags: uninsdeletevalue dontcreatekey
 

@@ -50,6 +50,12 @@
       <Component>
         <File Source="$(var.Stage)\LICENSE.txt" KeyPath="yes" />
       </Component>
+      <Component>
+        <!-- Double-clicking a .paperloomshare file opens it in Paperloom. -->
+        <RegistryValue Root="HKCR" Key=".paperloomshare" Type="string" Value="Paperloom.Share" KeyPath="yes" />
+        <RegistryValue Root="HKCR" Key="Paperloom.Share" Type="string" Value="Paperloom share" />
+        <RegistryValue Root="HKCR" Key="Paperloom.Share\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]paperloom-gui.exe&quot; &quot;%1&quot;" />
+      </Component>
     </ComponentGroup>
 
     <Feature Id="Main">

@@ -426,7 +426,10 @@ impl State {
                 }
             }
             Message::Retry(id) => self.queue.retry(&id),
-            Message::Cancel(id) => self.queue.cancel(&id),
+            Message::Cancel(id) => {
+                super::share::forget_promise(&id);
+                self.queue.cancel(&id)
+            }
         }
         Task::none()
     }

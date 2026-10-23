@@ -2864,6 +2864,7 @@ dependencies = [
 name = "paperloom-fetch"
 version = "0.19.1"
 dependencies = [
+ "flate2",
  "paperloom-common",
  "serde",
  "serde_json",

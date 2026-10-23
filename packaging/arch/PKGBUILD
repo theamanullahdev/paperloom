@@ -32,5 +32,6 @@ package() {
   install -Dm755 target/release/paperloom-engine "$pkgdir/usr/bin/paperloom-engine"
   install -Dm644 packaging/linux/paperloom.desktop "$pkgdir/usr/share/applications/paperloom.desktop"
   install -Dm644 packaging/icon.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/paperloom.png"
+  install -Dm644 packaging/linux/paperloom-share.xml "$pkgdir/usr/share/mime/packages/paperloom-share.xml"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

@@ -101,6 +101,9 @@ pub fn main() -> iced::Result {
         "PAGE developers".to_string()
     } else if args.iter().any(|arg| arg == "--tray-settings") {
         "TRAY-SETTINGS".to_string()
+    } else if let Some(file) = app::share_file_arg() {
+        let full = std::fs::canonicalize(&file).unwrap_or_else(|_| file.clone().into());
+        format!("IMPORT {}", full.display())
     } else if let Some(page) = value_of("--page") {
         format!("PAGE {page}")
     } else {

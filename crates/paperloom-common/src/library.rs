@@ -58,6 +58,24 @@ pub struct LibraryEntry {
     /// Free-form labels ("rain", "work"), lower-case, no duplicates.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Where a downloaded wallpaper came from, so it can be shared again.
+    #[serde(default)]
+    pub origin: Option<Origin>,
+}
+
+/// The public details of an online wallpaper: enough for another copy of
+/// Paperloom to download the same file. Never contains local paths.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Origin {
+    /// Source id, e.g. `motionbgs.com`.
+    pub source: String,
+    pub source_name: String,
+    /// The source's own id for the wallpaper.
+    pub item_id: String,
+    pub thumb_url: String,
+    pub page_url: String,
+    /// (label, url) pairs; label is "HD" or "4K".
+    pub variants: Vec<(String, String)>,
 }
 
 /// Background optimization state of an imported wallpaper.
@@ -300,6 +318,30 @@ impl Library {
         self.save()
     }
 
+    /// Remembers where the downloaded wallpaper `source_id` came from.
+    pub fn set_origin(&mut self, source_id: &str, origin: Origin) -> std::io::Result<()> {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.source_id.as_deref() == Some(source_id)) {
+            entry.origin = Some(origin);
+        }
+        self.save()
+    }
+
+    /// Adds the wallpaper downloaded as `source_id` to the collection called
+    /// `name` (matched ignoring case), creating the collection if needed.
+    /// Returns `false` when there is no such wallpaper yet.
+    pub fn add_source_to_collection(&mut self, source_id: &str, name: &str) -> std::io::Result<bool> {
+        let Some(entry) = self.entries.iter().find(|entry| entry.source_id.as_deref() == Some(source_id)).map(|entry| entry.id) else {
+            return Ok(false);
+        };
+        let existing = self.collections.iter().find(|collection| collection.name.eq_ignore_ascii_case(name)).map(|collection| collection.id);
+        let collection = match existing {
+            Some(id) => id,
+            None => self.create_collection(name)?,
+        };
+        self.set_in_collection(collection, entry, true)?;
+        Ok(true)
+    }
+
     pub fn contains_source(&self, source_id: &str) -> bool {
         self.entries.iter().any(|entry| entry.source_id.as_deref() == Some(source_id))
     }
@@ -357,6 +399,7 @@ impl Library {
             fingerprint,
             favorite: false,
             tags: Vec::new(),
+            origin: None,
         });
         Ok(())
     }
@@ -630,6 +673,7 @@ mod tests {
             fingerprint: None,
             favorite: false,
             tags: Vec::new(),
+            origin: None,
         });
         library.collections.push(Collection { id: 8, name: "Rainy".into(), members: vec![7], hidden: false });
         library.save_to(&manifest_path).unwrap();
@@ -657,6 +701,7 @@ mod tests {
                 fingerprint: None,
                 favorite: false,
                 tags: Vec::new(),
+                origin: None,
             });
         }
         library.collections.push(Collection { id: 50, name: "Old".into(), members: vec![99], hidden: false });

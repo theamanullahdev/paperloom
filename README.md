@@ -16,6 +16,7 @@ Open the app, import an MP4 (or download one from the built-in online library), 
 ## What it does
 
 - **Library:** import MP4, WebM, MKV, MOV, GIF and still images; collections you make yourself plus automatic ones (by topic, source, favorites and tags); favorites, tags and sorting; duplicate imports are recognised.
+- **Sharing:** send one wallpaper, a selection, a collection or your whole library to a friend as a short share code or a `.paperloomshare` file; they import it, see a preview, pick what they want and the wallpapers download from the same sites into a collection of their choice. Nothing from your computer is sent, only where each wallpaper comes from. Select several wallpapers with the **Select** button; open a share file by double-clicking it, dropping it on the window or choosing **Import a share**.
 - **Cheap to run:** imports are re-encoded in a low-priority background step only when that makes them cheaper to play (formats a graphics card can't decode, more pixels than your screen, more than 30 fps). Hardware decoding, a small decode cache, no audio decoding while muted, and a guard that lowers quality by itself if a wallpaper keeps the CPU busy.
 - **Online:** searches several sources at once, hides wallpapers you already have, opens a detail pop-up with a streaming preview, and takes pasted links.
 - **Rotation and schedule:** change the wallpaper on an interval or by a weekly schedule, even with the window closed.

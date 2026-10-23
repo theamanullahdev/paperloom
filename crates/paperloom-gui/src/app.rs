@@ -90,6 +90,8 @@ pub enum Message {
     DownloadsTick,
     Record,
     SystemTheme(iced::theme::Mode),
+    /// A file was dropped on the window (a share file opens the import dialog).
+    FileDropped(std::path::PathBuf),
     // --- Global search (see `search.rs`)
     SearchChanged(String),
     /// Enter in the search box: search online for what was typed.
@@ -149,6 +151,11 @@ impl App {
         } else {
             Task::none()
         };
+        // Opened by double-clicking a share file (or `paperloom-gui file.paperloomshare`).
+        let share = match share_file_arg().and_then(|path| std::fs::read_to_string(path).ok()) {
+            Some(text) => app.library_page.open_share_text(&app.settings, app.online_page.queue(), &text).map(Message::Library),
+            None => Task::none(),
+        };
         let check = if app.settings.updates.check_on_startup {
             app.updates_page.start_check(&app.settings).map(Message::Updates)
         } else {
@@ -157,7 +164,7 @@ impl App {
         // Fill the Online page now (from saved results when they're fresh),
         // so it is already full by the time the tab is opened.
         let warm = app.online_page.ensure_loaded(&app.settings).map(Message::Online);
-        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check, start, warm]))
+        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check, start, warm, share]))
     }
 
     fn effective_theme(&self) -> paperloom_common::ThemeMode {
@@ -217,12 +224,24 @@ impl App {
                             .update(&mut self.settings, settings::Message::ResultSelected(settings::SettingId::TrayIcon))
                             .map(Message::Settings),
                     );
+                } else if let Some(path) = request.strip_prefix("IMPORT ") {
+                    tasks.push(self.update(Message::FileDropped(path.into())));
                 } else if let Some(page) = request.strip_prefix("PAGE ") {
                     if let Some(page) = page_named(page) {
                         tasks.push(self.update(Message::SwitchPage(page)));
                     }
                 }
                 Task::batch(tasks)
+            }
+            Message::FileDropped(path) => {
+                let is_share = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("paperloomshare") || e.eq_ignore_ascii_case("txt"));
+                match std::fs::read_to_string(&path) {
+                    Ok(text) if is_share => {
+                        self.page = Page::Library;
+                        self.library_page.open_share_text(&self.settings, self.online_page.queue(), &text).map(Message::Library)
+                    }
+                    _ => Task::none(),
+                }
             }
             Message::ToggleGroup(group) => {
                 if !self.expanded.remove(&group) {
@@ -304,6 +323,7 @@ impl App {
                 Task::none()
             }
             Message::Updates(msg) => self.updates_page.update(&mut self.settings, msg).map(Message::Updates),
+            Message::Library(library::Message::Share(msg)) => self.library_page.share_update(&self.settings, self.online_page.queue(), msg).map(Message::Library),
             Message::Library(msg) => self.library_page.update(&mut self.settings, msg).map(Message::Library),
             Message::Online(msg) => self.online_page.update(&self.settings, msg).map(Message::Online),
             Message::Downloads(downloads::Message::Back) => {
@@ -369,6 +389,10 @@ impl App {
             self.developers_page.subscription(self.page == Page::Developers).map(Message::Developers),
             iced::time::every(crate::telemetry::EVERY).map(|_| Message::Record),
             Subscription::run(|| crate::instance::requests().map(Message::OtherLaunch)),
+            iced::event::listen_with(|event, _status, _window| match event {
+                iced::Event::Window(iced::window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
+                _ => None,
+            }),
             if self.online_page.queue().is_busy() || !self.online_page.queue().finished().is_empty() || self.page == Page::Downloads {
                 // Smoother progress while the Downloads page is open.
                 let period = if self.page == Page::Downloads { Duration::from_millis(300) } else { Duration::from_secs(1) };
@@ -518,7 +542,17 @@ impl App {
                 actions = actions.push(update);
             }
             actions = actions.push(self.downloads_button(t));
-            row![title_text, search_box, Space::new().width(Length::Fill), actions].spacing(12).align_y(Alignment::Center).into()
+            if content_width >= 1060.0 {
+                row![title_text, search_box, Space::new().width(Length::Fill), actions].spacing(12).align_y(Alignment::Center).into()
+            } else {
+                // Too tight for one line: the buttons drop to their own line, still on the right.
+                column![
+                    row![title_text, search_box].spacing(12).align_y(Alignment::Center),
+                    container(actions.wrap().vertical_spacing(8)).width(Length::Fill).align_x(Alignment::End),
+                ]
+                .spacing(10)
+                .into()
+            }
         } else {
             let mut bar = row![title_text, search_box, header].spacing(12).align_y(Alignment::Center);
             if let Some(update) = self.update_button(t) {
@@ -963,4 +997,9 @@ fn raise_window() -> Task<Message> {
             iced::window::set_level(id, iced::window::Level::Normal),
         ])
     })
+}
+
+/// A `.paperloomshare` file named on the command line, if any.
+pub fn share_file_arg() -> Option<String> {
+    std::env::args().skip(1).find(|arg| arg.to_lowercase().ends_with(".paperloomshare"))
 }

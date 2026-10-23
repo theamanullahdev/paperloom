@@ -15,6 +15,7 @@ mod net;
 mod pexels;
 mod pixabay;
 mod queue;
+pub mod share;
 mod stats;
 mod source;
 mod thumbs;

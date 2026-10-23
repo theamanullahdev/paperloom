@@ -40,6 +40,31 @@ impl OnlineItem {
         format!("{}:{}", self.source, self.id)
     }
 
+    /// The public details to keep with the downloaded wallpaper.
+    pub fn origin(&self) -> paperloom_common::Origin {
+        paperloom_common::Origin {
+            source: self.source.clone(),
+            source_name: self.source_name.clone(),
+            item_id: self.id.clone(),
+            thumb_url: self.thumb_url.clone(),
+            page_url: self.page_url.clone(),
+            variants: self.variants.iter().map(|v| (v.label.clone(), v.url.clone())).collect(),
+        }
+    }
+
+    /// Rebuilds an item from a kept origin.
+    pub fn from_origin(origin: &paperloom_common::Origin, title: &str) -> Self {
+        OnlineItem {
+            id: origin.item_id.clone(),
+            source: origin.source.clone(),
+            source_name: origin.source_name.clone(),
+            title: title.to_string(),
+            thumb_url: origin.thumb_url.clone(),
+            variants: origin.variants.iter().map(|(label, url)| Variant { label: label.clone(), url: url.clone() }).collect(),
+            page_url: origin.page_url.clone(),
+        }
+    }
+
     pub fn variant(&self, label: &str) -> Option<&Variant> {
         self.variants.iter().find(|variant| variant.label == label)
     }

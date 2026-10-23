@@ -1,7 +1,7 @@
 //! Small layout helpers shared by every page, so the UI holds up at any
 //! window size — from a phone-narrow strip to a very short, very wide one.
 
-use iced::widget::{button, container, row, scrollable, text, Row, Text};
+use iced::widget::{button, container, mouse_area, opaque, row, scrollable, stack, text, Row, Space, Text};
 use iced::{Background, Border, Color, Element, Padding, Shadow};
 
 use crate::theme;
@@ -142,6 +142,25 @@ impl Width {
 /// it never sits on top of cards and their borders.
 pub fn scroll_page<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> scrollable::Scrollable<'a, Message> {
     scrollable(container(content).padding(Padding { top: 4.0, right: 16.0, bottom: 8.0, left: 4.0 }))
+}
+
+/// A pop-up card on a dimmed backdrop; clicking the backdrop sends `on_close`.
+pub fn modal<'a, Message: Clone + 'a>(content: impl Into<Element<'a, Message>>, width: f32, on_close: Message, t: theme::Tokens) -> Element<'a, Message> {
+    let card = container(scrollable(container(content).padding(iced::Padding { right: 6.0, ..iced::Padding::ZERO }))).padding(20).max_width(width).max_height(660.0).style(move |_theme| container::Style {
+        background: Some(Background::Color(t.surface)),
+        border: Border { color: t.border, width: 1.0, radius: 14.0.into() },
+        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 8.0), blur_radius: 28.0 },
+        ..container::Style::default()
+    });
+    stack![
+        mouse_area(container(Space::new()).width(iced::Length::Fill).height(iced::Length::Fill).style(|_theme| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
+            ..container::Style::default()
+        }))
+        .on_press(on_close),
+        container(opaque(card)).center(iced::Length::Fill).padding(12),
+    ]
+    .into()
 }
 
 /// A row of joined toggle buttons: one choice out of a few (tabs, view
