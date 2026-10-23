@@ -177,7 +177,7 @@ fn card<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Mess
         .width(Length::Fill)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 10.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
             ..container::Style::default()
         })
         .into()

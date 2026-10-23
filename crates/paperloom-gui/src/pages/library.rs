@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use iced::widget::image::Allocation;
 use iced::widget::{
-    button, column, container, grid, image, mouse_area, opaque, row, scrollable, stack, svg, text, text_input, toggler, Space,
+    button, column, container, grid, image, mouse_area, row, scrollable, stack, svg, text, text_input, toggler, Space,
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Subscription, Task};
 
@@ -104,6 +104,8 @@ pub struct State {
     rotation: super::rotation::State,
     selection: super::selection::Selection,
     share: super::share::State,
+    /// The Share button's choices are showing.
+    hub: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -155,6 +157,12 @@ pub enum Message {
     /// Dialog actions; the app routes these to `share_update` (they need the download queue).
     Share(super::share::Message),
     ShareEntry(u64),
+    OpenHub,
+    /// Where older downloads came from, found in the background.
+    OriginsFound(Vec<(String, paperloom_common::Origin)>),
+    CloseHub,
+    /// From the Share choices: start picking wallpapers.
+    HubSelect,
     ShareCollection(u64),
     ShareLibrary,
     // --- Stop
@@ -194,6 +202,7 @@ impl State {
             rotation: super::rotation::State::new(),
             selection: super::selection::Selection::default(),
             share: super::share::State::default(),
+            hub: false,
         };
         state.queue_optimizations();
         state
@@ -405,9 +414,8 @@ impl State {
                     self.selection.pick_all(ids);
                 }
                 super::selection::Outcome::Share(ids) => {
-                    let entries: Vec<&LibraryEntry> = ids.iter().filter_map(|id| self.library.entry(*id)).collect();
-                    let share = paperloom_fetch::share::Share::from_entries(paperloom_fetch::share::Kind::Items, "", entries);
-                    self.share.send(if ids.len() == 1 { "1 wallpaper".to_string() } else { format!("{} wallpapers", ids.len()) }, share);
+                    let title = if ids.len() == 1 { "1 wallpaper".to_string() } else { format!("{} wallpapers", ids.len()) };
+                    self.open_sender(title, paperloom_fetch::share::Kind::Items, "", &ids);
                 }
                 super::selection::Outcome::Changed(note) => {
                     self.hovered = None;
@@ -420,24 +428,34 @@ impl State {
             },
             // Handled by `share_update` (they need the download queue).
             Message::Share(_) => {}
+            Message::OriginsFound(found) => {
+                for (key, origin) in found {
+                    let result = self.library.set_origin(&key, origin);
+                    self.saved(result);
+                }
+            }
+            Message::OpenHub => self.hub = true,
+            Message::CloseHub => self.hub = false,
+            Message::HubSelect => {
+                self.hub = false;
+                self.selection.update(super::selection::Message::Begin, &mut self.library);
+            }
             Message::ShareEntry(id) => {
                 self.actions = None;
                 if let Some(entry) = self.library.entry(id) {
-                    let share = paperloom_fetch::share::Share::from_entries(paperloom_fetch::share::Kind::Items, "", [entry]);
                     let title = entry.display_name.clone();
-                    self.share.send(title, share);
+                    self.open_sender(title, paperloom_fetch::share::Kind::Items, "", &[id]);
                 }
             }
             Message::ShareCollection(id) => {
                 if let Some(collection) = self.library.collection(id) {
-                    let members: Vec<&LibraryEntry> = self.library.entries.iter().filter(|entry| collection.members.contains(&entry.id)).collect();
-                    let share = paperloom_fetch::share::Share::from_entries(paperloom_fetch::share::Kind::Collection, &collection.name, members);
-                    self.share.send(format!("the collection “{}”", collection.name), share);
+                    let (name, members) = (collection.name.clone(), collection.members.clone());
+                    self.open_sender(format!("the collection “{name}”"), paperloom_fetch::share::Kind::Collection, &name, &members);
                 }
             }
             Message::ShareLibrary => {
-                let share = paperloom_fetch::share::Share::from_entries(paperloom_fetch::share::Kind::Library, "My library", self.library.entries.iter());
-                self.share.send("your whole library".to_string(), share);
+                let ids: Vec<u64> = self.library.entries.iter().map(|entry| entry.id).collect();
+                self.open_sender("your whole library".to_string(), paperloom_fetch::share::Kind::Library, "My library", &ids);
             }
 
             Message::NewCollection => self.collection_edit = Some(CollectionEdit::New(String::new())),
@@ -528,6 +546,54 @@ impl State {
         Task::none()
     }
 
+    /// Finds, in the background, where downloads made before origins were
+    /// kept came from (their source's listing, searched by title), so they
+    /// can be shared with their pictures. Each is tried once.
+    pub fn find_origins(&self, settings: &Settings) -> Task<Message> {
+        let tried_path = paperloom_common::library_dir().join("origins-tried.txt");
+        let tried = std::fs::read_to_string(&tried_path).unwrap_or_default();
+        let todo: Vec<(String, String)> = self
+            .library
+            .entries
+            .iter()
+            .filter(|entry| entry.origin.is_none())
+            .filter_map(|entry| Some((entry.source_id.clone()?, entry.display_name.clone())))
+            .filter(|(key, _)| !tried.lines().any(|line| line == key))
+            .take(30)
+            .collect();
+        if todo.is_empty() {
+            return Task::none();
+        }
+        let sources = settings.sources.clone();
+        Task::perform(
+            super::online::blocking(move || -> Result<Vec<(String, paperloom_common::Origin)>, String> {
+                let mut found = Vec::new();
+                let mut done = tried;
+                for (key, title) in todo {
+                    if let Some(origin) = paperloom_fetch::share::find_origin(&sources, &title, &key) {
+                        found.push((key.clone(), origin));
+                    }
+                    done.push_str(&format!("{key}\n"));
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+                let _ = std::fs::write(&tried_path, done);
+                Ok(found)
+            }),
+            |result| Message::OriginsFound(result.unwrap_or_default()),
+        )
+    }
+
+    /// Opens the sender screen for the wallpapers with these ids.
+    fn open_sender(&mut self, title: String, kind: paperloom_fetch::share::Kind, name: &str, ids: &[u64]) {
+        let entries: Vec<&LibraryEntry> = self.library.entries.iter().filter(|entry| ids.contains(&entry.id)).collect();
+        let posters: HashMap<String, std::path::PathBuf> = entries
+            .iter()
+            .filter_map(|entry| Some((entry.source_id.clone()?, entry.thumbnail.clone()?)))
+            .collect();
+        let share = paperloom_fetch::share::Share::from_entries(kind, name, entries);
+        self.share.send(title, share, posters);
+    }
+
     /// Ids of the wallpapers the current tab lists (for "Select all").
     fn current_ids(&self) -> Vec<u64> {
         match self.tab {
@@ -543,6 +609,9 @@ impl State {
 
     /// The share dialogs' messages, which need the download queue.
     pub fn share_update(&mut self, settings: &Settings, queue: &paperloom_fetch::Queue, message: super::share::Message) -> Task<Message> {
+        if matches!(message, super::share::Message::OpenImport) {
+            self.hub = false;
+        }
         let mut status = None;
         let mut ctx = super::share::Ctx { settings, library: &mut self.library, queue, status: &mut status };
         let task = self.share.update(message, &mut ctx);
@@ -657,38 +726,28 @@ impl State {
     /// The pop-up shown by "Stop wallpaper": stop only the wallpaper (the
     /// window stays) or stop it and close Paperloom.
     fn stop_dialog<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let card = container(
-            column![
-                text("Stop the wallpaper?").font(theme::DISPLAY_FONT).size(18).color(t.foreground),
-                text("Your desktop goes back to its normal background.").size(13).color(t.muted_foreground),
-                column![
-                    button(crate::ui::label("Stop the wallpaper only").center()).style(crate::ui::secondary).width(Length::Fill).on_press(Message::StopWallpaper),
-                    button(crate::ui::label("Stop it and close Paperloom").center()).style(crate::ui::danger).width(Length::Fill).on_press(Message::StopAndQuit),
-                    button(crate::ui::label("Keep playing").center()).style(crate::ui::ghost).width(Length::Fill).on_press(Message::CancelStop),
-                ]
-                .spacing(8),
-            ]
-            .spacing(12),
-        )
-        .padding(20)
-        .width(Length::Fixed(360.0))
-        .style(move |_theme| container::Style {
-            background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 14.0.into() },
-            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 8.0), blur_radius: 28.0 },
-            ..container::Style::default()
-        });
-        stack![
-            mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
-                background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
-                ..container::Style::default()
-            }))
-            .on_press(Message::CancelStop),
-            container(opaque(card)).center(Length::Fill).padding(12),
+        let content = column![
+            text("Stop the wallpaper?").font(theme::DISPLAY_FONT).size(20).color(t.foreground),
+            crate::ui::tile("Stop the wallpaper", "Your desktop goes back to its normal background. Paperloom stays open.", Message::StopWallpaper, false, t),
+            crate::ui::tile("Stop it and close Paperloom", "The wallpaper stops and the app closes.", Message::StopAndQuit, true, t),
+            button(crate::ui::label("Keep playing")).style(crate::ui::ghost).padding([8, 14]).on_press(Message::CancelStop),
         ]
-        .into()
+        .spacing(10);
+        crate::ui::modal(content, 440.0, Message::CancelStop, t)
     }
 
+    /// What the Share button offers.
+    fn hub_dialog<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        let content = column![
+            text("Share wallpapers").font(theme::DISPLAY_FONT).size(20).color(t.foreground),
+            crate::ui::tile("Import a share", "Paste a code or open a file a friend sent you.", Message::Share(super::share::Message::OpenImport), false, t),
+            crate::ui::tile("Choose wallpapers to share", "Tick the wallpapers you want to send, then share them.", Message::HubSelect, false, t),
+            crate::ui::tile("Share my whole library", "Everything downloaded from a website, as one code or file.", Message::ShareLibrary, false, t),
+            button(crate::ui::label("Close")).style(crate::ui::ghost).padding([8, 14]).on_press(Message::CloseHub),
+        ]
+        .spacing(10);
+        crate::ui::modal(content, 460.0, Message::CloseHub, t)
+    }
 
     pub fn body<'a>(&'a self, view: LibraryView, t: theme::Tokens) -> Element<'a, Message> {
         let mut page = column![self.toolbar(view, t)].spacing(14);
@@ -725,36 +784,35 @@ impl State {
         page = page.push(content);
         // Full height, so the dialog's backdrop covers the page, not just its content.
         let page: Element<'a, Message> = crate::ui::scroll_page(page).height(Length::Fill).into();
+        // While picking, the actions sit in a bar above the wallpapers (it doesn't scroll away).
+        let page: Element<'a, Message> = if self.selection.is_active() {
+            column![self.selection.strip(t).map(Message::Select), page].spacing(10).height(Length::Fill).into()
+        } else {
+            page
+        };
 
+        page
+    }
+
+    /// Whatever pop-up or screen is open, to be drawn over the whole window
+    /// (not just the page).
+    pub fn overlay<'a>(&'a self, t: theme::Tokens) -> Option<Element<'a, Message>> {
         if self.confirm_stop {
-            return stack![page, self.stop_dialog(t)].into();
+            return Some(self.stop_dialog(t));
         }
         let collections: Vec<String> = self.library.collections.iter().map(|collection| collection.name.clone()).collect();
         if let Some(dialog) = self.share.view(&collections, t) {
-            return stack![page, dialog.map(Message::Share)].into();
+            return Some(dialog.map(Message::Share));
         }
-        if self.selection.is_active() {
-            let mut layers = stack![page, self.selection.bar(t).map(Message::Select)];
-            if let Some(dialog) = self.selection.dialog(&self.library, t) {
-                layers = layers.push(dialog.map(Message::Select));
-            }
-            return layers.into();
+        if self.hub {
+            return Some(self.hub_dialog(t));
         }
-
-        // The ⋮ dialog floats over the page; clicking outside closes it.
-        match self.actions.as_ref().and_then(|actions| self.library.entry(actions.entry).map(|entry| (actions, entry))) {
-            Some((actions, entry)) => stack![
-                page,
-                mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
-                    background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.35))),
-                    ..container::Style::default()
-                }))
-                .on_press(Message::CloseActions),
-                container(opaque(self.actions_dialog(actions, entry, t))).center(Length::Fill).padding(12),
-            ]
-            .into(),
-            None => page,
+        if let Some(dialog) = self.selection.dialog(&self.library, t) {
+            return Some(dialog.map(Message::Select));
         }
+        let (actions, entry) = self.actions.as_ref().and_then(|actions| self.library.entry(actions.entry).map(|entry| (actions, entry)))?;
+        let subtitle = Some(format!("{} · {}", file_size(entry), mode_label(entry)));
+        Some(crate::ui::screen(entry.display_name.clone(), subtitle, self.actions_body(actions, entry, t), Message::CloseActions, t))
     }
 
     /// Entries passing `keep` and the search box.
@@ -812,20 +870,23 @@ impl State {
         // their own line.
         let sort = iced::widget::pick_list(SORTS, Some(self.sort), Message::SortSelected);
         let can_select = matches!(self.tab, Tab::All | Tab::Hidden | Tab::Collection(_));
-        let select: Element<'a, Message> = if !can_select {
-            Space::new().into()
-        } else if self.selection.is_active() {
-            button(crate::ui::label("Done selecting").size(13)).style(crate::ui::primary).padding([5, 10]).on_press(Message::Select(super::selection::Message::End)).into()
-        } else {
-            button(crate::ui::label("Select").size(13)).style(crate::ui::secondary).padding([5, 10]).on_press(Message::Select(super::selection::Message::Begin)).into()
+        let with_icon = |icon: svg::Handle, label: &'static str, message: Message| {
+            button(
+                row![svg(icon).width(15).height(15).style(|_theme, _status| svg::Style { color: Some(crate::ui::foreground()) }), crate::ui::label(label).size(13)]
+                    .spacing(6)
+                    .align_y(Alignment::Center),
+            )
+            .style(crate::ui::secondary)
+            .padding([6, 12])
+            .on_press(message)
         };
-        let share_all: Element<'a, Message> = if self.tab == Tab::All && shown > 0 {
-            button(crate::ui::label("Share library").size(13)).style(crate::ui::secondary).padding([5, 10]).on_press(Message::ShareLibrary).into()
-        } else {
+        let select: Element<'a, Message> = if !can_select || self.selection.is_active() {
             Space::new().into()
+        } else {
+            with_icon(icons::select(), "Select", Message::Select(super::selection::Message::Begin)).into()
         };
-        let from_share = button(crate::ui::label("Import a share").size(13)).style(crate::ui::secondary).padding([5, 10]).on_press(Message::Share(super::share::Message::OpenImport));
-        row![tabs, Space::new().width(12), layout, size, sort, select, from_share, share_all]
+        let share_button = with_icon(icons::share(), "Share", Message::OpenHub);
+        row![tabs, Space::new().width(12), layout, size, sort, select, share_button]
             .spacing(8)
             .align_y(Alignment::Center)
             .wrap()
@@ -875,7 +936,7 @@ impl State {
     /// A list row's ⋮ (a tick while selecting).
     fn row_menu<'a>(&self, id: u64, t: theme::Tokens) -> Element<'a, Message> {
         if self.selection.is_active() {
-            check_chip(self.selection.is_picked(id), t)
+            crate::ui::check_chip(self.selection.is_picked(id), t)
         } else {
             kebab_plain(id, t)
         }
@@ -887,7 +948,7 @@ impl State {
         if self.selection.is_active() {
             let picked = self.selection.is_picked(entry.id);
             let framed = container(content).padding(2).style(move |_theme| container::Style {
-                border: Border { color: if picked { t.primary } else { Color::TRANSPARENT }, width: 2.0, radius: 14.0.into() },
+                border: Border { color: if picked { t.primary } else { Color::TRANSPARENT }, width: 2.0, radius: 8.0.into() },
                 ..container::Style::default()
             });
             return mouse_area(framed).on_press(Message::Select(super::selection::Message::Toggle(entry.id))).into();
@@ -896,13 +957,13 @@ impl State {
     }
 
     fn card<'a>(&self, entry: &'a LibraryEntry, size: ViewSize, t: theme::Tokens) -> Element<'a, Message> {
-        let corner: Element<'a, Message> = if self.selection.is_active() { check_chip(self.selection.is_picked(entry.id), t) } else { kebab(entry.id) };
+        let corner: Element<'a, Message> = if self.selection.is_active() { crate::ui::check_chip(self.selection.is_picked(entry.id), t) } else { kebab(entry.id) };
         let menu = container(corner).padding(6).align_x(Alignment::End).width(Length::Fill);
         let status: Element<'a, Message> = match self.optimizer.progress(entry.id) {
             Some(percent) => container(
                 container(text(if percent == 0 { "Optimizing…".to_string() } else { format!("Optimizing {percent}%") }).size(11).color(Color::WHITE)).padding([2, 6]).style(|_theme| container::Style {
                     background: Some(Background::Color(Color { a: 0.6, ..Color::BLACK })),
-                    border: Border { radius: 6.0.into(), ..Border::default() },
+                    border: Border { radius: 4.0.into(), ..Border::default() },
                     ..container::Style::default()
                 }),
             )
@@ -926,7 +987,7 @@ impl State {
             .into(),
         };
 
-        self.interactive(entry, surface(column![poster, chrome].width(Length::Fill).height(Length::Fill), 12.0, t), t)
+        self.interactive(entry, surface(column![poster, chrome].width(Length::Fill).height(Length::Fill), 6.0, t), t)
     }
 
     fn list_row<'a>(&self, entry: &'a LibraryEntry, size: ViewSize, t: theme::Tokens) -> Element<'a, Message> {
@@ -967,7 +1028,7 @@ impl State {
                     .into()
             }
         };
-        self.interactive(entry, surface(content, if size == ViewSize::Small { 8.0 } else { 10.0 }, t), t)
+        self.interactive(entry, surface(content, if size == ViewSize::Small { 4.0 } else { 6.0 }, t), t)
     }
 
     // --- Collections -------------------------------------------------------
@@ -1057,7 +1118,7 @@ impl State {
         .spacing(2)
         .padding([8, 10]);
 
-        button(surface(column![container(cover).clip(true).width(Length::Fill).height(Length::Fill), label].width(Length::Fill).height(Length::Fill), 12.0, t))
+        button(surface(column![container(cover).clip(true).width(Length::Fill).height(Length::Fill), label].width(Length::Fill).height(Length::Fill), 6.0, t))
             .padding(0)
             .style(|_theme, _status| button::Style::default())
             .on_press(on_press)
@@ -1202,95 +1263,113 @@ impl State {
 
     // --- The ⋮ dialog ------------------------------------------------------
 
-    fn actions_dialog<'a>(&'a self, actions: &'a Actions, entry: &'a LibraryEntry, t: theme::Tokens) -> Element<'a, Message> {
+    /// The wallpaper screen: a big preview with its details on the left,
+    /// everything you can do with it on the right.
+    fn actions_body<'a>(&'a self, actions: &'a Actions, entry: &'a LibraryEntry, t: theme::Tokens) -> Element<'a, Message> {
         let id = entry.id;
-        let mut body = column![
+        let collections: Vec<&str> = self.library.collections_of(id).map(|collection| collection.name.as_str()).collect();
+
+        let mut facts = column![].spacing(6);
+        facts = facts.push(detail("File", entry.path.display().to_string(), t));
+        facts = facts.push(detail("Size", file_size(entry), t));
+        facts = facts.push(detail("Stored", mode_label(entry), t));
+        if entry.added > 0 {
+            facts = facts.push(detail("Added", format_date(entry.added), t));
+        }
+        if let Some(origin) = &entry.origin {
+            facts = facts.push(detail("From", origin.source_name.clone(), t));
+        }
+        facts = facts.push(detail("Collections", if collections.is_empty() { "none".into() } else { collections.join(", ") }, t));
+        let left = column![
+            container(self.poster(entry, t)).width(Length::Fill).height(Length::Fill).clip(true).style(move |_theme| container::Style {
+                border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
+                ..container::Style::default()
+            }),
+            facts,
+        ]
+        .spacing(14)
+        .width(Length::FillPortion(5));
+
+        let mut right = column![
+            section("Play", t),
             row![
-                text(entry.display_name.clone()).font(theme::DISPLAY_FONT).size(18).color(t.foreground).width(Length::Fill),
-                button(crate::ui::label("Close").size(12)).style(crate::ui::ghost).on_press(Message::CloseActions),
+                button(crate::ui::label("Set as wallpaper")).style(crate::ui::primary).padding([8, 16]).on_press(Message::SetAsWallpaper(id)),
+                button(crate::ui::label("Preview")).style(crate::ui::secondary).padding([8, 16]).on_press(Message::OpenPreview(id)),
             ]
-            .align_y(Alignment::Center),
-            container(self.poster(entry, t)).height(Length::Fixed(150.0)).width(Length::Fill).clip(true),
-            row![
-                button(crate::ui::label("Set as wallpaper")).style(crate::ui::primary).on_press(Message::SetAsWallpaper(id)),
-                button(crate::ui::label("Preview")).style(crate::ui::secondary).on_press(Message::OpenPreview(id)),
-            ]
-            .spacing(8)
-            .wrap()
-            .vertical_spacing(6),
-            row![
-                button(crate::ui::label("Share")).style(crate::ui::secondary).on_press(Message::ShareEntry(id)),
-                text(if paperloom_fetch::share::origin_of(entry).is_some() { "Send it to a friend" } else { "Imported from your own file, so it can't be shared" }).size(12).color(t.muted_foreground),
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center)
-            .wrap(),
+            .spacing(8),
+            crate::ui::rule(t),
+            section("Organize", t),
             toggler(entry.favorite).label("Favorite ★").on_toggle(move |favorite| Message::ToggleFavorite(id, favorite)),
             row![
-                text_input("Tags, separated by commas", &actions.tags).on_input(Message::ActionsTags).on_submit(Message::SaveTags(id)).padding(6).width(Length::Fill),
-                button(crate::ui::label("Save tags")).style(crate::ui::secondary).on_press(Message::SaveTags(id)),
+                text_input("Tags, separated by commas", &actions.tags).on_input(Message::ActionsTags).on_submit(Message::SaveTags(id)).padding(8).width(Length::Fill),
+                button(crate::ui::label("Save tags")).style(crate::ui::secondary).padding([8, 14]).on_press(Message::SaveTags(id)),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
+            crate::ui::rule(t),
             section("Collections", t),
         ]
         .spacing(10);
 
         if self.library.collections.is_empty() {
-            body = body.push(text("No collections yet — name one below.").size(12).color(t.muted_foreground));
+            right = right.push(text("No collections yet. Name one below.").size(12).color(t.muted_foreground));
         } else {
             let list = column(self.library.collections.iter().map(|collection| {
                 let member = collection.members.contains(&id);
                 let label = if collection.hidden { format!("{} (hidden)", collection.name) } else { collection.name.clone() };
-                toggler(member)
-                    .label(label)
-                    .on_toggle(move |member| Message::SetInCollection { collection: collection.id, entry: id, member })
-                    .into()
+                toggler(member).label(label).on_toggle(move |member| Message::SetInCollection { collection: collection.id, entry: id, member }).into()
             }))
-            .spacing(6);
-            body = body.push(scrollable(list).height(Length::Fixed((self.library.collections.len() as f32 * 30.0).min(180.0))));
+            .spacing(8);
+            right = right.push(container(scrollable(list)).max_height(150.0));
         }
         let name = actions.new_collection.trim();
-        body = body.push(
+        right = right.push(
             row![
-                text_input("New collection…", &actions.new_collection)
-                    .on_input(Message::ActionsCollectionName)
-                    .on_submit(Message::CreateCollectionWith(id))
-                    .padding(6)
-                    .width(Length::Fill),
-                button(crate::ui::label("Add")).style(crate::ui::secondary).on_press_maybe((!name.is_empty()).then_some(Message::CreateCollectionWith(id))),
+                text_input("New collection…", &actions.new_collection).on_input(Message::ActionsCollectionName).on_submit(Message::CreateCollectionWith(id)).padding(8).width(Length::Fill),
+                button(crate::ui::label("Add")).style(crate::ui::secondary).padding([8, 14]).on_press_maybe((!name.is_empty()).then_some(Message::CreateCollectionWith(id))),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
         );
 
-        body = body.push(section("Manage", t));
+        let shareable = paperloom_fetch::share::origin_of(entry).is_some();
+        right = right.push(crate::ui::rule(t));
+        right = right.push(section("Share", t));
+        right = right.push(
+            row![
+                button(crate::ui::label("Share this wallpaper")).style(crate::ui::secondary).padding([8, 14]).on_press_maybe(shareable.then_some(Message::ShareEntry(id))),
+                text(if shareable { "Send it to a friend" } else { "Imported from your own file, so it can't be shared" }).size(12).color(t.muted_foreground),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .wrap(),
+        );
+
+        right = right.push(crate::ui::rule(t));
+        right = right.push(section("Manage", t));
         if actions.confirm_remove {
             let consequence = if entry.mode == paperloom_common::ImportMode::ReferenceInPlace {
                 "Removes it from Paperloom. The original file is left where it is."
             } else {
                 "Removes it from Paperloom and deletes its copy in the library folder."
             };
-            body = body.push(
-                column![
-                    text(consequence).size(13).color(t.foreground),
-                    row![
-                        button(crate::ui::label("Remove")).style(crate::ui::danger).on_press(Message::ConfirmRemove(id)),
-                        button(crate::ui::label("Cancel")).style(crate::ui::ghost).on_press(Message::CancelRemove),
-                    ]
-                    .spacing(8),
+            right = right.push(text(consequence).size(13).color(t.foreground));
+            right = right.push(
+                row![
+                    button(crate::ui::label("Remove")).style(crate::ui::danger).padding([8, 16]).on_press(Message::ConfirmRemove(id)),
+                    button(crate::ui::label("Cancel")).style(crate::ui::ghost).padding([8, 16]).on_press(Message::CancelRemove),
                 ]
                 .spacing(8),
             );
         } else {
-            body = body.push(
+            right = right.push(
                 row![
                     if entry.hidden {
-                        button(crate::ui::label("Show in library")).style(crate::ui::secondary).on_press(Message::SetHidden(id, false))
+                        button(crate::ui::label("Show in library")).style(crate::ui::secondary).padding([8, 16]).on_press(Message::SetHidden(id, false))
                     } else {
-                        button(crate::ui::label("Hide")).style(crate::ui::secondary).on_press(Message::SetHidden(id, true))
+                        button(crate::ui::label("Hide")).style(crate::ui::secondary).padding([8, 16]).on_press(Message::SetHidden(id, true))
                     },
-                    button(crate::ui::label("Remove…")).style(crate::ui::danger).on_press(Message::RemoveClicked),
+                    button(crate::ui::label("Remove…")).style(crate::ui::danger).padding([8, 16]).on_press(Message::RemoveClicked),
                 ]
                 .spacing(8)
                 .wrap()
@@ -1298,17 +1377,7 @@ impl State {
             );
         }
 
-        container(scrollable(body))
-            .padding(16)
-            .max_width(440.0)
-            .max_height(620.0)
-            .style(move |_theme| container::Style {
-                background: Some(Background::Color(t.surface)),
-                border: Border { color: t.border, width: 1.0, radius: 14.0.into() },
-                shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 8.0), blur_radius: 28.0 },
-                ..container::Style::default()
-            })
-            .into()
+        row![left, container(scrollable(container(right).padding(iced::Padding { right: 14.0, ..iced::Padding::ZERO }))).width(Length::FillPortion(4))].spacing(24).height(Length::Fill).into()
     }
 }
 
@@ -1348,25 +1417,12 @@ fn kebab<'a>(id: u64) -> Element<'a, Message> {
         .style(move |_theme, status| button::Style {
             background: Some(Background::Color(Color { a: if matches!(status, button::Status::Hovered | button::Status::Pressed) { 0.7 } else { 0.45 }, ..Color::BLACK })),
             text_color: Color::WHITE,
-            border: Border { radius: 6.0.into(), ..Border::default() },
+            border: Border { radius: 4.0.into(), ..Border::default() },
             shadow: Shadow::default(),
             snap: false,
         })
         .padding(4)
         .on_press(Message::OpenActions(id))
-        .into()
-}
-
-/// The tick shown on a wallpaper while selecting.
-fn check_chip<'a>(picked: bool, t: theme::Tokens) -> Element<'a, Message> {
-    container(text(if picked { "✓" } else { "" }).size(13).color(if picked { Color::WHITE } else { t.foreground }).center())
-        .width(22)
-        .height(22)
-        .style(move |_theme| container::Style {
-            background: Some(Background::Color(if picked { t.primary } else { Color { a: 0.55, ..t.surface } })),
-            border: Border { color: if picked { t.primary } else { t.muted_foreground }, width: 1.5, radius: 11.0.into() },
-            ..container::Style::default()
-        })
         .into()
 }
 

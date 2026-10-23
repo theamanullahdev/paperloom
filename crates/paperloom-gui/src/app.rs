@@ -164,7 +164,8 @@ impl App {
         // Fill the Online page now (from saved results when they're fresh),
         // so it is already full by the time the tab is opened.
         let warm = app.online_page.ensure_loaded(&app.settings).map(Message::Online);
-        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check, start, warm, share]))
+        let origins = app.library_page.find_origins(&app.settings).map(Message::Library);
+        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check, start, warm, share, origins]))
     }
 
     fn effective_theme(&self) -> paperloom_common::ThemeMode {
@@ -463,7 +464,7 @@ impl App {
                         None
                     },
                     text_color: color,
-                    border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 8.0.into() },
+                    border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 4.0.into() },
                     shadow: Shadow::default(),
                     snap: false,
                 }
@@ -611,11 +612,16 @@ impl App {
         if width != Width::Narrow {
             layout = layout.push(self.sidebar(width, rail_width, t));
         }
-        container(layout.push(container(content).width(Length::Fill).height(Length::Fill)))
+        let root: Element<'_, Message> = container(layout.push(container(content).width(Length::Fill).height(Length::Fill)))
             .style(move |_theme| container::Style { background: Some(Background::Color(t.background)), ..container::Style::default() })
             .width(Length::Fill)
             .height(Length::Fill)
-            .into()
+            .into();
+        // Pop-ups and screens cover the whole window, sidebar and top bar included.
+        match (self.page == Page::Library).then(|| self.library_page.overlay(t)).flatten() {
+            Some(overlay) => stack![root, overlay.map(Message::Library)].into(),
+            None => root,
+        }
     }
 
     /// "New version installed — restart" across the top of the window.
@@ -638,7 +644,7 @@ impl App {
                         .style(move |_theme, status| button::Style {
                             background: Some(Background::Color(if matches!(status, button::Status::Hovered | button::Status::Pressed) { t.surface } else { t.background })),
                             text_color: t.foreground,
-                            border: Border { radius: 6.0.into(), ..Border::default() },
+                            border: Border { radius: 4.0.into(), ..Border::default() },
                             shadow: Shadow::default(),
                             snap: false,
                         })
@@ -681,7 +687,7 @@ impl App {
                 .style(move |_theme, status| button::Style {
                     background: Some(Background::Color(if matches!(status, button::Status::Hovered | button::Status::Pressed) { t.primary_hover } else { t.primary })),
                     text_color: t.background,
-                    border: Border { radius: 8.0.into(), ..Border::default() },
+                    border: Border { radius: 4.0.into(), ..Border::default() },
                     shadow: Shadow::default(),
                     snap: false,
                 })
@@ -721,7 +727,7 @@ impl App {
                         None
                     },
                     text_color: color,
-                    border: Border { radius: 7.0.into(), ..Border::default() },
+                    border: Border { radius: 4.0.into(), ..Border::default() },
                     shadow: Shadow::default(),
                     snap: false,
                 }
@@ -752,7 +758,7 @@ impl App {
             button::Style {
                 background: if hovered { Some(Background::Color(t.muted)) } else { None },
                 text_color: label_color,
-                border: Border { radius: 7.0.into(), ..Border::default() },
+                border: Border { radius: 4.0.into(), ..Border::default() },
                 shadow: Shadow::default(),
                 snap: false,
             }
@@ -961,7 +967,7 @@ fn nav_item<'a>(icon: svg::Handle, label: &'static str, page: Page, active: bool
             button::Style {
                 background,
                 text_color,
-                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 8.0.into() },
+                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 4.0.into() },
                 shadow: Shadow::default(),
                 snap: false,
             }

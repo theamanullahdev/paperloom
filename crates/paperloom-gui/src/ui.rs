@@ -1,7 +1,7 @@
 //! Small layout helpers shared by every page, so the UI holds up at any
 //! window size — from a phone-narrow strip to a very short, very wide one.
 
-use iced::widget::{button, container, mouse_area, opaque, row, scrollable, stack, text, Row, Space, Text};
+use iced::widget::{button, column, container, mouse_area, opaque, row, scrollable, stack, text, Row, Space, Text};
 use iced::{Background, Border, Color, Element, Padding, Shadow};
 
 use crate::theme;
@@ -17,6 +17,11 @@ pub fn set_tokens(t: theme::Tokens) {
 
 fn tokens() -> theme::Tokens {
     TOKENS.read().unwrap_or_else(|poisoned| poisoned.into_inner()).unwrap_or_else(|| theme::tokens(paperloom_common::ThemeMode::Dark))
+}
+
+/// The window's text colour (for icons drawn inside style closures).
+pub fn foreground() -> Color {
+    tokens().foreground
 }
 
 fn mix(a: Color, b: Color, amount: f32) -> Color {
@@ -47,7 +52,7 @@ fn base(background: Option<Color>, text_color: Color, border: Option<(Color, f32
     button::Style {
         background: background.map(Background::Color),
         text_color,
-        border: Border { color: border.map_or(Color::TRANSPARENT, |(c, _)| c), width: border.map_or(0.0, |(_, w)| w), radius: 8.0.into() },
+        border: Border { color: border.map_or(Color::TRANSPARENT, |(c, _)| c), width: border.map_or(0.0, |(_, w)| w), radius: 4.0.into() },
         shadow: Shadow::default(),
         snap: false,
     }
@@ -148,7 +153,7 @@ pub fn scroll_page<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) ->
 pub fn modal<'a, Message: Clone + 'a>(content: impl Into<Element<'a, Message>>, width: f32, on_close: Message, t: theme::Tokens) -> Element<'a, Message> {
     let card = container(scrollable(container(content).padding(iced::Padding { right: 6.0, ..iced::Padding::ZERO }))).padding(20).max_width(width).max_height(660.0).style(move |_theme| container::Style {
         background: Some(Background::Color(t.surface)),
-        border: Border { color: t.border, width: 1.0, radius: 14.0.into() },
+        border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
         shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 8.0), blur_radius: 28.0 },
         ..container::Style::default()
     });
@@ -161,6 +166,53 @@ pub fn modal<'a, Message: Clone + 'a>(content: impl Into<Element<'a, Message>>, 
         container(opaque(card)).center(iced::Length::Fill).padding(12),
     ]
     .into()
+}
+
+/// A thin dividing line.
+pub fn rule<'a, Message: 'a>(t: theme::Tokens) -> Element<'a, Message> {
+    container(Space::new()).width(iced::Length::Fill).height(1).style(move |_theme| container::Style { background: Some(Background::Color(t.border)), ..container::Style::default() }).into()
+}
+
+/// A whole-window screen on a dimmed backdrop: a title bar with a Close
+/// button, a line, then `body`, which should fill the space it is given.
+/// For anything with real content (a wallpaper's actions, sharing); small
+/// questions use `modal`.
+pub fn screen<'a, Message: Clone + 'a>(title: impl text::IntoFragment<'a>, subtitle: Option<String>, body: Element<'a, Message>, on_close: Message, t: theme::Tokens) -> Element<'a, Message> {
+    let mut heading = column![text(title).font(theme::DISPLAY_FONT).size(20).color(t.foreground).wrapping(text::Wrapping::None)].spacing(2);
+    if let Some(subtitle) = subtitle {
+        heading = heading.push(text(subtitle).size(12).color(t.muted_foreground).wrapping(text::Wrapping::None));
+    }
+    let bar = row![heading.width(iced::Length::Fill), button(label("Close")).style(secondary).padding([6, 14]).on_press(on_close.clone())].spacing(12).align_y(iced::Alignment::Center);
+    let panel = container(column![container(bar).padding([14, 20]), rule(t), container(body).padding(20).width(iced::Length::Fill).height(iced::Length::Fill)])
+        .width(iced::Length::Fill)
+        .height(iced::Length::Fill)
+        .clip(true)
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(t.surface)),
+            border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
+            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45), offset: iced::Vector::new(0.0, 8.0), blur_radius: 32.0 },
+            ..container::Style::default()
+        });
+    stack![
+        mouse_area(container(Space::new()).width(iced::Length::Fill).height(iced::Length::Fill).style(|_theme| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.55))),
+            ..container::Style::default()
+        }))
+        .on_press(on_close),
+        container(opaque(panel)).padding(18).width(iced::Length::Fill).height(iced::Length::Fill),
+    ]
+    .into()
+}
+
+/// A big choice: a bold line and a short explanation, as one wide button.
+pub fn tile<'a, Message: Clone + 'a>(title: &'a str, detail: &'a str, message: Message, danger_style: bool, t: theme::Tokens) -> Element<'a, Message> {
+    let title_color = if danger_style { t.destructive } else { t.foreground };
+    button(column![text(title).size(15).color(title_color), text(detail).size(12).color(t.muted_foreground)].spacing(3).width(iced::Length::Fill))
+        .style(if danger_style { danger } else { secondary })
+        .padding([12, 16])
+        .width(iced::Length::Fill)
+        .on_press(message)
+        .into()
 }
 
 /// A row of joined toggle buttons: one choice out of a few (tabs, view
@@ -186,7 +238,7 @@ pub fn segment<'a, Message: Clone + 'a>(content: Element<'a, Message>, active: b
                     None
                 },
                 text_color: if active { t.primary } else { t.foreground },
-                border: Border { color: if active { t.border } else { Color::TRANSPARENT }, width: 1.0, radius: 7.0.into() },
+                border: Border { color: if active { t.border } else { Color::TRANSPARENT }, width: 1.0, radius: 4.0.into() },
                 shadow: Shadow::default(),
                 snap: false,
             }
@@ -200,7 +252,20 @@ pub fn segment_bar<'a, Message: 'a>(content: Row<'a, Message>, t: theme::Tokens)
         .padding(3)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.muted)),
-            border: Border { radius: 9.0.into(), ..Border::default() },
+            border: Border { radius: 4.0.into(), ..Border::default() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+/// A tick box drawn over a tile while picking: filled with the accent when picked.
+pub fn check_chip<'a, Message: 'a>(picked: bool, t: theme::Tokens) -> Element<'a, Message> {
+    container(text(if picked { "✓" } else { "" }).size(13).color(if picked { on_accent() } else { t.foreground }).center())
+        .width(22)
+        .height(22)
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(if picked { t.primary } else { Color { a: 0.6, ..t.surface } })),
+            border: Border { color: if picked { t.primary } else { t.muted_foreground }, width: 1.5, radius: 4.0.into() },
             ..container::Style::default()
         })
         .into()

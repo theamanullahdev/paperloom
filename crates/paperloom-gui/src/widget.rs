@@ -276,7 +276,7 @@ impl Widget {
         };
         let now_playing = container(
             column![
-                container(poster).clip(true).style(move |_theme| container::Style { border: Border { radius: 10.0.into(), ..Border::default() }, ..container::Style::default() }),
+                container(poster).clip(true).style(move |_theme| container::Style { border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() }),
                 text(name).size(15).color(t.foreground),
                 text(status).size(12).color(status_color),
             ]
@@ -346,7 +346,7 @@ impl Widget {
             .height(Length::Fill)
             .style(move |_theme| container::Style {
                 background: Some(Background::Color(t.background)),
-                border: Border { color: t.border, width: 1.0, radius: 14.0.into() },
+                border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
                 shadow: Shadow::default(),
                 ..container::Style::default()
             })
@@ -360,7 +360,7 @@ fn section<'a>(title: &'static str, content: Element<'a, Message>, t: theme::Tok
         .width(Length::Fill)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 10.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
             ..container::Style::default()
         })
         .into()

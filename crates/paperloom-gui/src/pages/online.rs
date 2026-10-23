@@ -577,7 +577,7 @@ impl State {
                 ]
                 .spacing(12)
                 .align_y(iced::Alignment::Center),
-                container(picture).clip(true).style(|_theme| container::Style { border: Border { radius: 10.0.into(), ..Border::default() }, ..container::Style::default() }),
+                container(picture).clip(true).style(|_theme| container::Style { border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() }),
                 text(format!("{} · {}", item.source_name, qualities)).size(13).color(t.muted_foreground),
                 actions.wrap().vertical_spacing(8),
             ]
@@ -587,7 +587,7 @@ impl State {
         .max_width(640)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 14.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
             shadow: Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 8.0), blur_radius: 28.0 },
             ..container::Style::default()
         });
@@ -676,7 +676,7 @@ fn card<'a>(item: &'a OnlineItem, thumb: Option<&'a PathBuf>, job: Option<&Job>,
     let badge_text = if item.has_4k() { format!("4K · {}", item.source_name) } else { format!("HD · {}", item.source_name) };
     let badge: Element<'a, Message> = container(container(text(badge_text).size(11).color(iced::Color::WHITE)).padding([2, 6]).style(|_theme| container::Style {
         background: Some(Background::Color(iced::Color { a: 0.6, ..iced::Color::BLACK })),
-        border: Border { radius: 6.0.into(), ..Border::default() },
+        border: Border { radius: 4.0.into(), ..Border::default() },
         ..container::Style::default()
     }))
     .padding(6)
@@ -714,7 +714,7 @@ fn card<'a>(item: &'a OnlineItem, thumb: Option<&'a PathBuf>, job: Option<&Job>,
     container(column![image_area, chrome].width(Length::Fill).height(Length::Fill))
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 12.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
             shadow: Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.15), offset: iced::Vector::new(0.0, 2.0), blur_radius: 8.0 },
             ..container::Style::default()
         })

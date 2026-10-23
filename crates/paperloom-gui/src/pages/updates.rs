@@ -396,7 +396,7 @@ impl State {
             .style(move |_theme, _status| button::Style {
                 background: Some(Background::Color(if active { t.muted } else { t.surface })),
                 text_color: t.foreground,
-                border: Border { color: if active { t.primary } else { t.border }, width: 1.0, radius: 8.0.into() },
+                border: Border { color: if active { t.primary } else { t.border }, width: 1.0, radius: 4.0.into() },
                 ..button::Style::default()
             })
             .on_press(Message::Select(release.tag.clone()))
@@ -535,7 +535,7 @@ impl State {
         if !release.notes.trim().is_empty() {
             body = body.push(text("Release notes").size(13).color(t.muted_foreground));
             body = body.push(container(text(release.notes.clone()).size(13).color(t.foreground)).padding(10).width(Length::Fill).style(move |_theme| {
-                container::Style { background: Some(Background::Color(t.muted)), border: Border { radius: 8.0.into(), ..Border::default() }, ..container::Style::default() }
+                container::Style { background: Some(Background::Color(t.muted)), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default() }
             }));
         }
         card(body.into(), t)
@@ -686,7 +686,7 @@ fn asset_row<'a>(version: &str, asset: &'a update::Asset, matches_install: bool,
     .padding(10)
     .width(Length::Fill)
     .style(move |_theme| container::Style {
-        border: Border { color: if matches_install { t.primary } else { t.border }, width: 1.0, radius: 8.0.into() },
+        border: Border { color: if matches_install { t.primary } else { t.border }, width: 1.0, radius: 4.0.into() },
         ..container::Style::default()
     })
     .into()
@@ -706,7 +706,7 @@ fn card<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Mess
         .width(Length::Fill)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 10.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
             ..container::Style::default()
         })
         .into()

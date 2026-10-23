@@ -148,7 +148,7 @@ impl Meter {
 
         let dot = container(Space::new().width(10).height(10)).style(move |_theme| container::Style {
             background: Some(Background::Color(color)),
-            border: Border { radius: 5.0.into(), ..Border::default() },
+            border: Border { radius: 4.0.into(), ..Border::default() },
             ..container::Style::default()
         });
 
@@ -203,7 +203,7 @@ impl Meter {
             .width(Length::Fill)
             .style(move |_theme| container::Style {
                 background: Some(Background::Color(t.surface)),
-                border: Border { color: t.border, width: 1.0, radius: 10.0.into() },
+                border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
                 ..container::Style::default()
             })
             .into()

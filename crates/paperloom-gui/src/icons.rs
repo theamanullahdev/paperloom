@@ -115,3 +115,11 @@ pub fn terminal() -> svg::Handle {
 pub fn import() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/import.svg").as_slice())
 }
+
+pub fn share() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/share-2.svg").as_slice())
+}
+
+pub fn select() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/square-check.svg").as_slice())
+}

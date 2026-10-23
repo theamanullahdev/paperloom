@@ -443,7 +443,7 @@ impl State {
                 text(format!("Now: {}", if current.trim().is_empty() { "not set" } else { current.as_str() })).size(12).color(t.muted_foreground),
                 container(text(shown).size(22).color(t.foreground)).padding([14, 18]).width(Length::Fill).style(move |_theme| container::Style {
                     background: Some(Background::Color(t.muted)),
-                    border: Border { color: t.border, width: 1.0, radius: 10.0.into() },
+                    border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
                     ..container::Style::default()
                 }),
                 verdict,
@@ -463,7 +463,7 @@ impl State {
         .width(Length::Fixed(440.0))
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 14.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
             ..container::Style::default()
         });
         let backdrop = iced::widget::mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
@@ -486,7 +486,7 @@ impl State {
                 .width(Length::Fill)
                 .style(move |_theme| container::Style {
                     background: (fade > 0.0).then_some(Background::Color(iced::Color { a: fade * 0.18, ..t.primary })),
-                    border: Border { color: iced::Color { a: fade, ..t.primary }, width: if fade > 0.0 { 1.0 } else { 0.0 }, radius: 8.0.into() },
+                    border: Border { color: iced::Color { a: fade, ..t.primary }, width: if fade > 0.0 { 1.0 } else { 0.0 }, radius: 4.0.into() },
                     ..container::Style::default()
                 })
                 .into()
@@ -975,7 +975,7 @@ pub(crate) fn storage_chart<'a, M: 'a>(stats: &Stats, t: theme::Tokens) -> Eleme
     let bar: Element<'a, M> = if total == 0 {
         container(Space::new()).width(Length::Fill).height(14).style(move |_theme| container::Style {
             background: Some(Background::Color(t.muted)),
-            border: Border { radius: 7.0.into(), ..Border::default() },
+            border: Border { radius: 4.0.into(), ..Border::default() },
             ..container::Style::default()
         })
         .into()
@@ -991,7 +991,7 @@ pub(crate) fn storage_chart<'a, M: 'a>(stats: &Stats, t: theme::Tokens) -> Eleme
                 .into()
         });
         container(row(segments).spacing(2)).clip(true).style(move |_theme| container::Style {
-            border: Border { radius: 7.0.into(), ..Border::default() },
+            border: Border { radius: 4.0.into(), ..Border::default() },
             ..container::Style::default()
         })
         .into()
@@ -1092,7 +1092,7 @@ fn scroll_to(id: SettingId) -> Task<Message> {
 pub(crate) fn tile_style(t: theme::Tokens) -> container::Style {
     container::Style {
         background: Some(Background::Color(t.surface)),
-        border: Border { color: t.border, width: 1.0, radius: 12.0.into() },
+        border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
         shadow: iced::Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.12), offset: iced::Vector::new(0.0, 2.0), blur_radius: 8.0 },
         ..container::Style::default()
     }

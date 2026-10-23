@@ -273,7 +273,7 @@ fn job_row<'a>(job: Job, bytes_per_second: f64, dragging: Option<&str>, t: theme
         border: Border {
             color: if being_dragged { t.primary } else { t.border },
             width: if being_dragged { 2.0 } else { 1.0 },
-            radius: 10.0.into(),
+            radius: 6.0.into(),
         },
         ..container::Style::default()
     }))

@@ -130,6 +130,17 @@ pub fn origin_of(entry: &LibraryEntry) -> Option<Origin> {
     Some(Origin { source: source.into(), source_name: name.into(), item_id: id.into(), thumb_url: thumb, page_url: page, variants })
 }
 
+/// Looks the wallpaper `key` (`source:id`) up on its source by `title`, for
+/// downloads made before their origin was kept. `None` when the source
+/// doesn't list it under that title.
+pub fn find_origin(sources: &[SourceSetting], title: &str, key: &str) -> Option<Origin> {
+    let (source_id, item_id) = key.split_once(':')?;
+    let mut setting = sources.iter().find(|source| source.id == source_id)?.clone();
+    setting.enabled = true;
+    let page = crate::fetch_page(&[setting], title, 1, &Default::default(), true).ok()?;
+    page.items.into_iter().find(|item| item.id == item_id && item.source == source_id).map(|item| item.origin())
+}
+
 impl Share {
     /// Builds a share from library entries. Hidden wallpapers and ones with
     /// no public source are left out and counted.

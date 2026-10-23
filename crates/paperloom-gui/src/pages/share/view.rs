@@ -1,13 +1,17 @@
-//! The share dialogs' looks.
+//! The share screens' looks: a wall of wallpaper cards on the left, the
+//! controls in a panel on the right.
 
-use iced::widget::{checkbox, column, container, image, pick_list, row, scrollable, text, text_input};
-use iced::{Alignment, Background, Border, Element, Length};
+use iced::widget::{column, container, image, mouse_area, pick_list, row, scrollable, stack, text, text_input, Space};
+use iced::{Alignment, Background, Border, Color, Element, Length};
 
 use super::{ItemState, Message, State, QUALITIES};
 use crate::theme;
 
+const CARD_WIDTH: f32 = 190.0;
+const THUMB_HEIGHT: f32 = 107.0;
+
 impl State {
-    /// The dialog to float over the library, if one is open. `collections`
+    /// The screen to float over the library, if one is open. `collections`
     /// are the names that already exist.
     pub fn view<'a>(&'a self, collections: &[String], t: theme::Tokens) -> Option<Element<'a, Message>> {
         if let Some(sender) = &self.sender {
@@ -19,164 +23,182 @@ impl State {
     fn sender_view<'a>(&'a self, sender: &'a super::Sender, t: theme::Tokens) -> Element<'a, Message> {
         let count = sender.share.items.len();
         let left = sender.share.left_out;
-        let mut body = column![text(format!("Share {}", sender.title)).font(theme::DISPLAY_FONT).size(18).color(t.foreground)].spacing(10);
-        if count == 0 {
-            body = body.push(text("None of these can be shared. They came from your own files, or they are hidden. Only wallpapers downloaded from a website can be sent.").size(13).color(t.muted_foreground));
+
+        let wall: Element<'a, Message> = if count == 0 {
+            container(text("None of these can be shared. They came from your own files, or they are hidden. Only wallpapers downloaded from a website can be sent.").size(14).color(t.muted_foreground))
+                .center(Length::Fill)
+                .padding(24)
+                .into()
         } else {
-            body = body.push(text(format!("{count} wallpaper{} in this share.", if count == 1 { "" } else { "s" })).size(13).color(t.foreground));
-            if left > 0 {
-                body = body.push(text(format!("{left} left out: they came from your own files, or they are hidden.")).size(12).color(t.muted_foreground));
-            }
-            body = body.push(
-                text("Your friend gets the same wallpapers from the same websites. Nothing from your computer is sent.").size(12).color(t.muted_foreground),
-            );
+            let cards = sender.share.items.iter().map(|item| {
+                let poster = sender.posters.get(&item.key());
+                card(poster.map(|p| p.as_path()), &item.t, &item.n, None, false, t)
+            });
+            scrollable(container(row(cards).spacing(12).wrap().vertical_spacing(12)).padding(iced::Padding { right: 14.0, ..iced::Padding::ZERO })).height(Length::Fill).into()
+        };
+
+        let mut side = column![
+            text(format!("{count} wallpaper{}", if count == 1 { "" } else { "s" })).font(theme::DISPLAY_FONT).size(22).color(t.foreground),
+            text("Your friend gets the same wallpapers from the same websites. Nothing from your computer is sent, only where each one comes from.").size(13).color(t.muted_foreground),
+        ]
+        .spacing(10);
+        if left > 0 {
+            side = side.push(text(format!("{left} left out: they came from your own files, or they are hidden.")).size(13).color(t.muted_foreground));
+        }
+        if count > 0 {
             if Self::code_is_long(&sender.share) {
-                body = body.push(text("That is a lot for a chat message. A file is easier to send.").size(12).color(t.muted_foreground));
+                side = side.push(text("That is a lot for a chat message. A file is easier to send.").size(13).color(t.muted_foreground));
             }
-            body = body.push(
-                row![
-                    button_primary("Copy share code", Message::CopyCode),
-                    button_secondary("Save as a file…", Message::SaveFile),
-                ]
-                .spacing(8)
-                .wrap()
-                .vertical_spacing(6),
+            side = side.push(Space::new().height(8));
+            side = side.push(
+                iced::widget::button(crate::ui::label("Copy share code").center()).style(crate::ui::primary).padding([10, 16]).width(Length::Fill).on_press(Message::CopyCode),
+            );
+            side = side.push(
+                iced::widget::button(crate::ui::label("Save as a file…").center()).style(crate::ui::secondary).padding([10, 16]).width(Length::Fill).on_press(Message::SaveFile),
             );
         }
         if let Some(notice) = &sender.notice {
-            body = body.push(text(notice.clone()).size(12).color(t.primary));
+            side = side.push(text(notice.clone()).size(13).color(t.primary));
         }
-        body = body.push(button_ghost("Close", Message::CloseSender));
-        crate::ui::modal(body.spacing(10), 420.0, Message::CloseSender, t)
+        let title = format!("Share {}", sender.title);
+        crate::ui::screen(title, None, row![wall, panel(side.into(), t)].spacing(20).height(Length::Fill).into(), Message::CloseSender, t)
     }
 
     fn import_view<'a>(&'a self, import: &'a super::Import, collections: &[String], t: theme::Tokens) -> Element<'a, Message> {
-        let mut body = column![
-            text("Import a share").font(theme::DISPLAY_FONT).size(18).color(t.foreground),
-            text("Paste a share code a friend sent you, or open a share file.").size(13).color(t.muted_foreground),
+        let wall: Element<'a, Message> = match &import.share {
+            None => container(
+                column![
+                    text("Paste a share code, or open a share file").font(theme::DISPLAY_FONT).size(20).color(t.foreground),
+                    text("You can also drop a .paperloomshare file anywhere on the window.").size(13).color(t.muted_foreground),
+                ]
+                .spacing(8)
+                .align_x(Alignment::Center),
+            )
+            .center(Length::Fill)
+            .into(),
+            Some(share) => {
+                let cards = share.items.iter().enumerate().map(|(index, item)| {
+                    let state = import.states.get(index).copied().unwrap_or(ItemState::New);
+                    let note = match state {
+                        ItemState::New => format!("{}{}", item.n, if item.has_4k() { " · HD, 4K" } else { "" }),
+                        ItemState::InLibrary => "Already in your library".to_string(),
+                        ItemState::Queued => "Already downloading".to_string(),
+                    };
+                    let picked = import.picked.get(index).copied().unwrap_or(false);
+                    let thumb = self.thumbs.get(&item.key());
+                    let tile = card(thumb.map(|p| p.as_path()), &item.t, &note, Some(picked), state != ItemState::New, t);
+                    if state == ItemState::New {
+                        mouse_area(tile).on_press(Message::Toggle(index, !picked)).into()
+                    } else {
+                        tile
+                    }
+                });
+                scrollable(container(row(cards).spacing(12).wrap().vertical_spacing(12)).padding(iced::Padding { right: 14.0, ..iced::Padding::ZERO })).height(Length::Fill).into()
+            }
+        };
+
+        let mut side = column![
+            text("Share code").size(13).color(t.muted_foreground),
+            text_input("Paste the code here", &import.text).on_input(Message::Text).padding(8).width(Length::Fill),
             row![
-                text_input("Paste the share code here", &import.text).on_input(Message::Text).padding(6).width(Length::Fill),
-                button_secondary("Paste", Message::Paste),
-                button_secondary("Open file…", Message::ChooseFile),
+                iced::widget::button(crate::ui::label("Paste").center()).style(crate::ui::secondary).padding([8, 14]).width(Length::Fill).on_press(Message::Paste),
+                iced::widget::button(crate::ui::label("Open file…").center()).style(crate::ui::secondary).padding([8, 14]).width(Length::Fill).on_press(Message::ChooseFile),
             ]
-            .spacing(8)
-            .align_y(Alignment::Center),
+            .spacing(8),
         ]
-        .spacing(10);
+        .spacing(8);
         if let Some(error) = &import.error {
-            body = body.push(text(error.clone()).size(13).color(t.destructive));
+            side = side.push(text(error.clone()).size(13).color(t.destructive));
         }
+
         if let Some(share) = &import.share {
             let total = share.items.len();
             let ticked = import.picked.iter().filter(|p| **p).count();
             let owned = import.states.iter().filter(|s| **s == ItemState::InLibrary).count();
-            let heading = if share.name.is_empty() { format!("{total} wallpapers") } else { format!("{} · {total} wallpapers", share.name) };
-            body = body.push(text(heading).size(15).color(t.foreground));
-            if share.left_out > 0 {
-                body = body.push(text(format!("{} more couldn't be included.", share.left_out)).size(12).color(t.muted_foreground));
-            }
+            side = side.push(crate::ui::rule(t));
+            side = side.push(text(if share.name.is_empty() { format!("{total} wallpapers") } else { share.name.clone() }).font(theme::DISPLAY_FONT).size(20).color(t.foreground));
+            let mut facts = format!("{total} wallpaper{}", if total == 1 { "" } else { "s" });
             if owned > 0 {
-                body = body.push(text(format!("You already have {owned} of these.")).size(12).color(t.muted_foreground));
+                facts.push_str(&format!(" · you have {owned}"));
             }
-            body = body.push(
+            if share.left_out > 0 {
+                facts.push_str(&format!(" · {} not included", share.left_out));
+            }
+            side = side.push(text(facts).size(12).color(t.muted_foreground));
+            side = side.push(
                 row![
-                    button_ghost("Select all", Message::PickAll(true)),
-                    button_ghost("Select none", Message::PickAll(false)),
-                ]
-                .spacing(6),
-            );
-            let list = column(share.items.iter().enumerate().map(|(index, item)| {
-                let state = import.states.get(index).copied().unwrap_or(ItemState::New);
-                let thumb: Element<'a, Message> = match self.thumbs.get(&item.key()) {
-                    Some(path) => container(image(image::Handle::from_path(path)).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(Length::Fill))
-                        .width(Length::Fixed(64.0))
-                        .height(Length::Fixed(36.0))
-                        .clip(true)
-                        .into(),
-                    None => container(text("")).width(Length::Fixed(64.0)).height(Length::Fixed(36.0)).style(move |_theme| container::Style {
-                        background: Some(Background::Color(t.muted)),
-                        border: Border { radius: 4.0.into(), ..Border::default() },
-                        ..container::Style::default()
-                    })
-                    .into(),
-                };
-                let note = match state {
-                    ItemState::New => format!("{}{}", item.n, if item.has_4k() { " · HD and 4K" } else { "" }),
-                    ItemState::InLibrary => "Already in your library".to_string(),
-                    ItemState::Queued => "Already downloading".to_string(),
-                };
-                let enabled = state == ItemState::New;
-                let mut tick = checkbox(import.picked.get(index).copied().unwrap_or(false));
-                if enabled {
-                    tick = tick.on_toggle(move |on| Message::Toggle(index, on));
-                }
-                row![
-                    tick,
-                    thumb,
-                    column![text(item.t.clone()).size(13).color(t.foreground).wrapping(text::Wrapping::None), text(note).size(11).color(t.muted_foreground)].spacing(2).width(Length::Fill),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center)
-                .into()
-            }))
-            .spacing(8)
-            .padding(iced::Padding { right: 12.0, ..iced::Padding::ZERO });
-            body = body.push(container(scrollable(list)).max_height(176.0));
-
-            let exists = collections.iter().any(|name| name.eq_ignore_ascii_case(import.collection.trim()));
-            body = body.push(
-                row![
-                    text("Quality").size(13).color(t.foreground),
-                    pick_list(QUALITIES, Some(import.quality), Message::Quality),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            );
-            body = body.push(
-                column![
-                    text("Put them in a collection (leave empty for none)").size(13).color(t.foreground),
-                    text_input("Collection name", &import.collection).on_input(Message::Collection).padding(6),
-                    text(if import.collection.trim().is_empty() {
-                        String::new()
-                    } else if exists {
-                        "You already have a collection with this name. They will be added to it.".to_string()
-                    } else {
-                        "A new collection will be created.".to_string()
-                    })
-                    .size(11)
-                    .color(t.muted_foreground),
+                    iced::widget::button(crate::ui::label("Select all").size(12)).style(crate::ui::ghost).padding([4, 8]).on_press(Message::PickAll(true)),
+                    iced::widget::button(crate::ui::label("Select none").size(12)).style(crate::ui::ghost).padding([4, 8]).on_press(Message::PickAll(false)),
                 ]
                 .spacing(4),
             );
+            side = side.push(
+                row![text("Quality").size(13).color(t.foreground), pick_list(QUALITIES, Some(import.quality), Message::Quality)].spacing(8).align_y(Alignment::Center),
+            );
+            let exists = collections.iter().any(|name| name.eq_ignore_ascii_case(import.collection.trim()));
+            side = side.push(text("Collection (leave empty for none)").size(13).color(t.foreground));
+            side = side.push(text_input("Collection name", &import.collection).on_input(Message::Collection).padding(8));
+            side = side.push(
+                text(if import.collection.trim().is_empty() {
+                    String::new()
+                } else if exists {
+                    "You already have one with this name. They will be added to it.".to_string()
+                } else {
+                    "A new collection will be created.".to_string()
+                })
+                .size(12)
+                .color(t.muted_foreground),
+            );
+            side = side.push(Space::new().height(Length::Fill));
             let has_name = !import.collection.trim().is_empty();
-            let go = if ticked > 0 {
-                button_primary_maybe(&format!("Download {ticked}"), Some(Message::Start))
+            let (label, message) = if ticked > 0 {
+                (format!("Download {ticked}"), Some(Message::Start))
             } else if owned > 0 && has_name {
-                button_primary_maybe("Add to collection", Some(Message::Start))
+                ("Add to collection".to_string(), Some(Message::Start))
             } else {
-                button_primary_maybe("Download", None)
+                ("Download".to_string(), None)
             };
-            body = body.push(row![go, button_ghost("Cancel", Message::CloseImport)].spacing(8));
-        } else {
-            body = body.push(button_ghost("Cancel", Message::CloseImport));
+            side = side.push(iced::widget::button(crate::ui::label(label).center()).style(crate::ui::primary).padding([10, 16]).width(Length::Fill).on_press_maybe(message));
         }
-        crate::ui::modal(body, 520.0, Message::CloseImport, t)
+        crate::ui::screen("Import a share", None, row![wall, panel(side.into(), t)].spacing(20).height(Length::Fill).into(), Message::CloseImport, t)
     }
 }
 
-fn button_primary<'a>(label: &str, message: Message) -> Element<'a, Message> {
-    button_primary_maybe(label, Some(message))
+/// The right-hand column: a fixed width, with a hairline on its left.
+fn panel<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Message> {
+    container(container(content).padding(iced::Padding { left: 20.0, ..iced::Padding::ZERO }).height(Length::Fill))
+        .width(Length::Fixed(320.0))
+        .height(Length::Fill)
+        .style(move |_theme| container::Style { border: Border { color: t.border, width: 0.0, radius: 0.0.into() }, ..container::Style::default() })
+        .into()
 }
 
-fn button_primary_maybe<'a>(label: &str, message: Option<Message>) -> Element<'a, Message> {
-    iced::widget::button(crate::ui::label(label.to_string())).style(crate::ui::primary).on_press_maybe(message).into()
+/// One wallpaper: its picture, its name and a line of detail. `picked`:
+/// `Some` when it can be ticked; `dim` when it can't be chosen.
+fn card<'a>(thumb: Option<&std::path::Path>, title: &str, note: &str, picked: Option<bool>, dim: bool, t: theme::Tokens) -> Element<'a, Message> {
+    let picture: Element<'a, Message> = match thumb {
+        Some(path) => image(image::Handle::from_path(path)).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(Length::Fill).into(),
+        None => container(iced::widget::svg(crate::icons::film()).width(24).height(24).style(move |_theme, _status| iced::widget::svg::Style { color: Some(t.muted_foreground) }))
+            .center(Length::Fill)
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), ..container::Style::default() })
+            .into(),
+    };
+    let mut layers = stack![container(picture).width(Length::Fill).height(Length::Fixed(THUMB_HEIGHT)).clip(true)];
+    if let Some(picked) = picked {
+        if !dim {
+            layers = layers.push(container(crate::ui::check_chip(picked, t)).padding(6).width(Length::Fill).align_x(Alignment::End));
+        }
+    }
+    let selected = picked == Some(true);
+    let text_color = if dim { t.muted_foreground } else { t.foreground };
+    container(column![layers, column![text(title.to_string()).size(13).color(text_color).wrapping(text::Wrapping::None), text(note.to_string()).size(11).color(t.muted_foreground).wrapping(text::Wrapping::None)].spacing(2).padding([8, 8])])
+        .width(Length::Fixed(CARD_WIDTH))
+        .clip(true)
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(t.surface)),
+            border: Border { color: if selected { t.primary } else { t.border }, width: if selected { 2.0 } else { 1.0 }, radius: 6.0.into() },
+            text_color: Some(Color::WHITE),
+            ..container::Style::default()
+        })
+        .into()
 }
-
-fn button_secondary<'a>(label: &str, message: Message) -> Element<'a, Message> {
-    iced::widget::button(crate::ui::label(label.to_string())).style(crate::ui::secondary).on_press(message).into()
-}
-
-fn button_ghost<'a>(label: &str, message: Message) -> Element<'a, Message> {
-    iced::widget::button(crate::ui::label(label.to_string()).size(12)).style(crate::ui::ghost).on_press(message).into()
-}
-

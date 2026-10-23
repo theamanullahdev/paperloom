@@ -49,6 +49,8 @@ struct Sender {
     share: Share,
     code: String,
     notice: Option<String>,
+    /// The sender's own posters, by wallpaper key, for the preview.
+    posters: HashMap<String, PathBuf>,
 }
 
 struct Import {
@@ -99,9 +101,9 @@ pub struct Ctx<'a> {
 
 impl State {
     /// Opens the sender dialog for `share`, called `title`.
-    pub fn send(&mut self, title: String, share: Share) {
+    pub fn send(&mut self, title: String, share: Share, posters: HashMap<String, PathBuf>) {
         let code = share.encode();
-        self.sender = Some(Sender { title, share, code, notice: None });
+        self.sender = Some(Sender { title, share, code, notice: None, posters });
     }
 
     /// Opens the import dialog, already holding `text` (a pasted code or a

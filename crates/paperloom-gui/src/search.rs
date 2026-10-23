@@ -122,7 +122,7 @@ pub fn popup<'a>(results: Results<'a>, width: f32, t: theme::Tokens) -> Element<
         .max_height(440.0)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 12.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
             shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.35), offset: iced::Vector::new(0.0, 6.0), blur_radius: 24.0 },
             ..container::Style::default()
         })
@@ -148,7 +148,7 @@ fn result_row<'a>(title: String, kind: String, message: Message, primary: bool, 
     .style(move |_theme, status| button::Style {
         background: matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(t.muted)),
         text_color: t.foreground,
-        border: Border { radius: 8.0.into(), ..Border::default() },
+        border: Border { radius: 4.0.into(), ..Border::default() },
         shadow: Shadow::default(),
         snap: false,
     })

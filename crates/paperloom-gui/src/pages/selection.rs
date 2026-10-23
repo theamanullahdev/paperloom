@@ -4,8 +4,8 @@
 
 use std::collections::HashSet;
 
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
-use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
+use iced::widget::{button, column, container, row, scrollable, text, text_input};
+use iced::{Alignment, Background, Border, Color, Element, Length};
 use paperloom_common::Library;
 
 use crate::theme;
@@ -143,41 +143,33 @@ impl Selection {
         note
     }
 
-    /// The bar along the bottom while selecting.
-    pub fn bar<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+    /// The bar above the wallpapers while selecting.
+    pub fn strip<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let count = self.picked.len();
         let some = count > 0;
-        let act = |label: &'static str, message: Message| {
-            let b = button(crate::ui::label(label).size(13)).style(crate::ui::secondary).padding([5, 12]);
-            b.on_press_maybe(some.then_some(message))
-        };
-        let bar = row![
-            text(if some { format!("{count} selected") } else { "Tap wallpapers to select them".to_string() }).size(13).color(t.foreground),
-            Space::new().width(Length::Fill),
-            button(crate::ui::label("Select all").size(13)).style(crate::ui::ghost).padding([5, 10]).on_press(Message::SelectAll),
+        let act = |label: &'static str, message: Message| button(crate::ui::label(label).size(13)).style(crate::ui::secondary).padding([6, 12]).on_press_maybe(some.then_some(message));
+        let strip = row![
+            text(if some { format!("{count} selected") } else { "Click wallpapers to select them".to_string() }).size(14).color(t.foreground).width(Length::Fixed(230.0)),
+            button(crate::ui::label("Select all").size(13)).style(crate::ui::ghost).padding([6, 12]).on_press(Message::SelectAll),
             act("Share", Message::ShareIt),
             act("Add to collection", Message::AskCollection),
             act("Hide", Message::HideIt),
-            button(crate::ui::label("Remove").size(13)).style(crate::ui::danger).padding([5, 12]).on_press_maybe(some.then_some(Message::AskRemove)),
-            button(crate::ui::label("Done").size(13)).style(crate::ui::primary).padding([5, 12]).on_press(Message::End),
+            button(crate::ui::label("Remove").size(13)).style(crate::ui::danger).padding([6, 12]).on_press_maybe(some.then_some(Message::AskRemove)),
+            button(crate::ui::label("Done").size(13)).style(crate::ui::primary).padding([6, 14]).on_press(Message::End),
         ]
         .spacing(8)
         .align_y(Alignment::Center)
         .wrap()
         .vertical_spacing(6);
-        container(
-            container(bar).padding([10, 14]).style(move |_theme| container::Style {
-                background: Some(Background::Color(t.surface)),
-                border: Border { color: t.border, width: 1.0, radius: 12.0.into() },
-                shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.3), offset: iced::Vector::new(0.0, 4.0), blur_radius: 16.0 },
+        container(strip)
+            .padding([10, 14])
+            .width(Length::Fill)
+            .style(move |_theme| container::Style {
+                background: Some(Background::Color(Color { a: 0.12, ..t.primary })),
+                border: Border { color: Color { a: 0.55, ..t.primary }, width: 1.0, radius: 6.0.into() },
                 ..container::Style::default()
-            }),
-        )
-        .padding(12)
-        .width(Length::Fill)
-        .align_y(iced::alignment::Vertical::Bottom)
-        .height(Length::Fill)
-        .into()
+            })
+            .into()
     }
 
     /// The "add to collection" or "remove" pop-up, when one is open.
@@ -202,12 +194,23 @@ impl Selection {
                 } else {
                     scrollable(
                         column(library.collections.iter().map(|collection| {
-                            button(crate::ui::label(collection.name.clone()).size(13)).style(crate::ui::secondary).width(Length::Fill).on_press(Message::ToCollection(collection.id)).into()
+                            button(
+                                row![
+                                    crate::ui::label(collection.name.clone()).size(14).width(Length::Fill),
+                                    text(format!("{}", collection.members.len())).size(12).color(t.muted_foreground),
+                                ]
+                                .align_y(Alignment::Center),
+                            )
+                            .style(crate::ui::secondary)
+                            .padding([10, 14])
+                            .width(Length::Fill)
+                            .on_press(Message::ToCollection(collection.id))
+                            .into()
                         }))
                         .spacing(6)
                         .padding(iced::Padding { right: 12.0, ..iced::Padding::ZERO }),
                     )
-                    .height(Length::Fixed((library.collections.len() as f32 * 38.0).min(190.0)))
+                    .height(Length::Fixed((library.collections.len() as f32 * 46.0).min(230.0)))
                     .into()
                 };
                 column![
