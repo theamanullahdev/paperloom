@@ -211,6 +211,7 @@ pub fn set_hotkey_status(next: &str, pause: &str) {
 /// What the optional features report: the panel icon and the lock screen still.
 static FEATURES: std::sync::Mutex<(String, String)> = std::sync::Mutex::new((String::new(), String::new()));
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn set_tray_status(status: &str) {
     FEATURES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).0 = status.to_string();
 }
