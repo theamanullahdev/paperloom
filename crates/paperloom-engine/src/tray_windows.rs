@@ -73,6 +73,7 @@ pub fn sync(settings: &Settings) {
         if let Some(tray) = slot.take() {
             remove(&tray);
         }
+        player::set_tray_status("off");
         return;
     }
     let light_taskbar = taskbar_is_light();
@@ -80,7 +81,8 @@ pub fn sync(settings: &Settings) {
     let tip = tooltip();
     let tray = slot.get_or_insert_with(create);
     if tray.window.is_null() {
-        return; // couldn't make the hidden window; try again next tick
+        player::set_tray_status("failed: Windows would not let Paperloom create the window the icon needs");
+        return; // try again next tick
     }
     let redo = READD.swap(false, std::sync::atomic::Ordering::Relaxed);
     if !tray.added || redo || tray.look != look || tray.tip != tip {
@@ -95,6 +97,7 @@ pub fn sync(settings: &Settings) {
         tray.tip = tip;
         tray.added = notify(tray, if tray.added && !redo { NIM_MODIFY } else { NIM_ADD });
     }
+    player::set_tray_status(if tray.added && !tray.icon.is_null() { "ok" } else { "failed: Windows did not accept the icon (is Explorer running?)" });
 }
 
 fn create() -> Tray {

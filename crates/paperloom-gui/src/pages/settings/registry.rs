@@ -30,6 +30,7 @@ pub enum SettingId {
     Hotkeys,
     HiddenPassword,
     ScreenTarget,
+    LockScreen,
 }
 
 pub struct Entry {
@@ -129,6 +130,12 @@ pub const ENTRIES: &[Entry] = &[
         label: "Tray icon size",
         section: "Startup",
         aliases: &["tray size", "icon size", "applet size", "bigger icon", "smaller icon"],
+    },
+    Entry {
+        id: SettingId::LockScreen,
+        label: "Show a still of the wallpaper on the lock screen",
+        section: "Playback",
+        aliases: &["lock screen", "login screen", "sign in", "still image", "static", "background picture"],
     },
     Entry {
         id: SettingId::ScreenTarget,

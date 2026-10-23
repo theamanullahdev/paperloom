@@ -132,6 +132,7 @@ pub fn play(mpv: &Mpv, path: &str) {
     }
     paperloom_common::log::info(&format!("playing {path}"));
     crate::perf_guard::reset();
+    crate::lock_screen::on_play(path);
     remember(Some(path));
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -207,6 +208,17 @@ pub fn set_hotkey_status(next: &str, pause: &str) {
     *HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = (next.to_string(), pause.to_string());
 }
 
+/// What the optional features report: the panel icon and the lock screen still.
+static FEATURES: std::sync::Mutex<(String, String)> = std::sync::Mutex::new((String::new(), String::new()));
+
+pub fn set_tray_status(status: &str) {
+    FEATURES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).0 = status.to_string();
+}
+
+pub fn set_lock_screen_status(status: &str) {
+    FEATURES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).1 = status.to_string();
+}
+
 /// Developer switches in force (all off unless developer mode is on).
 static DEV: std::sync::Mutex<Option<paperloom_common::dev::DevSwitches>> = std::sync::Mutex::new(None);
 
@@ -229,6 +241,7 @@ pub fn periodic(settings: &paperloom_common::Settings, mpv: &Mpv) {
     publish_status(mpv, settings.developer_mode);
     crate::rotation::tick(mpv);
     crate::usage_history::tick();
+    crate::lock_screen::tick(settings);
     let paused = AUTO_PAUSED.load(Ordering::Relaxed) || USER_PAUSED.load(Ordering::Relaxed);
     let hardware = mpv.get_property::<String>("hwdec-current").is_ok_and(|name| !name.is_empty() && name != "no");
     crate::perf_guard::tick(mpv, settings.performance_guard, paused, hardware);
@@ -264,6 +277,8 @@ fn publish_status(mpv: &Mpv, with_drops: bool) {
         guard_level: crate::perf_guard::level(),
         hotkey_next: HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).0.clone(),
         hotkey_pause: HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).1.clone(),
+        tray: FEATURES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).0.clone(),
+        lock_screen: FEATURES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).1.clone(),
     };
     let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if last.as_ref() == Some(&info) {

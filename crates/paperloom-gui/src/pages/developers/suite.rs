@@ -291,6 +291,7 @@ fn engine_roundtrip(report: &mut Report, clip: &std::path::Path) {
             }
         }
     });
+    feature_checks(report, &paperloom_common::load());
     report.step("pause and resume", || {
         ipc::send(&Command::Pause).map_err(|err| err.to_string())?;
         std::thread::sleep(Duration::from_secs(3));
@@ -311,5 +312,57 @@ fn engine_roundtrip(report: &mut Report, clip: &std::path::Path) {
             let _ = ipc::send(&Command::Stop);
             report.info("no wallpaper was playing before; stopped the test clip".into());
         }
+    }
+}
+
+/// Whether the optional features the settings switch on really came up in the
+/// running engine: the panel icon, the global shortcuts, the lock screen still.
+fn feature_checks(report: &mut Report, settings: &Settings) {
+    // The engine reports within a couple of seconds of starting.
+    let wait_for = |pick: &dyn Fn(&paperloom_common::EngineInfo) -> String, seconds: u64| -> String {
+        let started = Instant::now();
+        loop {
+            let value = pick(&EngineState::load().engine);
+            if !value.is_empty() && value != "off" || started.elapsed() > Duration::from_secs(seconds) {
+                return value;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+    };
+
+    if settings.show_tray_icon {
+        let status = wait_for(&|info| info.tray.clone(), 8);
+        report.step("the tray icon is showing", || match status.as_str() {
+            "ok" => Ok("registered with the system".into()),
+            "" | "off" => Err("the setting is on but the engine reported nothing".into()),
+            other => Err(other.trim_start_matches("failed: ").to_string()),
+        });
+    } else {
+        report.info("tray icon: switched off in Settings".into());
+    }
+
+    for (label, text, pick) in [
+        ("next-wallpaper shortcut", settings.hotkey_next.clone(), (|info: &paperloom_common::EngineInfo| info.hotkey_next.clone()) as fn(&paperloom_common::EngineInfo) -> String),
+        ("pause shortcut", settings.hotkey_pause.clone(), |info: &paperloom_common::EngineInfo| info.hotkey_pause.clone()),
+    ] {
+        if text.trim().is_empty() {
+            continue;
+        }
+        let status = wait_for(&|info| pick(info), 8);
+        report.step(&format!("the {label} ({text}) is registered"), || match status.as_str() {
+            "ok" => Ok("active".into()),
+            "in use" => Err("another program already uses that key".into()),
+            _ => Err("this desktop doesn't support global shortcuts (Wayland and macOS) or the engine reported nothing".into()),
+        });
+    }
+
+    if settings.lock_screen_still {
+        let status = wait_for(&|info| info.lock_screen.clone(), 20);
+        report.step("a still of the wallpaper is set as the lock screen picture", || match status.as_str() {
+            s if s.starts_with("ok") => Ok(s.to_string()),
+            other => Err(other.trim_start_matches("failed: ").to_string()),
+        });
+    } else {
+        report.info("lock screen still: switched off in Settings".into());
     }
 }

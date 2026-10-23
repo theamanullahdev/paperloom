@@ -46,6 +46,7 @@ pub fn sync(settings: &paperloom_common::Settings) {
     let mut handle = HANDLE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if !show {
         FAILED.store(false, Ordering::Relaxed);
+        crate::player::set_tray_status("off");
     }
     match (show, handle.is_some()) {
         (true, false) if !FAILED.load(Ordering::Relaxed) => {
@@ -59,10 +60,14 @@ pub fn sync(settings: &paperloom_common::Settings) {
             // (StatusNotifierWatcher) is up yet — at login the engine often
             // starts before the panel — and register as soon as one appears.
             match tray.disable_dbus_name(sandboxed).assume_sni_available(true).spawn() {
-                Ok(spawned) => *handle = Some(spawned),
+                Ok(spawned) => {
+                    *handle = Some(spawned);
+                    crate::player::set_tray_status("ok");
+                }
                 Err(err) => {
                     FAILED.store(true, Ordering::Relaxed);
                     eprintln!("paperloom-engine: no tray icon: {err}");
+                    crate::player::set_tray_status(&format!("failed: {err}"));
                 }
             }
         }

@@ -238,6 +238,9 @@ pub struct Settings {
     pub hidden_lock: Option<String>,
     /// Which screen(s) the wallpaper covers.
     pub screen_target: ScreenTarget,
+    /// Also put a still frame of the wallpaper on the lock screen (where the
+    /// system allows it).
+    pub lock_screen_still: bool,
 }
 
 /// The Library page's view: grid of cards or list of rows, in three sizes.
@@ -331,6 +334,7 @@ impl Default for Settings {
             browse_hide_owned: true,
             hidden_lock: None,
             screen_target: ScreenTarget::All,
+            lock_screen_still: false,
         }
     }
 }

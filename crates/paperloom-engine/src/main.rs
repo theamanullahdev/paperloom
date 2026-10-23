@@ -24,6 +24,7 @@ mod backends;
 mod desktop_background;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod hotkeys_x11;
+mod lock_screen;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod pause;
 mod perf_guard;

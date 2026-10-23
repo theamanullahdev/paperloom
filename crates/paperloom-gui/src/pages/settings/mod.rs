@@ -58,6 +58,8 @@ pub struct State {
     capture: Option<Capture>,
     /// What the engine says about the two shortcuts ("", "ok", "in use").
     hotkey_status: (String, String),
+    /// What the engine says about the panel icon and the lock screen still.
+    feature_status: (String, String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,6 +151,7 @@ impl Default for State {
             lock_note: None,
             capture: None,
             hotkey_status: (String::new(), String::new()),
+            feature_status: (String::new(), String::new()),
         }
     }
 }
@@ -207,6 +210,7 @@ impl State {
     fn read_hotkey_status(&mut self) {
         let info = paperloom_common::EngineState::load().engine;
         self.hotkey_status = (info.hotkey_next, info.hotkey_pause);
+        self.feature_status = (info.tray, info.lock_screen);
     }
 
     fn flash(&mut self, id: SettingId) {
@@ -238,6 +242,7 @@ impl State {
                     }
                     SettingId::AllowMature => settings.allow_mature = value,
                     SettingId::TrayIcon => settings.show_tray_icon = value,
+                    SettingId::LockScreen => settings.lock_screen_still = value,
                     SettingId::DeveloperMode => settings.developer_mode = value,
                     SettingId::PerformanceGuard => settings.performance_guard = value,
                     SettingId::ImportMode
@@ -255,6 +260,10 @@ impl State {
                 }
                 self.flash(id);
                 let _ = paperloom_common::save(settings);
+                if matches!(id, SettingId::TrayIcon | SettingId::LockScreen) {
+                    // The engine applies it within a couple of seconds; then say whether it worked.
+                    return Task::perform(crate::pages::online::blocking::<(), String>(|| { std::thread::sleep(Duration::from_secs(4)); Ok(()) }), |_| Message::HotkeyStatus);
+                }
             }
             Message::ImportModeSelected(mode) => {
                 settings.import_mode = mode;
@@ -578,6 +587,16 @@ impl State {
                     .into(),
                 ),
                 item(
+                    SettingId::LockScreen,
+                    column![
+                        toggler(settings.lock_screen_still).label("Show a still of the wallpaper on the lock screen").on_toggle(|v| Message::Toggle(SettingId::LockScreen, v)),
+                        hint("A video can't play on the lock screen, so one frame of the current wallpaper is used. Windows and GNOME-style desktops; Cinnamon already shows its desktop background."),
+                        feature_line(settings.lock_screen_still, &self.feature_status.1, "The lock screen picture was set.", t),
+                    ]
+                    .spacing(4)
+                    .into(),
+                ),
+                item(
                     SettingId::ScreenTarget,
                     column![
                         row![
@@ -756,6 +775,7 @@ impl State {
                     column![
                         toggler(settings.show_tray_icon).label("Show the tray icon").on_toggle(|v| Message::Toggle(SettingId::TrayIcon, v)),
                         hint("While a wallpaper plays. Click it for pause, resume, stop and Open Paperloom."),
+                        feature_line(settings.show_tray_icon, &self.feature_status.0, "The icon is showing.", t),
                     ]
                     .spacing(6)
                     .into(),
@@ -1085,4 +1105,22 @@ fn card<'a>(title: &'static str, about: &'static str, content: Element<'a, Messa
         column = column.push(text(about).size(12).color(t.muted_foreground));
     }
     container(column.push(Space::new().height(6)).push(content)).padding(14).width(Length::Fill).style(move |_theme| tile_style(t)).into()
+}
+
+/// The line under a switch that says whether the feature really came up.
+/// A feature that is switched on but not working is shown in red with the
+/// reason, instead of looking enabled.
+fn feature_line<'a>(enabled: bool, status: &str, working: &'static str, t: theme::Tokens) -> Element<'a, Message> {
+    if !enabled {
+        return Space::new().height(0).into();
+    }
+    if let Some(why) = status.strip_prefix("failed: ") {
+        return text(format!("Can't be turned on right now: {why}")).size(12).color(t.destructive).into();
+    }
+    match status {
+        "" => text("Starts with the wallpaper engine.").size(12).color(t.muted_foreground).into(),
+        "off" => text("Waiting for the engine to pick the setting up.").size(12).color(t.muted_foreground).into(),
+        s if s.starts_with("ok") => text(working).size(12).color(t.success).into(),
+        other => text(other.to_string()).size(12).color(t.muted_foreground).into(),
+    }
 }

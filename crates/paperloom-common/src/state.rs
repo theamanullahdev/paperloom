@@ -52,6 +52,10 @@ pub struct EngineInfo {
     /// "ok" or "in use" (another program already owns that key).
     pub hotkey_next: String,
     pub hotkey_pause: String,
+    /// The notification-area / panel icon: "ok", "off" or "failed: why".
+    pub tray: String,
+    /// The lock screen still: "off", "ok" or "failed: why".
+    pub lock_screen: String,
 }
 
 /// One `gsettings` value: schema, key, and the value exactly as
