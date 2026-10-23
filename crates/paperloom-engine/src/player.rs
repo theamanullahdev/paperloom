@@ -202,6 +202,7 @@ pub fn mpv_log_level() -> &'static str {
 /// Whether the two global shortcuts could be registered ("", "ok", "in use").
 static HOTKEYS: std::sync::Mutex<(String, String)> = std::sync::Mutex::new((String::new(), String::new()));
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn set_hotkey_status(next: &str, pause: &str) {
     *HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = (next.to_string(), pause.to_string());
 }
