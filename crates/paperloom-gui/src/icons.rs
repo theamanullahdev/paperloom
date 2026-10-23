@@ -111,3 +111,7 @@ pub fn refresh() -> svg::Handle {
 pub fn terminal() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/terminal.svg").as_slice())
 }
+
+pub fn import() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/import.svg").as_slice())
+}

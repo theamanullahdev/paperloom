@@ -53,10 +53,19 @@ fn base(background: Option<Color>, text_color: Color, border: Option<(Color, f32
     }
 }
 
+/// Text/icon colour that reads on top of the accent colour.
+pub fn on_accent() -> Color {
+    if luminance(tokens().primary) > 0.55 {
+        Color::from_rgb(0.08, 0.06, 0.05)
+    } else {
+        Color::WHITE
+    }
+}
+
 /// The main action: the accent colour.
 pub fn primary(_theme: &iced::Theme, status: button::Status) -> button::Style {
     let t = tokens();
-    let on_accent = if luminance(t.primary) > 0.55 { Color::from_rgb(0.08, 0.06, 0.05) } else { Color::WHITE };
+    let on_accent = on_accent();
     let background = match status {
         button::Status::Hovered => t.primary_hover,
         button::Status::Pressed => mix(t.primary, Color::BLACK, 0.18),

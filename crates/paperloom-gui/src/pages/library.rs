@@ -546,7 +546,14 @@ impl State {
     }
 
     pub fn header<'a>(&'a self) -> Element<'a, Message> {
-        row![button(crate::ui::label("Import wallpapers...")).style(crate::ui::primary).on_press(Message::ImportClicked), self.stop_controls()]
+        let import = button(
+            row![svg(icons::import()).width(16).height(16).style(|_theme, _status| svg::Style { color: Some(crate::ui::on_accent()) }), crate::ui::label("Import wallpapers")]
+                .spacing(8)
+                .align_y(Alignment::Center),
+        )
+        .style(crate::ui::primary)
+        .on_press(Message::ImportClicked);
+        row![import, button(crate::ui::label("Stop wallpaper")).style(crate::ui::secondary).on_press(Message::StopClicked)]
             .spacing(8)
             .align_y(Alignment::Center)
             .wrap()
@@ -554,22 +561,41 @@ impl State {
             .into()
     }
 
-    /// "Stop wallpaper", which turns into the choice between stopping only
-    /// the wallpaper (Paperloom stays open) and stopping it and quitting.
-    fn stop_controls<'a>(&self) -> Element<'a, Message> {
-        if !self.confirm_stop {
-            return button(crate::ui::label("Stop wallpaper")).style(crate::ui::secondary).on_press(Message::StopClicked).into();
-        }
-        row![
-            button(crate::ui::label("Stop wallpaper only")).style(crate::ui::secondary).on_press(Message::StopWallpaper),
-            button(crate::ui::label("Stop and quit Paperloom")).style(crate::ui::danger).on_press(Message::StopAndQuit),
-            button(crate::ui::label("Cancel")).style(crate::ui::ghost).on_press(Message::CancelStop),
+    /// The pop-up shown by "Stop wallpaper": stop only the wallpaper (the
+    /// window stays) or stop it and close Paperloom.
+    fn stop_dialog<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        let card = container(
+            column![
+                text("Stop the wallpaper?").font(theme::DISPLAY_FONT).size(18).color(t.foreground),
+                text("Your desktop goes back to its normal background.").size(13).color(t.muted_foreground),
+                column![
+                    button(crate::ui::label("Stop the wallpaper only").center()).style(crate::ui::secondary).width(Length::Fill).on_press(Message::StopWallpaper),
+                    button(crate::ui::label("Stop it and close Paperloom").center()).style(crate::ui::danger).width(Length::Fill).on_press(Message::StopAndQuit),
+                    button(crate::ui::label("Keep playing").center()).style(crate::ui::ghost).width(Length::Fill).on_press(Message::CancelStop),
+                ]
+                .spacing(8),
+            ]
+            .spacing(12),
+        )
+        .padding(20)
+        .width(Length::Fixed(360.0))
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(t.surface)),
+            border: Border { color: t.border, width: 1.0, radius: 14.0.into() },
+            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 8.0), blur_radius: 28.0 },
+            ..container::Style::default()
+        });
+        stack![
+            mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
+                ..container::Style::default()
+            }))
+            .on_press(Message::CancelStop),
+            container(opaque(card)).center(Length::Fill).padding(12),
         ]
-        .spacing(6)
-        .wrap()
-        .vertical_spacing(6)
         .into()
     }
+
 
     pub fn body<'a>(&'a self, view: LibraryView, t: theme::Tokens) -> Element<'a, Message> {
         let mut page = column![self.toolbar(view, t)].spacing(14);
@@ -606,6 +632,10 @@ impl State {
         page = page.push(content);
         // Full height, so the dialog's backdrop covers the page, not just its content.
         let page: Element<'a, Message> = crate::ui::scroll_page(page).height(Length::Fill).into();
+
+        if self.confirm_stop {
+            return stack![page, self.stop_dialog(t)].into();
+        }
 
         // The ⋮ dialog floats over the page; clicking outside closes it.
         match self.actions.as_ref().and_then(|actions| self.library.entry(actions.entry).map(|entry| (actions, entry))) {
