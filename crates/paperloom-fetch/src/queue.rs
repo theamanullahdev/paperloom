@@ -7,6 +7,11 @@
 //! quitting the app or rebooting resumes where it left off. Only a
 //! permanent failure (404, not an MP4) stops retrying automatically, and
 //! even then the job stays listed with a manual "Retry".
+//!
+//! Order is strict: the worker always takes the first job in the list that
+//! is not finished, failed or paused. If that job is waiting out a network
+//! hiccup, everything behind it waits too — a flaky connection never lets a
+//! lower job jump the queue. Pause a job to let the ones below it go ahead.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -34,6 +39,8 @@ pub enum Status {
     Done,
     /// Failed permanently; needs a manual retry.
     Failed,
+    /// Held by the user; the queue goes on with the others.
+    Paused,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -180,7 +187,55 @@ impl Queue {
     }
 
     pub fn is_busy(&self) -> bool {
-        self.lock().jobs.iter().any(|job| job.status != Status::Failed && job.status != Status::Done)
+        self.lock().jobs.iter().any(|job| !matches!(job.status, Status::Failed | Status::Done | Status::Paused))
+    }
+
+    /// Holds a job: a download in flight stops (its partial file is kept),
+    /// and the queue moves on to the next job.
+    pub fn pause(&self, id: &str) {
+        let mut state = self.lock();
+        if let Some((active_id, flag)) = &state.active {
+            if active_id == id {
+                flag.store(true, Ordering::Relaxed);
+            }
+        }
+        state.retry_at.remove(id);
+        if let Some(job) = state.jobs.iter_mut().find(|job| job.id == id) {
+            if matches!(job.status, Status::Queued | Status::Waiting | Status::Downloading) {
+                job.status = Status::Paused;
+                job.last_error = None;
+            }
+        }
+        save(&state);
+        drop(state);
+        self.shared.wake.notify_all();
+    }
+
+    /// Puts a paused job back in line (in its place).
+    pub fn resume(&self, id: &str) {
+        let mut state = self.lock();
+        if let Some(job) = state.jobs.iter_mut().find(|job| job.id == id) {
+            if job.status == Status::Paused {
+                job.status = Status::Queued;
+            }
+        }
+        save(&state);
+        drop(state);
+        self.shared.wake.notify_all();
+    }
+
+    pub fn pause_all(&self) {
+        let ids: Vec<String> = self.lock().jobs.iter().filter(|job| matches!(job.status, Status::Queued | Status::Waiting | Status::Downloading)).map(|job| job.id.clone()).collect();
+        for id in ids {
+            self.pause(&id);
+        }
+    }
+
+    pub fn resume_all(&self) {
+        let ids: Vec<String> = self.lock().jobs.iter().filter(|job| job.status == Status::Paused).map(|job| job.id.clone()).collect();
+        for id in ids {
+            self.resume(&id);
+        }
     }
 
     /// Jobs whose file is complete and waiting for the caller to import it.
@@ -263,19 +318,13 @@ impl Queue {
     fn next_job(&self) -> (Job, Arc<AtomicBool>) {
         loop {
             let state = self.lock();
-            let now = Instant::now();
-            let ready = state.jobs.iter().position(|job| {
-                matches!(job.status, Status::Queued | Status::Waiting)
-                    && state.retry_at.get(&job.id).is_none_or(|at| *at <= now)
-            });
-
-            let Some(position) = ready else {
-                let next_retry = state.retry_at.values().min().map(|at| at.saturating_duration_since(now));
-                let wait = next_retry.unwrap_or(Duration::from_secs(30)).max(Duration::from_millis(200));
-                drop(self.shared.wake.wait_timeout(state, wait).unwrap_or_else(|poisoned| poisoned.into_inner()));
-                continue;
+            let id = match pick_next(&state.jobs, &state.retry_at, Instant::now()) {
+                Pick::Start(position) => state.jobs[position].id.clone(),
+                Pick::Wait(wait) => {
+                    drop(self.shared.wake.wait_timeout(state, wait).unwrap_or_else(|poisoned| poisoned.into_inner()));
+                    continue;
+                }
             };
-            let id = state.jobs[position].id.clone();
             drop(state);
 
             // Checked without holding the lock: this can take ~1s.
@@ -289,7 +338,7 @@ impl Queue {
             }
 
             let mut state = self.lock();
-            // The job may have been cancelled or already started meanwhile.
+            // The job may have been cancelled, paused or already started meanwhile.
             let Some(position) = state.jobs.iter().position(|job| job.id == id && matches!(job.status, Status::Queued | Status::Waiting)) else {
                 continue;
             };
@@ -309,6 +358,13 @@ impl Queue {
         state.active = None;
         let mut delay = None;
         if let Some(job) = state.jobs.iter_mut().find(|job| job.id == id) {
+            // Paused while it was downloading: the stop is the user's doing,
+            // not a failure.
+            if job.status == Status::Paused {
+                job.bytes_done = job.part_path().metadata().map_or(job.bytes_done, |meta| meta.len());
+                save(&state);
+                return;
+            }
             match result {
                 Ok(()) => {
                     job.status = Status::Done;
@@ -338,6 +394,28 @@ impl Queue {
             state.retry_at.insert(id.to_string(), Instant::now() + delay);
         }
         save(&state);
+    }
+}
+
+/// What the worker should do now.
+#[derive(Debug, PartialEq)]
+enum Pick {
+    /// Start the job at this position.
+    Start(usize),
+    /// Nothing to start yet; look again after this long (or when woken).
+    Wait(Duration),
+}
+
+/// Strict priority: the first job that is not finished, failed or paused is
+/// the only candidate. If it is waiting out a retry delay, the whole queue
+/// waits with it.
+fn pick_next(jobs: &[Job], retry_at: &HashMap<String, Instant>, now: Instant) -> Pick {
+    let Some(position) = jobs.iter().position(|job| matches!(job.status, Status::Queued | Status::Waiting | Status::Downloading)) else {
+        return Pick::Wait(Duration::from_secs(30));
+    };
+    match retry_at.get(&jobs[position].id) {
+        Some(at) if *at > now => Pick::Wait((*at - now).max(Duration::from_millis(200))),
+        _ => Pick::Start(position),
     }
 }
 
@@ -378,6 +456,44 @@ fn file_name_for(source: &str, id: &str, title: &str, quality: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn job(id: &str, status: Status) -> Job {
+        Job {
+            id: id.into(),
+            source: String::new(),
+            title: String::new(),
+            url: String::new(),
+            file_name: String::new(),
+            quality: String::new(),
+            status,
+            bytes_done: 0,
+            bytes_total: None,
+            attempts: 0,
+            last_error: None,
+            retry_in: None,
+        }
+    }
+
+    #[test]
+    fn the_top_job_goes_first_even_while_it_waits_to_retry() {
+        let now = Instant::now();
+        let jobs = vec![job("a", Status::Waiting), job("b", Status::Queued), job("c", Status::Queued)];
+        let mut retry = HashMap::new();
+        retry.insert("a".to_string(), now + Duration::from_secs(10));
+        // `a` is flaking and waits 10 s: `b` and `c` must not jump ahead of it.
+        assert!(matches!(pick_next(&jobs, &retry, now), Pick::Wait(wait) if wait <= Duration::from_secs(10)));
+        // Once its delay is over, `a` is the one that starts.
+        assert_eq!(pick_next(&jobs, &retry, now + Duration::from_secs(11)), Pick::Start(0));
+    }
+
+    #[test]
+    fn paused_failed_and_finished_jobs_are_skipped() {
+        let now = Instant::now();
+        let jobs = vec![job("a", Status::Paused), job("b", Status::Failed), job("c", Status::Done), job("d", Status::Queued)];
+        assert_eq!(pick_next(&jobs, &HashMap::new(), now), Pick::Start(3));
+        let all_held = vec![job("a", Status::Paused)];
+        assert!(matches!(pick_next(&all_held, &HashMap::new(), now), Pick::Wait(_)));
+    }
 
     #[test]
     fn backoff_grows_then_caps() {

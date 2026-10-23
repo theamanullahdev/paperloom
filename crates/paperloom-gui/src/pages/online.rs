@@ -733,6 +733,7 @@ fn job_status<'a>(job: &Job, t: theme::Tokens) -> Element<'a, Message> {
             vec![small("Retry now", Message::Retry(job.id.clone())).into(), small("Cancel", Message::Cancel(job.id.clone())).into()],
         ),
         Status::Done => ("Adding to library...".into(), Vec::new()),
+        Status::Paused => ("Paused (see Downloads)".into(), vec![small("Cancel", Message::Cancel(job.id.clone())).into()]),
         Status::Failed => (
             truncate(job.last_error.as_deref().unwrap_or("Download failed"), 22),
             vec![small("Retry", Message::Retry(job.id.clone())).into(), small("Cancel", Message::Cancel(job.id.clone())).into()],

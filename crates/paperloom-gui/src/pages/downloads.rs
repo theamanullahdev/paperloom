@@ -41,6 +41,10 @@ pub enum Message {
     MoveToTop(String),
     Retry(String),
     Cancel(String),
+    Pause(String),
+    Resume(String),
+    PauseAll,
+    ResumeAll,
     /// "Check connection": tests the connection only, not any download.
     CheckConnection,
     Diagnosed(Diagnosis),
@@ -113,6 +117,10 @@ impl State {
             Message::MoveToTop(id) => queue.move_job(&id, 0),
             Message::Retry(id) => queue.retry(&id),
             Message::Cancel(id) => queue.cancel(&id),
+            Message::Pause(id) => queue.pause(&id),
+            Message::Resume(id) => queue.resume(&id),
+            Message::PauseAll => queue.pause_all(),
+            Message::ResumeAll => queue.resume_all(),
             Message::CheckConnection => return self.meter.check(self.hosts.clone()).map(Message::Diagnosed),
             Message::Diagnosed(diagnosis) => self.meter.finish_check(diagnosis),
         }
@@ -129,7 +137,17 @@ impl State {
         if jobs.is_empty() {
             list = list.push(text("No downloads yet. Pick wallpapers in the Online tab.").color(t.muted_foreground));
         } else {
-            list = list.push(text("Drag the handle to change download order — the top one goes first.").size(12).color(t.muted_foreground));
+            let any_running = jobs.iter().any(|job| matches!(job.status, Status::Queued | Status::Waiting | Status::Downloading));
+            let any_paused = jobs.iter().any(|job| job.status == Status::Paused);
+            let mut controls = row![text("Drag the handle to change download order. The top one goes first, and waits for its connection before the next one starts.").size(12).color(t.muted_foreground)].spacing(12).align_y(iced::Alignment::Center);
+            controls = controls.push(Space::new().width(Length::Fill));
+            if any_running {
+                controls = controls.push(button(crate::ui::label("Pause all").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::PauseAll));
+            }
+            if any_paused {
+                controls = controls.push(button(crate::ui::label("Resume all").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::ResumeAll));
+            }
+            list = list.push(controls);
             for job in jobs {
                 let speed = self.speeds.get(&job.id).map(|s| s.bytes_per_second).unwrap_or(0.0);
                 list = list.push(job_row(job, speed, self.dragging.as_deref(), t));
@@ -159,6 +177,7 @@ fn job_row<'a>(job: Job, bytes_per_second: f64, dragging: Option<&str>, t: theme
         Status::Waiting => ("Will retry", t.primary_hover),
         Status::Done => ("Finished — adding to library", t.success),
         Status::Failed => ("Failed", t.destructive),
+        Status::Paused => ("Paused", t.muted_foreground),
     };
 
     let fraction = match (job.bytes_total, job.status) {
@@ -221,6 +240,11 @@ fn job_row<'a>(job: Job, bytes_per_second: f64, dragging: Option<&str>, t: theme
     }
     if matches!(job.status, Status::Failed | Status::Waiting) {
         actions = actions.push(small("Retry now", Message::Retry(id.clone())));
+    }
+    match job.status {
+        Status::Queued | Status::Waiting | Status::Downloading => actions = actions.push(small("Pause", Message::Pause(id.clone()))),
+        Status::Paused => actions = actions.push(small("Resume", Message::Resume(id.clone()))),
+        _ => {}
     }
     if job.status != Status::Done {
         actions = actions.push(small("Cancel", Message::Cancel(id.clone())));
