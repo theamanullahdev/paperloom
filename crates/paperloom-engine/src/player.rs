@@ -280,6 +280,12 @@ pub enum Flow {
     Quit,
 }
 
+/// Whether the user paused it (tray menu, IPC, shortcut).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn user_paused() -> bool {
+    USER_PAUSED.load(Ordering::Relaxed)
+}
+
 /// The pause the user asked for (tray, IPC, hotkey).
 pub fn set_user_pause(mpv: &Mpv, paused: bool) {
     USER_PAUSED.store(paused, Ordering::Relaxed);

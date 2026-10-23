@@ -105,6 +105,7 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
 
         match run_until_window_lost(window, &mpv, &mut listener) {
             Flow::Quit => {
+                crate::tray_windows::shutdown();
                 // SAFETY: our own window, destroyed once.
                 unsafe { DestroyWindow(window) };
                 return Ok(());
@@ -178,6 +179,7 @@ fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Fl
     loop {
         pump_messages();
         run_hotkeys(mpv);
+        crate::tray_windows::run_actions(mpv);
         if player::poll_ipc(listener, mpv) == Flow::Quit {
             return Flow::Quit;
         }
@@ -202,6 +204,7 @@ fn run_until_window_lost(window: HWND, mpv: &Mpv, listener: &mut Listener) -> Fl
                 }
             }
             sync_hotkeys(&settings.hotkey_next, &settings.hotkey_pause);
+            crate::tray_windows::sync(&settings);
             let should_pause = should_pause(&settings, window);
             if should_pause != is_paused {
                 is_paused = should_pause;

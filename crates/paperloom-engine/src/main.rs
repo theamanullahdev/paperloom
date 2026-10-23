@@ -33,6 +33,8 @@ mod selftest;
 mod player;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod tray;
+#[cfg(windows)]
+mod tray_windows;
 
 use std::env;
 use std::error::Error;
