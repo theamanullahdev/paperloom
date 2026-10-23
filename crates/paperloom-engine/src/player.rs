@@ -199,6 +199,13 @@ pub fn mpv_log_level() -> &'static str {
     }
 }
 
+/// Whether the two global shortcuts could be registered ("", "ok", "in use").
+static HOTKEYS: std::sync::Mutex<(String, String)> = std::sync::Mutex::new((String::new(), String::new()));
+
+pub fn set_hotkey_status(next: &str, pause: &str) {
+    *HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = (next.to_string(), pause.to_string());
+}
+
 /// Developer switches in force (all off unless developer mode is on).
 static DEV: std::sync::Mutex<Option<paperloom_common::dev::DevSwitches>> = std::sync::Mutex::new(None);
 
@@ -254,6 +261,8 @@ fn publish_status(mpv: &Mpv, with_drops: bool) {
         video_output: text("current-vo"),
         dropped_frames: if with_drops { mpv.get_property::<i64>("frame-drop-count").unwrap_or(0) } else { 0 },
         guard_level: crate::perf_guard::level(),
+        hotkey_next: HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).0.clone(),
+        hotkey_pause: HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).1.clone(),
     };
     let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if last.as_ref() == Some(&info) {

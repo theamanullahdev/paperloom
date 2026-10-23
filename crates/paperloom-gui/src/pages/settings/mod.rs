@@ -54,6 +54,84 @@ pub struct State {
     lock_new: String,
     lock_confirm: String,
     lock_note: Option<String>,
+    /// The shortcut dialog, while it is open.
+    capture: Option<Capture>,
+    /// What the engine says about the two shortcuts ("", "ok", "in use").
+    hotkey_status: (String, String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotkeyTarget {
+    Next,
+    Pause,
+}
+
+struct Capture {
+    target: HotkeyTarget,
+    /// The combination pressed, as text.
+    text: String,
+    problem: Option<String>,
+}
+
+enum KeyPress {
+    Keys(String),
+    Ignore,
+    Cancel,
+}
+
+/// Turns a key press into "Ctrl+Alt+Right" form. Escape closes the dialog;
+/// a bare modifier press is waited out.
+fn describe_key(key: &iced::keyboard::Key, modifiers: iced::keyboard::Modifiers) -> KeyPress {
+    use iced::keyboard::key::Named;
+    use iced::keyboard::Key;
+    let name = match key {
+        Key::Named(Named::Escape) => return KeyPress::Cancel,
+        Key::Named(Named::Shift | Named::Control | Named::Alt | Named::AltGraph | Named::Super | Named::Meta | Named::Hyper | Named::CapsLock | Named::NumLock) => return KeyPress::Ignore,
+        Key::Named(Named::ArrowLeft) => "Left".to_string(),
+        Key::Named(Named::ArrowRight) => "Right".to_string(),
+        Key::Named(Named::ArrowUp) => "Up".to_string(),
+        Key::Named(Named::ArrowDown) => "Down".to_string(),
+        Key::Named(Named::Space) => "Space".to_string(),
+        Key::Named(Named::Enter) => "Enter".to_string(),
+        Key::Named(Named::Home) => "Home".to_string(),
+        Key::Named(Named::End) => "End".to_string(),
+        Key::Named(Named::PageUp) => "PageUp".to_string(),
+        Key::Named(Named::PageDown) => "PageDown".to_string(),
+        Key::Named(named) => match format!("{named:?}").as_str() {
+            function if function.starts_with('F') && function[1..].parse::<u8>().is_ok_and(|n| (1..=12).contains(&n)) => function.to_string(),
+            _ => return KeyPress::Ignore,
+        },
+        Key::Character(text) => {
+            let mut chars = text.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) if c.is_ascii_alphanumeric() => c.to_ascii_uppercase().to_string(),
+                _ => return KeyPress::Ignore,
+            }
+        }
+        _ => return KeyPress::Ignore,
+    };
+    let mut parts = Vec::new();
+    if modifiers.control() {
+        parts.push("Ctrl".to_string());
+    }
+    if modifiers.alt() {
+        parts.push("Alt".to_string());
+    }
+    if modifiers.shift() {
+        parts.push("Shift".to_string());
+    }
+    if modifiers.logo() {
+        parts.push("Super".to_string());
+    }
+    parts.push(name);
+    KeyPress::Keys(parts.join("+"))
+}
+
+fn key_events(event: iced::Event, _status: iced::event::Status, _window: iced::window::Id) -> Option<Message> {
+    match event {
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => Some(Message::HotkeyKey(key, modifiers)),
+        _ => None,
+    }
 }
 
 impl Default for State {
@@ -69,6 +147,8 @@ impl Default for State {
             lock_new: String::new(),
             lock_confirm: String::new(),
             lock_note: None,
+            capture: None,
+            hotkey_status: (String::new(), String::new()),
         }
     }
 }
@@ -88,8 +168,13 @@ pub enum Message {
     LockConfirm(String),
     LockSet,
     LockRemove,
-    HotkeyNext(String),
-    HotkeyPause(String),
+    HotkeyChange(HotkeyTarget),
+    HotkeyKey(iced::keyboard::Key, iced::keyboard::Modifiers),
+    HotkeySave,
+    HotkeyCancel,
+    HotkeyClear,
+    HotkeyDefault,
+    HotkeyStatus,
     PauseIdleSelected(Idle),
     TrayStyleSelected(TrayStyle),
     TraySizeSelected(TraySize),
@@ -112,11 +197,16 @@ impl State {
     /// Only subscribes to frame ticks while a highlight is actively
     /// fading in, so idling on this page (the common case) costs nothing.
     pub fn subscription(&self) -> Subscription<Message> {
-        if self.highlight_fade.is_animating(Instant::now()) {
-            iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
-        } else {
-            Subscription::none()
-        }
+        Subscription::batch([
+            if self.highlight_fade.is_animating(Instant::now()) { iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick) } else { Subscription::none() },
+            // Only while the shortcut dialog is open: every key press goes to it.
+            if self.capture.is_some() { iced::event::listen_with(key_events) } else { Subscription::none() },
+        ])
+    }
+
+    fn read_hotkey_status(&mut self) {
+        let info = paperloom_common::EngineState::load().engine;
+        self.hotkey_status = (info.hotkey_next, info.hotkey_pause);
     }
 
     fn flash(&mut self, id: SettingId) {
@@ -213,16 +303,55 @@ impl State {
                 }
                 self.flash(SettingId::HiddenPassword);
             }
-            Message::HotkeyNext(text) => {
-                settings.hotkey_next = text;
-                self.flash(SettingId::Hotkeys);
-                let _ = paperloom_common::save(settings);
+            Message::HotkeyChange(target) => self.capture = Some(Capture { target, text: String::new(), problem: None }),
+            Message::HotkeyKey(key, modifiers) => {
+                let Some(capture) = &mut self.capture else { return Task::none() };
+                match describe_key(&key, modifiers) {
+                    KeyPress::Cancel => self.capture = None,
+                    KeyPress::Ignore => {}
+                    KeyPress::Keys(text) => {
+                        let (other, other_name) = match capture.target {
+                            HotkeyTarget::Next => (&settings.hotkey_pause, "pause / resume"),
+                            HotkeyTarget::Pause => (&settings.hotkey_next, "the next wallpaper"),
+                        };
+                        capture.problem = paperloom_common::hotkey::validate(&text, other, other_name).err();
+                        capture.text = text;
+                    }
+                }
             }
-            Message::HotkeyPause(text) => {
-                settings.hotkey_pause = text;
-                self.flash(SettingId::Hotkeys);
-                let _ = paperloom_common::save(settings);
+            Message::HotkeySave => {
+                let Some(capture) = &self.capture else { return Task::none() };
+                let (other, other_name) = match capture.target {
+                    HotkeyTarget::Next => (&settings.hotkey_pause, "pause / resume"),
+                    HotkeyTarget::Pause => (&settings.hotkey_next, "the next wallpaper"),
+                };
+                if let Ok(text) = paperloom_common::hotkey::validate(&capture.text, other, other_name) {
+                    match capture.target {
+                        HotkeyTarget::Next => settings.hotkey_next = text,
+                        HotkeyTarget::Pause => settings.hotkey_pause = text,
+                    }
+                    let _ = paperloom_common::save(settings);
+                    self.capture = None;
+                    self.flash(SettingId::Hotkeys);
+                    // The engine registers the key within a couple of seconds.
+                    return Task::perform(crate::pages::online::blocking::<(), String>(|| { std::thread::sleep(Duration::from_secs(3)); Ok(()) }), |_| Message::HotkeyStatus);
+                }
             }
+            Message::HotkeyCancel => self.capture = None,
+            Message::HotkeyClear | Message::HotkeyDefault => {
+                let clear = matches!(message, Message::HotkeyClear);
+                if let Some(capture) = self.capture.take() {
+                    let defaults = Settings::default();
+                    let (field, default) = match capture.target {
+                        HotkeyTarget::Next => (&mut settings.hotkey_next, defaults.hotkey_next),
+                        HotkeyTarget::Pause => (&mut settings.hotkey_pause, defaults.hotkey_pause),
+                    };
+                    *field = if clear { String::new() } else { default };
+                    let _ = paperloom_common::save(settings);
+                    return Task::perform(crate::pages::online::blocking::<(), String>(|| { std::thread::sleep(Duration::from_secs(3)); Ok(()) }), |_| Message::HotkeyStatus);
+                }
+            }
+            Message::HotkeyStatus => self.read_hotkey_status(),
             Message::PauseIdleSelected(idle) => {
                 settings.pause_when_idle_minutes = idle.0;
                 self.flash(SettingId::PauseIdle);
@@ -270,6 +399,7 @@ impl State {
     /// it walks a few folders, so not on every redraw).
     pub fn refresh(&mut self, library: &paperloom_common::Library) {
         self.stats = Some(Stats::gather(library));
+        self.read_hotkey_status();
     }
 
     /// `update_summary`: one line from the Updates page ("Up to date",
@@ -279,7 +409,60 @@ impl State {
             let content = self.dashboard(settings, update_summary.clone(), size.width, t);
             crate::ui::scroll_page(content).id(SCROLL_ID).into()
         });
-        page.into()
+        match &self.capture {
+            Some(capture) => iced::widget::stack![page, self.capture_dialog(capture, settings, t)].into(),
+            None => page.into(),
+        }
+    }
+
+    /// The pop-up that listens for the new shortcut.
+    fn capture_dialog<'a>(&'a self, capture: &'a Capture, settings: &Settings, t: theme::Tokens) -> Element<'a, Message> {
+        let (title, current) = match capture.target {
+            HotkeyTarget::Next => ("Next wallpaper shortcut", &settings.hotkey_next),
+            HotkeyTarget::Pause => ("Pause / resume shortcut", &settings.hotkey_pause),
+        };
+        let shown = if capture.text.is_empty() { "Press the keys you want to use".to_string() } else { capture.text.clone() };
+        let verdict: Element<'a, Message> = match (&capture.problem, capture.text.is_empty()) {
+            (Some(problem), _) => text(problem.clone()).size(13).color(t.destructive).into(),
+            (None, false) => text("This shortcut is free to use.").size(13).color(t.success).into(),
+            (None, true) => text("Hold Ctrl, Alt, Shift or Super and press a key. Esc closes this.").size(13).color(t.muted_foreground).into(),
+        };
+        let can_save = !capture.text.is_empty() && capture.problem.is_none();
+        let card = container(
+            column![
+                text(title).font(theme::DISPLAY_FONT).size(18).color(t.foreground),
+                text(format!("Now: {}", if current.trim().is_empty() { "not set" } else { current.as_str() })).size(12).color(t.muted_foreground),
+                container(text(shown).size(22).color(t.foreground)).padding([14, 18]).width(Length::Fill).style(move |_theme| container::Style {
+                    background: Some(Background::Color(t.muted)),
+                    border: Border { color: t.border, width: 1.0, radius: 10.0.into() },
+                    ..container::Style::default()
+                }),
+                verdict,
+                row![
+                    button(crate::ui::label("Save")).on_press_maybe(can_save.then_some(Message::HotkeySave)),
+                    button(crate::ui::label("Cancel")).style(button::secondary).on_press(Message::HotkeyCancel),
+                    Space::new().width(Length::Fill),
+                    button(crate::ui::label("Use the default").size(12)).style(button::text).on_press(Message::HotkeyDefault),
+                    button(crate::ui::label("Remove it").size(12)).style(button::text).on_press(Message::HotkeyClear),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            ]
+            .spacing(12),
+        )
+        .padding(20)
+        .width(Length::Fixed(440.0))
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(t.surface)),
+            border: Border { color: t.border, width: 1.0, radius: 14.0.into() },
+            ..container::Style::default()
+        });
+        let backdrop = iced::widget::mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
+            background: Some(Background::Color(iced::Color { a: 0.5, ..iced::Color::BLACK })),
+            ..container::Style::default()
+        }))
+        .on_press(Message::HotkeyCancel);
+        iced::widget::stack![backdrop, container(iced::widget::opaque(card)).center(Length::Fill)].into()
     }
 
     /// Overview tiles and the storage chart on top, then the settings in
@@ -478,14 +661,21 @@ impl State {
             t,
         );
 
-        let shortcut_state = |text: &str| -> &'static str {
-            if text.trim().is_empty() {
-                ""
-            } else if paperloom_common::hotkey::Hotkey::parse(text).is_some() {
-                "✓"
-            } else {
-                "not a valid shortcut"
-            }
+        let shortcut_row = |label: &'static str, current: &str, status: &str, target: HotkeyTarget| -> Element<'_, Message> {
+            let (status_text, status_color) = match (current.trim().is_empty(), status) {
+                (true, _) => ("off", t.muted_foreground),
+                (false, "ok") => ("active", t.success),
+                (false, "in use") => ("another program already uses this key", t.destructive),
+                (false, _) => ("", t.muted_foreground),
+            };
+            row![
+                text(label).size(13).width(Length::Fixed(130.0)),
+                button(crate::ui::label(if current.trim().is_empty() { "Not set".to_string() } else { current.to_string() }).size(13)).style(button::secondary).padding([6, 12]).on_press(Message::HotkeyChange(target)),
+                text(status_text).size(12).color(status_color),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center)
+            .into()
         };
         let shortcuts = card(
             "Keyboard shortcuts",
@@ -493,21 +683,9 @@ impl State {
             item(
                 SettingId::Hotkeys,
                 column![
-                    row![
-                        text("Next wallpaper").size(13).width(Length::Fixed(130.0)),
-                        text_input("Ctrl+Alt+Right", &settings.hotkey_next).on_input(Message::HotkeyNext).padding(6).width(Length::Fixed(200.0)),
-                        text(shortcut_state(&settings.hotkey_next)).size(12).color(t.muted_foreground),
-                    ]
-                    .spacing(8)
-                    .align_y(iced::Alignment::Center),
-                    row![
-                        text("Pause / resume").size(13).width(Length::Fixed(130.0)),
-                        text_input("Ctrl+Alt+P", &settings.hotkey_pause).on_input(Message::HotkeyPause).padding(6).width(Length::Fixed(200.0)),
-                        text(shortcut_state(&settings.hotkey_pause)).size(12).color(t.muted_foreground),
-                    ]
-                    .spacing(8)
-                    .align_y(iced::Alignment::Center),
-                    hint("Use Ctrl, Alt, Shift or Super with a letter, number, F-key or arrow. Linux (X11) and Windows. \"Next\" follows your Rotation."),
+                    shortcut_row("Next wallpaper", &settings.hotkey_next, &self.hotkey_status.0, HotkeyTarget::Next),
+                    shortcut_row("Pause / resume", &settings.hotkey_pause, &self.hotkey_status.1, HotkeyTarget::Pause),
+                    hint("Click a shortcut, then press the keys you want. Nothing changes until you save. Linux (X11) and Windows. \"Next\" follows your Rotation."),
                 ]
                 .spacing(8)
                 .into(),

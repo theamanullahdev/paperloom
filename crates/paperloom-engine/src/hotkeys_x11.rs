@@ -29,18 +29,27 @@ impl Hotkeys {
         for (code, modifiers, _) in self.grabbed.drain(..) {
             let _ = conn.ungrab_key(code, self.root, ModMask::from(modifiers));
         }
+        let mut status = [String::new(), String::new()];
         for (index, text) in [next, pause].into_iter().enumerate() {
             let Some(hotkey) = Hotkey::parse(text) else { continue };
             let Some(code) = keycode_for(conn, hotkey.x11_keysym()) else { continue };
             // Also grab with Caps Lock / Num Lock on, or the shortcut dies when they are.
+            let mut all_ok = true;
             for lock in [0u16, 2, 16, 18] {
                 let modifiers = hotkey.x11_modifiers() | lock;
-                if conn.grab_key(false, self.root, ModMask::from(modifiers), code, GrabMode::ASYNC, GrabMode::ASYNC).is_ok() {
+                // `check` waits for the server's answer: another program that
+                // already grabbed the key makes it an error (BadAccess).
+                let granted = conn.grab_key(false, self.root, ModMask::from(modifiers), code, GrabMode::ASYNC, GrabMode::ASYNC).ok().is_some_and(|cookie| cookie.check().is_ok());
+                if granted {
                     self.grabbed.push((code, modifiers, index as u8));
+                } else {
+                    all_ok = false;
                 }
             }
+            status[index] = if all_ok { "ok" } else { "in use" }.to_string();
         }
         let _ = conn.flush();
+        crate::player::set_hotkey_status(&status[0], &status[1]);
     }
 
     pub fn event(&self, event: &Event) -> Option<Shortcut> {

@@ -282,16 +282,20 @@ fn sync_hotkeys(next: &str, pause: &str) {
         return;
     }
     *current = (next.to_string(), pause.to_string());
+    let mut status = [String::new(), String::new()];
     for (id, text) in [(1, next), (2, pause)] {
         // SAFETY: thread-level hotkeys (no window); ids are ours.
         unsafe {
             UnregisterHotKey(std::ptr::null_mut(), id);
             if let Some(hotkey) = Hotkey::parse(text) {
                 const NOREPEAT: u32 = 0x4000;
-                RegisterHotKey(std::ptr::null_mut(), id, hotkey.windows_modifiers() | NOREPEAT, hotkey.windows_vk());
+                // 0 means another program already owns that combination.
+                let ok = RegisterHotKey(std::ptr::null_mut(), id, hotkey.windows_modifiers() | NOREPEAT, hotkey.windows_vk()) != 0;
+                status[(id - 1) as usize] = if ok { "ok" } else { "in use" }.to_string();
             }
         }
     }
+    player::set_hotkey_status(&status[0], &status[1]);
 }
 
 fn run_hotkeys(mpv: &Mpv) {

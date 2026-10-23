@@ -67,6 +67,38 @@ impl Hotkey {
         (hotkey.ctrl || hotkey.alt || hotkey.shift || hotkey.super_key).then_some(hotkey)
     }
 
+    /// The shortcut as text, always in the same form ("Ctrl+Alt+Right").
+    pub fn to_text(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if self.ctrl {
+            parts.push("Ctrl".into());
+        }
+        if self.alt {
+            parts.push("Alt".into());
+        }
+        if self.shift {
+            parts.push("Shift".into());
+        }
+        if self.super_key {
+            parts.push("Super".into());
+        }
+        parts.push(match self.key {
+            Key::Char(c) => c.to_string(),
+            Key::Function(n) => format!("F{n}"),
+            Key::Left => "Left".into(),
+            Key::Right => "Right".into(),
+            Key::Up => "Up".into(),
+            Key::Down => "Down".into(),
+            Key::Space => "Space".into(),
+            Key::Enter => "Enter".into(),
+            Key::Home => "Home".into(),
+            Key::End => "End".into(),
+            Key::PageUp => "PageUp".into(),
+            Key::PageDown => "PageDown".into(),
+        });
+        parts.join("+")
+    }
+
     /// X11 keysym of the key.
     pub fn x11_keysym(&self) -> u32 {
         match self.key {
@@ -114,6 +146,33 @@ impl Hotkey {
     }
 }
 
+/// Combinations the system or nearly every app already uses; taking them for
+/// a global shortcut would break something else.
+const RESERVED: &[&str] = &[
+    "Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+Z", "Ctrl+Y", "Ctrl+A", "Ctrl+S", "Ctrl+W", "Ctrl+Q", "Ctrl+F", "Ctrl+N", "Ctrl+T", "Ctrl+P", "Ctrl+O",
+    "Alt+F4", "Alt+Tab", "Alt+Space", "Ctrl+Alt+Delete", "Ctrl+Shift+Escape", "Ctrl+Alt+T", "Ctrl+Alt+L",
+    "Ctrl+Alt+Left", "Ctrl+Alt+Right", "Ctrl+Alt+Up", "Ctrl+Alt+Down",
+    "Super+L", "Super+D", "Super+E", "Super+R", "Super+Tab", "Super+Left", "Super+Right", "Super+Up", "Super+Down", "Super+Space",
+];
+
+/// Checks a shortcut before it is saved: it must be a real combination, not
+/// one the system uses, and not the same as `other` (the other Paperloom
+/// shortcut, named `other_name`). Returns the normalised text.
+pub fn validate(text: &str, other: &str, other_name: &str) -> Result<String, String> {
+    let hotkey = Hotkey::parse(text).ok_or("That isn't a usable shortcut. Hold Ctrl, Alt, Shift or Super and press one more key.")?;
+    if hotkey.shift && !hotkey.ctrl && !hotkey.alt && !hotkey.super_key {
+        return Err("Shift on its own would take over normal typing. Add Ctrl, Alt or Super.".into());
+    }
+    let normal = hotkey.to_text();
+    if RESERVED.iter().filter_map(|reserved| Hotkey::parse(reserved)).any(|reserved| reserved == hotkey) {
+        return Err(format!("{normal} is used by the system or most apps. Pick another."));
+    }
+    if Hotkey::parse(other).is_some_and(|other_key| other_key == hotkey) {
+        return Err(format!("{normal} is already the shortcut for {other_name}."));
+    }
+    Ok(normal)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +187,16 @@ mod tests {
         assert_eq!(next.windows_modifiers(), 1 | 2);
         assert_eq!(Hotkey::parse("super + p").unwrap().x11_keysym(), 'p' as u32);
         assert_eq!(Hotkey::parse("Ctrl+F5").unwrap().windows_vk(), 0x74);
+    }
+
+    #[test]
+    fn validation_catches_conflicts_and_reserved_keys() {
+        assert_eq!(validate("ctrl + alt + n", "", "x"), Ok("Ctrl+Alt+N".to_string()));
+        assert!(validate("Ctrl+C", "", "x").is_err());
+        assert!(validate("Ctrl+Alt+Right", "", "x").is_err());
+        assert!(validate("Shift+A", "", "x").is_err());
+        assert!(validate("Ctrl+Alt+N", "alt+ctrl+n", "Next wallpaper").unwrap_err().contains("Next wallpaper"));
+        assert!(validate("", "", "x").is_err());
     }
 
     #[test]

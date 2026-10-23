@@ -48,6 +48,10 @@ pub struct EngineInfo {
     pub dropped_frames: i64,
     /// 0 = full quality; 1–2 = the performance guard lowered decoding quality.
     pub guard_level: u8,
+    /// Whether each global shortcut could be registered: "" (none set),
+    /// "ok" or "in use" (another program already owns that key).
+    pub hotkey_next: String,
+    pub hotkey_pause: String,
 }
 
 /// One `gsettings` value: schema, key, and the value exactly as
