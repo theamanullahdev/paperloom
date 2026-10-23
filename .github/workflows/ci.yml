@@ -1,13 +1,15 @@
 name: CI
 
-# Every push (any branch) and every PR: lint + test on Linux, then build
-# every installer on its real platform (package.yml). Nothing is published
-# here — the installers are downloadable from the run's "Artifacts" box;
-# publishing happens in release.yml.
+# Every push (any branch) and every PR: lint + test on Linux, native clippy
+# on Windows and macOS. Pull requests and manual runs also build every
+# installer (package.yml; downloadable from the run's "Artifacts" box).
+# Pushes don't: release.yml builds them for the release. Nothing is
+# published here. Every job has a timeout so a stuck runner fails fast.
 on:
   push:
     branches: ["**"]
     tags-ignore: ["**"]
+    paths-ignore: ["**.md", "site/**", "LICENSE*"]
   pull_request:
   workflow_dispatch:
 
@@ -22,10 +24,11 @@ jobs:
   test:
     name: Lint & test
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install libmpv-dev
-        run: sudo apt-get update && sudo apt-get install -y libmpv-dev
+        run: scripts/ci-apt.sh libmpv-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -44,6 +47,7 @@ jobs:
       matrix:
         os: [windows-2022, macos-15]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -56,4 +60,5 @@ jobs:
 
   package:
     name: Package
+    if: github.event_name != 'push'
     uses: ./.github/workflows/package.yml

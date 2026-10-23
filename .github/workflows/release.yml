@@ -7,19 +7,23 @@ name: Release
 #                 (scripts/next-version.sh: feat → minor, fix/other → patch,
 #                 breaking → major, minor while 0.x). Docs-only pushes, or a
 #                 commit message containing [skip release], release nothing.
-#   2. test     — clippy + tests.
-#   3. package  — every installer, with that version stamped in: the Linux
+#   2. package  — every installer, with that version stamped in: the Linux
 #                 packages (a couple of minutes) and the rest (Windows,
 #                 macOS, Flatpak — up to ~15 minutes) as separate groups.
-#   4. publish  — as soon as tests pass and the Linux packages exist: commit
+#   3. publish  — as soon as the Linux packages exist: commit
 #                 the version bump, tag vX.Y.Z, push, create the Release
 #                 with the .deb/.rpm, and refresh the apt repository + the
 #                 release list on GitHub Pages. apt users get the update
 #                 within minutes instead of waiting for the slowest build.
-#   5. attach   — when the other builds finish, add whichever succeeded to
+#   4. attach   — when the other builds finish, add whichever succeeded to
 #                 the same Release (checksums and notes updated), and refresh
 #                 Pages again. A failed platform is left out and named in the
 #                 notes; it ships in the next release once fixed.
+#
+# Lint and tests are not part of this pipeline: ci.yml runs them on every
+# push, in parallel, so a release never waits for (or hangs on) them. Every
+# job here has a timeout, so a stuck runner fails fast instead of blocking
+# the next release.
 #
 # Run it by hand from the Actions tab ("Run workflow") to force a
 # patch/minor/major release.
@@ -48,6 +52,7 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.plan.outputs.version }}
     steps:
@@ -76,21 +81,6 @@ jobs:
           echo "Releasing $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-  test:
-    needs: plan
-    if: needs.plan.outputs.version != ''
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install libmpv-dev
-        run: sudo apt-get update && sudo apt-get install -y libmpv-dev
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
-
   package-linux:
     needs: plan
     if: needs.plan.outputs.version != ''
@@ -110,8 +100,9 @@ jobs:
       targets: windows,macos,flatpak
 
   publish:
-    needs: [plan, test, package-linux]
+    needs: [plan, package-linux]
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -164,6 +155,7 @@ jobs:
     # release itself exists.
     if: always() && needs.publish.result == 'success'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:

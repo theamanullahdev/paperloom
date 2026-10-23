@@ -32,6 +32,7 @@ jobs:
     name: Linux (.deb, .rpm)
     if: inputs.targets == '' || inputs.targets == 'all' || contains(inputs.targets, 'linux')
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,7 +46,7 @@ jobs:
           if [ -n "$VERSION" ]; then scripts/set-version.sh "$VERSION"; fi
           echo "version=$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
       - name: Install libmpv-dev
-        run: sudo apt-get update && sudo apt-get install -y libmpv-dev
+        run: scripts/ci-apt.sh libmpv-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
@@ -74,6 +75,7 @@ jobs:
     name: Windows (.msi, setup .exe)
     if: inputs.targets == '' || inputs.targets == 'all' || contains(inputs.targets, 'windows')
     runs-on: windows-2022
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -189,6 +191,7 @@ jobs:
           - runner: macos-15-intel
             arch: x86_64
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -232,6 +235,7 @@ jobs:
     name: Flatpak cargo sources
     if: inputs.targets == '' || inputs.targets == 'all' || contains(inputs.targets, 'flatpak')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -263,6 +267,7 @@ jobs:
     if: inputs.targets == '' || inputs.targets == 'all' || contains(inputs.targets, 'flatpak')
     needs: flatpak-sources
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
       options: --privileged
