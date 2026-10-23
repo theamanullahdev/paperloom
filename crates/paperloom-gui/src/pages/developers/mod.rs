@@ -275,7 +275,7 @@ impl State {
     }
 
     pub fn header<'a>(&'a self) -> Element<'a, Message> {
-        button(crate::ui::label("Back to Settings")).style(button::secondary).on_press(Message::Back).into()
+        button(crate::ui::label("Back to Settings")).style(crate::ui::secondary).on_press(Message::Back).into()
     }
 
     pub fn body<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
@@ -345,8 +345,8 @@ impl State {
         let running: Vec<String> = self.test_progress.lock().map(|lines| lines.clone()).unwrap_or_default();
         let bar = row![
             button(crate::ui::label(if self.test_running { "Running…" } else { "Run all tests" })).on_press_maybe((!self.test_running).then_some(Message::RunTests)),
-            button(crate::ui::label("Copy report")).style(button::secondary).on_press_maybe((!self.test_report.is_empty()).then(|| Message::Copy(self.test_report.clone()))),
-            button(crate::ui::label("Open the saved file")).style(button::secondary).on_press(Message::OpenFolder(Folder::Logs)),
+            button(crate::ui::label("Copy report")).style(crate::ui::secondary).on_press_maybe((!self.test_report.is_empty()).then(|| Message::Copy(self.test_report.clone()))),
+            button(crate::ui::label("Open the saved file")).style(crate::ui::secondary).on_press(Message::OpenFolder(Folder::Logs)),
         ]
         .spacing(8)
         .align_y(Alignment::Center)
@@ -372,8 +372,8 @@ impl State {
     fn diagnostics_tab<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let bar = row![
             button(crate::ui::label("Copy diagnostics")).on_press(Message::Copy(self.diagnostics.clone())),
-            button(crate::ui::label(if self.gathering { "Gathering…" } else { "Refresh" })).style(button::secondary).on_press_maybe((!self.gathering).then_some(Message::Refresh)),
-            button(crate::ui::label("Save to file")).style(button::secondary).on_press(Message::SaveDiagnostics),
+            button(crate::ui::label(if self.gathering { "Gathering…" } else { "Refresh" })).style(crate::ui::secondary).on_press_maybe((!self.gathering).then_some(Message::Refresh)),
+            button(crate::ui::label("Save to file")).style(crate::ui::secondary).on_press(Message::SaveDiagnostics),
             text("API keys are never included.").size(12).color(t.muted_foreground),
         ]
         .spacing(8)
@@ -383,8 +383,8 @@ impl State {
     }
 
     fn actions_tab<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let go = |label: &'static str, action: Action| button(crate::ui::label(label).size(13)).style(button::secondary).padding([6, 10]).on_press_maybe((!self.busy).then_some(Message::Run(action)));
-        let folder = |label: &'static str, folder: Folder| button(crate::ui::label(label).size(13)).style(button::secondary).padding([6, 10]).on_press(Message::OpenFolder(folder));
+        let go = |label: &'static str, action: Action| button(crate::ui::label(label).size(13)).style(crate::ui::secondary).padding([6, 10]).on_press_maybe((!self.busy).then_some(Message::Run(action)));
+        let folder = |label: &'static str, folder: Folder| button(crate::ui::label(label).size(13)).style(crate::ui::secondary).padding([6, 10]).on_press(Message::OpenFolder(folder));
         let group = |title: &'static str, buttons: Vec<Element<'a, Message>>| -> Element<'a, Message> {
             card(column![heading(title, t), row(buttons).spacing(8).wrap().vertical_spacing(8)].spacing(8).into(), t)
         };
@@ -450,9 +450,9 @@ impl State {
         );
         let bar = row![
             kinds,
-            button(crate::ui::label("Copy").size(13)).style(button::secondary).padding([6, 10]).on_press(Message::Copy(self.log_text.clone())),
-            button(crate::ui::label("Clear").size(13)).style(button::secondary).padding([6, 10]).on_press(Message::ClearLog),
-            button(crate::ui::label("Open folder").size(13)).style(button::secondary).padding([6, 10]).on_press(Message::OpenFolder(Folder::Logs)),
+            button(crate::ui::label("Copy").size(13)).style(crate::ui::secondary).padding([6, 10]).on_press(Message::Copy(self.log_text.clone())),
+            button(crate::ui::label("Clear").size(13)).style(crate::ui::secondary).padding([6, 10]).on_press(Message::ClearLog),
+            button(crate::ui::label("Open folder").size(13)).style(crate::ui::secondary).padding([6, 10]).on_press(Message::OpenFolder(Folder::Logs)),
         ]
         .spacing(8)
         .align_y(Alignment::Center)

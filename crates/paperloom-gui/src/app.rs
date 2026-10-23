@@ -457,6 +457,7 @@ impl App {
 
     fn layout(&self, size: Size) -> Element<'_, Message> {
         let t = theme::tokens(self.effective_theme());
+        crate::ui::set_tokens(t);
         let width = Width::of(size.width);
         let rail_width = match width {
             Width::Wide => 200.0,
@@ -509,6 +510,15 @@ impl App {
             ]
             .spacing(10)
             .into()
+        } else if width == Width::Wide {
+            // Title and search on the left; the page's buttons, the update
+            // button and Downloads together on the right, the same on every page.
+            let mut actions = row![header].spacing(10).align_y(Alignment::Center);
+            if let Some(update) = self.update_button(t) {
+                actions = actions.push(update);
+            }
+            actions = actions.push(self.downloads_button(t));
+            row![title_text, search_box, Space::new().width(Length::Fill), actions].spacing(12).align_y(Alignment::Center).into()
         } else {
             let mut bar = row![title_text, search_box, header].spacing(12).align_y(Alignment::Center);
             if let Some(update) = self.update_button(t) {

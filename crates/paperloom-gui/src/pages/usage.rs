@@ -160,7 +160,7 @@ impl State {
     }
 
     pub fn header<'a>(&'a self) -> Element<'a, Message> {
-        button(crate::ui::label("Back to Settings")).style(button::secondary).on_press(Message::Back).into()
+        button(crate::ui::label("Back to Settings")).style(crate::ui::secondary).on_press(Message::Back).into()
     }
 
     pub fn body<'a>(&'a self, _settings: &'a Settings, t: theme::Tokens, history: &'a History) -> Element<'a, Message> {

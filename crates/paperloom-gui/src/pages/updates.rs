@@ -287,7 +287,7 @@ impl State {
     }
 
     pub fn header<'a>(&'a self) -> Element<'a, Message> {
-        button(crate::ui::label("Back to Settings")).style(button::secondary).on_press(Message::Back).into()
+        button(crate::ui::label("Back to Settings")).style(crate::ui::secondary).on_press(Message::Back).into()
     }
 
     pub fn body<'a>(&'a self, settings: &'a Settings, t: theme::Tokens) -> Element<'a, Message> {
@@ -454,7 +454,7 @@ impl State {
             details = details.push(
                 row![
                     detail("Skipping", format!("version {version}"), t),
-                    button(crate::ui::label("Stop skipping").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::StopIgnoring),
+                    button(crate::ui::label("Stop skipping").size(12)).style(crate::ui::secondary).padding([4, 10]).on_press(Message::StopIgnoring),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -485,9 +485,9 @@ impl State {
         let ignored = settings.updates.ignored_version.as_deref().and_then(Version::parse).as_ref() == Some(&release.version);
         let preferred = release.asset_for(self.kind).map(|asset| asset.name.clone());
 
-        let mut actions = row![button(crate::ui::label("Release page")).style(button::secondary).on_press(Message::OpenUrl(release.page_url.clone()))].spacing(8);
+        let mut actions = row![button(crate::ui::label("Release page")).style(crate::ui::secondary).on_press(Message::OpenUrl(release.page_url.clone()))].spacing(8);
         if release.version > report.current && !ignored {
-            actions = actions.push(button(crate::ui::label("Skip this version")).style(button::secondary).on_press(Message::Ignore(version.clone())));
+            actions = actions.push(button(crate::ui::label("Skip this version")).style(crate::ui::secondary).on_press(Message::Ignore(version.clone())));
         }
 
         let mut body = column![
@@ -597,7 +597,7 @@ impl State {
             details = details.push(text(format!("The install did not finish: {error}")).size(12).color(t.destructive));
         }
 
-        let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(button::secondary).padding([4, 10]).on_press(message);
+        let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(crate::ui::secondary).padding([4, 10]).on_press(message);
         let mut actions = column![].spacing(6).align_x(Alignment::End);
         match s.phase {
             Phase::Ready if self.installed.as_ref() == Some(&s.version) => {
@@ -660,7 +660,7 @@ fn asset_row<'a>(version: &str, asset: &'a update::Asset, matches_install: bool,
     let download = Message::Download { version: version.to_string(), asset: asset.name.clone() };
     let mut button = button(crate::ui::label("Download").size(12)).padding([4, 10]);
     if !matches_install {
-        button = button.style(button::secondary);
+        button = button.style(crate::ui::secondary);
     }
     let mut title = row![text(asset.name.clone()).size(13).color(t.foreground)].spacing(8).align_y(Alignment::Center);
     if matches_install {

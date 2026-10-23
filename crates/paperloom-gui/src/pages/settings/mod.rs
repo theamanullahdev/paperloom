@@ -440,10 +440,10 @@ impl State {
                 verdict,
                 row![
                     button(crate::ui::label("Save")).on_press_maybe(can_save.then_some(Message::HotkeySave)),
-                    button(crate::ui::label("Cancel")).style(button::secondary).on_press(Message::HotkeyCancel),
+                    button(crate::ui::label("Cancel")).style(crate::ui::secondary).on_press(Message::HotkeyCancel),
                     Space::new().width(Length::Fill),
-                    button(crate::ui::label("Use the default").size(12)).style(button::text).on_press(Message::HotkeyDefault),
-                    button(crate::ui::label("Remove it").size(12)).style(button::text).on_press(Message::HotkeyClear),
+                    button(crate::ui::label("Use the default").size(12)).style(crate::ui::ghost).on_press(Message::HotkeyDefault),
+                    button(crate::ui::label("Remove it").size(12)).style(crate::ui::ghost).on_press(Message::HotkeyClear),
                 ]
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
@@ -628,9 +628,9 @@ impl State {
                     text("Wallpaper folder").size(13),
                     text(paperloom_common::wallpapers_dir().display().to_string()).size(12).color(t.foreground),
                     row![
-                        button(crate::ui::label("Choose folder…").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::ChooseLibraryFolder),
+                        button(crate::ui::label("Choose folder…").size(12)).style(crate::ui::secondary).padding([4, 10]).on_press(Message::ChooseLibraryFolder),
                         button(crate::ui::label("Use default").size(12))
-                            .style(button::text)
+                            .style(crate::ui::ghost)
                             .padding([4, 10])
                             .on_press_maybe(settings.library_folder.is_some().then_some(Message::DefaultLibraryFolder)),
                     ]
@@ -670,7 +670,7 @@ impl State {
             };
             row![
                 text(label).size(13).width(Length::Fixed(130.0)),
-                button(crate::ui::label(if current.trim().is_empty() { "Not set".to_string() } else { current.to_string() }).size(13)).style(button::secondary).padding([6, 12]).on_press(Message::HotkeyChange(target)),
+                button(crate::ui::label(if current.trim().is_empty() { "Not set".to_string() } else { current.to_string() }).size(13)).style(crate::ui::secondary).padding([6, 12]).on_press(Message::HotkeyChange(target)),
                 text(status_text).size(12).color(status_color),
             ]
             .spacing(10)
@@ -708,7 +708,7 @@ impl State {
                     body = body.push(text_input("Type it again", &self.lock_confirm).secure(true).on_input(Message::LockConfirm).on_submit(Message::LockSet).padding(6).width(Length::Fixed(260.0)));
                     let mut buttons = row![button(crate::ui::label(if has_password { "Change password" } else { "Set password" })).on_press(Message::LockSet)].spacing(8);
                     if has_password {
-                        buttons = buttons.push(button(crate::ui::label("Remove password")).style(button::secondary).on_press(Message::LockRemove));
+                        buttons = buttons.push(button(crate::ui::label("Remove password")).style(crate::ui::secondary).on_press(Message::LockRemove));
                     }
                     body = body.push(buttons);
                     if let Some(note) = &self.lock_note {
@@ -796,7 +796,7 @@ impl State {
                 row![
                     column![text(format!("Paperloom {}", env!("CARGO_PKG_VERSION"))).size(15), text(update_summary).size(12).color(t.muted_foreground)].spacing(4),
                     Space::new().width(Length::Fill),
-                    button(crate::ui::label("Updates")).style(button::secondary).on_press(Message::OpenUpdates),
+                    button(crate::ui::label("Updates")).style(crate::ui::secondary).on_press(Message::OpenUpdates),
                 ]
                 .align_y(iced::Alignment::Center)
                 .into(),
@@ -818,7 +818,7 @@ impl State {
         let mut page = column![].spacing(16);
         if let Some(stats) = &self.stats {
             page = page
-                .push(row![Space::new().width(Length::Fill), button(crate::ui::label("Resource usage")).style(button::secondary).on_press(Message::OpenUsage)])
+                .push(row![Space::new().width(Length::Fill), button(crate::ui::label("Resource usage")).style(crate::ui::secondary).on_press(Message::OpenUsage)])
                 .push(overview(stats, t))
                 .push(storage_chart(stats, t));
         }

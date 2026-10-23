@@ -546,7 +546,7 @@ impl State {
     }
 
     pub fn header<'a>(&'a self) -> Element<'a, Message> {
-        row![button(crate::ui::label("Import wallpapers...")).style(button::primary).on_press(Message::ImportClicked), self.stop_controls()]
+        row![button(crate::ui::label("Import wallpapers...")).style(crate::ui::primary).on_press(Message::ImportClicked), self.stop_controls()]
             .spacing(8)
             .align_y(Alignment::Center)
             .wrap()
@@ -558,12 +558,12 @@ impl State {
     /// the wallpaper (Paperloom stays open) and stopping it and quitting.
     fn stop_controls<'a>(&self) -> Element<'a, Message> {
         if !self.confirm_stop {
-            return button(crate::ui::label("Stop wallpaper")).style(button::secondary).on_press(Message::StopClicked).into();
+            return button(crate::ui::label("Stop wallpaper")).style(crate::ui::secondary).on_press(Message::StopClicked).into();
         }
         row![
-            button(crate::ui::label("Stop wallpaper only")).style(button::secondary).on_press(Message::StopWallpaper),
-            button(crate::ui::label("Stop and quit Paperloom")).style(button::danger).on_press(Message::StopAndQuit),
-            button(crate::ui::label("Cancel")).style(button::text).on_press(Message::CancelStop),
+            button(crate::ui::label("Stop wallpaper only")).style(crate::ui::secondary).on_press(Message::StopWallpaper),
+            button(crate::ui::label("Stop and quit Paperloom")).style(crate::ui::danger).on_press(Message::StopAndQuit),
+            button(crate::ui::label("Cancel")).style(crate::ui::ghost).on_press(Message::CancelStop),
         ]
         .spacing(6)
         .wrap()
@@ -580,7 +580,7 @@ impl State {
             page = page.push(
                 row![
                     text(format!("Wallpapers matching “{}”", self.search)).color(t.foreground),
-                    button(crate::ui::label("Show all").size(12)).style(button::text).padding([2, 6]).on_press(Message::SearchChanged(String::new())),
+                    button(crate::ui::label("Show all").size(12)).style(crate::ui::ghost).padding([2, 6]).on_press(Message::SearchChanged(String::new())),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center)
@@ -752,7 +752,7 @@ impl State {
             ViewSize::Small => row![container(name).width(Length::Fill).clip(true), play_button(entry.id, t)].spacing(6).align_y(Alignment::Center).padding([6, 6]).into(),
             ViewSize::Medium | ViewSize::Large => column![
                 container(name).clip(true),
-                button(crate::ui::label("Set as wallpaper").size(12)).style(button::primary).width(Length::Fill).on_press(Message::SetAsWallpaper(entry.id)),
+                button(crate::ui::label("Set as wallpaper").size(12)).style(crate::ui::primary).width(Length::Fill).on_press(Message::SetAsWallpaper(entry.id)),
             ]
             .spacing(8)
             .padding([8, 6])
@@ -764,7 +764,7 @@ impl State {
 
     fn list_row<'a>(&self, entry: &'a LibraryEntry, size: ViewSize, t: theme::Tokens) -> Element<'a, Message> {
         let name = text(entry.display_name.clone()).color(t.foreground);
-        let set = button(crate::ui::label("Set as wallpaper").size(12)).style(button::primary).padding([5, 10]).on_press(Message::SetAsWallpaper(entry.id));
+        let set = button(crate::ui::label("Set as wallpaper").size(12)).style(crate::ui::primary).padding([5, 10]).on_press(Message::SetAsWallpaper(entry.id));
         let collections: Vec<&str> = self.library.collections_of(entry.id).map(|collection| collection.name.as_str()).collect();
 
         let content: Element<'a, Message> = match size {
@@ -831,7 +831,7 @@ impl State {
             Some(CollectionEdit::New(name)) => row![
                 text_input("Collection name", name).on_input(Message::CollectionNameChanged).on_submit(Message::SaveCollectionEdit).padding(8).width(Length::Fixed(260.0)),
                 button(crate::ui::label("Create")).on_press_maybe((!name.trim().is_empty()).then_some(Message::SaveCollectionEdit)),
-                button(crate::ui::label("Cancel")).style(button::text).on_press(Message::CancelCollectionEdit),
+                button(crate::ui::label("Cancel")).style(crate::ui::ghost).on_press(Message::CancelCollectionEdit),
             ]
             .spacing(8)
             .align_y(Alignment::Center)
@@ -839,7 +839,7 @@ impl State {
             .vertical_spacing(8)
             .into(),
             _ => row![
-                button(crate::ui::label("New collection")).style(button::secondary).on_press(Message::NewCollection),
+                button(crate::ui::label("New collection")).style(crate::ui::secondary).on_press(Message::NewCollection),
                 text("Group wallpapers by mood, season, game… A wallpaper can be in several.").size(12).color(t.muted_foreground),
             ]
             .spacing(12)
@@ -905,8 +905,8 @@ impl State {
             return text("Import or download wallpapers and they are sorted here by themselves.").color(t.muted_foreground).into();
         }
         if let Some(open) = self.auto_open.as_ref().and_then(|name| groups.iter().find(|group| &group.name == name)) {
-            let back = button(crate::ui::label("All groups").size(13)).style(button::text).padding([4, 6]).on_press(Message::OpenAuto(None));
-            let save = button(crate::ui::label("Save as a collection").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::SaveAuto(open.name.clone()));
+            let back = button(crate::ui::label("All groups").size(13)).style(crate::ui::ghost).padding([4, 6]).on_press(Message::OpenAuto(None));
+            let save = button(crate::ui::label("Save as a collection").size(12)).style(crate::ui::secondary).padding([4, 10]).on_press(Message::SaveAuto(open.name.clone()));
             let entries = self.visible(|entry| open.members.contains(&entry.id) && !entry.hidden);
             return column![
                 back,
@@ -934,7 +934,7 @@ impl State {
                 .spacing(4)
                 .align_y(Alignment::Center),
         )
-        .style(button::text)
+        .style(crate::ui::ghost)
         .padding([4, 6])
         .on_press(Message::TabSelected(Tab::Collections));
 
@@ -942,7 +942,7 @@ impl State {
             Some(CollectionEdit::Rename(editing, name)) if *editing == id => row![
                 text_input("Collection name", name).on_input(Message::CollectionNameChanged).on_submit(Message::SaveCollectionEdit).padding(6).width(Length::Fixed(240.0)),
                 button(crate::ui::label("Save")).on_press_maybe((!name.trim().is_empty()).then_some(Message::SaveCollectionEdit)),
-                button(crate::ui::label("Cancel")).style(button::text).on_press(Message::CancelCollectionEdit),
+                button(crate::ui::label("Cancel")).style(crate::ui::ghost).on_press(Message::CancelCollectionEdit),
             ]
             .spacing(8)
             .align_y(Alignment::Center)
@@ -951,12 +951,12 @@ impl State {
             _ => text(collection.name.clone()).font(theme::DISPLAY_FONT).size(20).color(t.foreground).into(),
         };
 
-        let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(button::secondary).padding([4, 10]).on_press(message);
+        let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(crate::ui::secondary).padding([4, 10]).on_press(message);
         let actions: Element<'a, Message> = match &self.collection_edit {
             Some(CollectionEdit::ConfirmDelete(deleting)) if *deleting == id => row![
                 text("Delete this collection? Its wallpapers stay in your library.").size(13).color(t.foreground),
-                button(crate::ui::label("Delete collection").size(12)).style(button::danger).padding([4, 10]).on_press(Message::ConfirmDeleteCollection(id)),
-                button(crate::ui::label("Cancel").size(12)).style(button::text).padding([4, 10]).on_press(Message::CancelCollectionEdit),
+                button(crate::ui::label("Delete collection").size(12)).style(crate::ui::danger).padding([4, 10]).on_press(Message::ConfirmDeleteCollection(id)),
+                button(crate::ui::label("Cancel").size(12)).style(crate::ui::ghost).padding([4, 10]).on_press(Message::CancelCollectionEdit),
             ]
             .spacing(8)
             .align_y(Alignment::Center)
@@ -966,7 +966,7 @@ impl State {
             _ => row![
                 small("Rename", Message::RenameCollection(id)),
                 if collection.hidden { small("Unhide", Message::SetCollectionHidden(id, false)) } else { small("Hide", Message::SetCollectionHidden(id, true)) },
-                button(crate::ui::label("Delete").size(12)).style(button::danger).padding([4, 10]).on_press(Message::DeleteCollection(id)),
+                button(crate::ui::label("Delete").size(12)).style(crate::ui::danger).padding([4, 10]).on_press(Message::DeleteCollection(id)),
             ]
             .spacing(6)
             .wrap()
@@ -1039,13 +1039,13 @@ impl State {
         let mut body = column![
             row![
                 text(entry.display_name.clone()).font(theme::DISPLAY_FONT).size(18).color(t.foreground).width(Length::Fill),
-                button(crate::ui::label("Close").size(12)).style(button::text).on_press(Message::CloseActions),
+                button(crate::ui::label("Close").size(12)).style(crate::ui::ghost).on_press(Message::CloseActions),
             ]
             .align_y(Alignment::Center),
             container(self.poster(entry, t)).height(Length::Fixed(150.0)).width(Length::Fill).clip(true),
             row![
-                button(crate::ui::label("Set as wallpaper")).style(button::primary).on_press(Message::SetAsWallpaper(id)),
-                button(crate::ui::label("Preview")).style(button::secondary).on_press(Message::OpenPreview(id)),
+                button(crate::ui::label("Set as wallpaper")).style(crate::ui::primary).on_press(Message::SetAsWallpaper(id)),
+                button(crate::ui::label("Preview")).style(crate::ui::secondary).on_press(Message::OpenPreview(id)),
             ]
             .spacing(8)
             .wrap()
@@ -1053,7 +1053,7 @@ impl State {
             toggler(entry.favorite).label("Favorite ★").on_toggle(move |favorite| Message::ToggleFavorite(id, favorite)),
             row![
                 text_input("Tags, separated by commas", &actions.tags).on_input(Message::ActionsTags).on_submit(Message::SaveTags(id)).padding(6).width(Length::Fill),
-                button(crate::ui::label("Save tags")).style(button::secondary).on_press(Message::SaveTags(id)),
+                button(crate::ui::label("Save tags")).style(crate::ui::secondary).on_press(Message::SaveTags(id)),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -1083,7 +1083,7 @@ impl State {
                     .on_submit(Message::CreateCollectionWith(id))
                     .padding(6)
                     .width(Length::Fill),
-                button(crate::ui::label("Add")).style(button::secondary).on_press_maybe((!name.is_empty()).then_some(Message::CreateCollectionWith(id))),
+                button(crate::ui::label("Add")).style(crate::ui::secondary).on_press_maybe((!name.is_empty()).then_some(Message::CreateCollectionWith(id))),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -1100,8 +1100,8 @@ impl State {
                 column![
                     text(consequence).size(13).color(t.foreground),
                     row![
-                        button(crate::ui::label("Remove")).style(button::danger).on_press(Message::ConfirmRemove(id)),
-                        button(crate::ui::label("Cancel")).style(button::text).on_press(Message::CancelRemove),
+                        button(crate::ui::label("Remove")).style(crate::ui::danger).on_press(Message::ConfirmRemove(id)),
+                        button(crate::ui::label("Cancel")).style(crate::ui::ghost).on_press(Message::CancelRemove),
                     ]
                     .spacing(8),
                 ]
@@ -1111,11 +1111,11 @@ impl State {
             body = body.push(
                 row![
                     if entry.hidden {
-                        button(crate::ui::label("Show in library")).style(button::secondary).on_press(Message::SetHidden(id, false))
+                        button(crate::ui::label("Show in library")).style(crate::ui::secondary).on_press(Message::SetHidden(id, false))
                     } else {
-                        button(crate::ui::label("Hide")).style(button::secondary).on_press(Message::SetHidden(id, true))
+                        button(crate::ui::label("Hide")).style(crate::ui::secondary).on_press(Message::SetHidden(id, true))
                     },
-                    button(crate::ui::label("Remove…")).style(button::danger).on_press(Message::RemoveClicked),
+                    button(crate::ui::label("Remove…")).style(crate::ui::danger).on_press(Message::RemoveClicked),
                 ]
                 .spacing(8)
                 .wrap()
@@ -1185,7 +1185,7 @@ fn kebab<'a>(id: u64) -> Element<'a, Message> {
 /// ⋮ in a list row.
 fn kebab_plain<'a>(id: u64, t: theme::Tokens) -> Element<'a, Message> {
     button(svg(icons::ellipsis()).width(16).height(16).style(move |_theme, _status| svg::Style { color: Some(t.foreground) }))
-        .style(button::text)
+        .style(crate::ui::ghost)
         .padding(6)
         .on_press(Message::OpenActions(id))
         .into()
@@ -1194,7 +1194,7 @@ fn kebab_plain<'a>(id: u64, t: theme::Tokens) -> Element<'a, Message> {
 /// Compact "Set as wallpaper".
 fn play_button<'a>(id: u64, t: theme::Tokens) -> Element<'a, Message> {
     button(svg(icons::play()).width(14).height(14).style(move |_theme, _status| svg::Style { color: Some(t.background) }))
-        .style(button::primary)
+        .style(crate::ui::primary)
         .padding([4, 8])
         .on_press(Message::SetAsWallpaper(id))
         .into()

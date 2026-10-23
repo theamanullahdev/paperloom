@@ -128,7 +128,7 @@ impl State {
     }
 
     pub fn header<'a>(&'a self) -> Element<'a, Message> {
-        button(crate::ui::label("Back to Online")).style(button::secondary).on_press(Message::Back).into()
+        button(crate::ui::label("Back to Online")).style(crate::ui::secondary).on_press(Message::Back).into()
     }
 
     pub fn body<'a>(&'a self, t: theme::Tokens, jobs: Vec<Job>) -> Element<'a, Message> {
@@ -142,10 +142,10 @@ impl State {
             let mut controls = row![text("Drag the handle to change download order. The top one goes first, and waits for its connection before the next one starts.").size(12).color(t.muted_foreground)].spacing(12).align_y(iced::Alignment::Center);
             controls = controls.push(Space::new().width(Length::Fill));
             if any_running {
-                controls = controls.push(button(crate::ui::label("Pause all").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::PauseAll));
+                controls = controls.push(button(crate::ui::label("Pause all").size(12)).style(crate::ui::secondary).padding([4, 10]).on_press(Message::PauseAll));
             }
             if any_paused {
-                controls = controls.push(button(crate::ui::label("Resume all").size(12)).style(button::secondary).padding([4, 10]).on_press(Message::ResumeAll));
+                controls = controls.push(button(crate::ui::label("Resume all").size(12)).style(crate::ui::secondary).padding([4, 10]).on_press(Message::ResumeAll));
             }
             list = list.push(controls);
             for job in jobs {
@@ -224,7 +224,7 @@ fn job_row<'a>(job: Job, bytes_per_second: f64, dragging: Option<&str>, t: theme
         details = details.push(detail("Last message", error.clone()));
     }
 
-    let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(button::secondary).padding([4, 10]).on_press(message);
+    let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(crate::ui::secondary).padding([4, 10]).on_press(message);
     let mut actions = column![].spacing(6).align_x(iced::Alignment::End);
     if reorderable {
         actions = actions.push(
@@ -233,7 +233,7 @@ fn job_row<'a>(job: Job, bytes_per_second: f64, dragging: Option<&str>, t: theme
                     .spacing(4)
                     .align_y(iced::Alignment::Center),
             )
-            .style(button::secondary)
+            .style(crate::ui::secondary)
             .padding([4, 10])
             .on_press(Message::MoveToTop(id.clone())),
         );

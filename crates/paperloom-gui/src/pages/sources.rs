@@ -90,7 +90,7 @@ impl State {
             text_input("API key (optional)", &self.new_key).on_input(Message::NewKey).secure(true).padding(8),
             row![
                 Space::new().width(Length::Fill),
-                button(crate::ui::label("Add source")).style(button::primary).on_press_maybe(can_add.then_some(Message::Add)),
+                button(crate::ui::label("Add source")).style(crate::ui::primary).on_press_maybe(can_add.then_some(Message::Add)),
             ],
         ]
         .spacing(8);
@@ -164,7 +164,7 @@ fn source_card<'a>(source: &'a SourceSetting, t: theme::Tokens) -> Element<'a, M
     if !source.builtin {
         content = content.push(row![
             Space::new().width(Length::Fill),
-            button(crate::ui::label("Remove").size(12)).style(button::danger).padding([4, 10]).on_press(Message::Remove(source.id.clone())),
+            button(crate::ui::label("Remove").size(12)).style(crate::ui::danger).padding([4, 10]).on_press(Message::Remove(source.id.clone())),
         ]);
     }
 

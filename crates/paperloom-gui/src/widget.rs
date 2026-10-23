@@ -235,6 +235,7 @@ impl Widget {
 
     fn view(&self) -> Element<'_, Message> {
         let t = self.tokens();
+        crate::ui::set_tokens(t);
 
         let entry = self.state.current_wallpaper.as_ref().and_then(|path| self.library.entries.iter().find(|entry| &entry.path == path));
         let running = self.engine_running && self.state.current_wallpaper.is_some();
@@ -244,7 +245,7 @@ impl Widget {
             svg(icons::film()).width(20).height(20).style(move |_theme, _status| svg::Style { color: Some(t.primary) }),
             text("Paperloom").font(theme::DISPLAY_FONT).size(18).color(t.primary),
             Space::new().width(Length::Fill),
-            button(text("✕").size(14).color(t.muted_foreground)).padding([2, 8]).style(button::text).on_press(Message::Close),
+            button(text("✕").size(14).color(t.muted_foreground)).padding([2, 8]).style(crate::ui::ghost).on_press(Message::Close),
         ]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -287,7 +288,7 @@ impl Widget {
             let mut control = button(crate::ui::label(label).size(13).center())
                 .padding([9, 10])
                 .width(Length::Fill)
-                .style(if primary { button::primary } else { button::secondary });
+                .style(if primary { crate::ui::primary } else { crate::ui::secondary });
             if enabled {
                 control = control.on_press(message);
             }
@@ -316,7 +317,7 @@ impl Widget {
         };
 
         // --- Shortcuts
-        let link = |label: &'static str, message: Message| button(crate::ui::label(label).size(13)).padding([6, 10]).style(button::text).on_press(message);
+        let link = |label: &'static str, message: Message| button(crate::ui::label(label).size(13)).padding([6, 10]).style(crate::ui::ghost).on_press(message);
         let shortcuts = row![link("Library", Message::OpenApp), link("Usage", Message::Open("usage")), link("Settings", Message::Open("settings")), link("Tray icon", Message::Open("tray"))]
             .spacing(2)
             .wrap();
@@ -324,7 +325,7 @@ impl Widget {
         let open_app = button(crate::ui::label("Open Paperloom").size(14).center())
             .padding([10, 12])
             .width(Length::Fill)
-            .style(button::primary)
+            .style(crate::ui::primary)
             .on_press(Message::OpenApp);
 
         let body = column![

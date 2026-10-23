@@ -66,7 +66,7 @@ pub fn popup<'a>(results: Results<'a>, width: f32, t: theme::Tokens) -> Element<
             column![
                 text("That search is 18+, which is turned off.").size(13).color(t.foreground),
                 button(crate::ui::label("Change in Settings → Content").size(12))
-                    .style(button::secondary)
+                    .style(crate::ui::secondary)
                     .padding([4, 10])
                     .on_press(Message::GoToSetting(SettingId::AllowMature)),
             ]
@@ -85,7 +85,7 @@ pub fn popup<'a>(results: Results<'a>, width: f32, t: theme::Tokens) -> Element<
             for keyword in &results.related {
                 chips = chips.push(
                     button(crate::ui::label(keyword.clone()).size(12))
-                        .style(button::secondary)
+                        .style(crate::ui::secondary)
                         .padding([3, 9])
                         .on_press(Message::SearchOnline(keyword.clone())),
                 );

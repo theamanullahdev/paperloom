@@ -144,7 +144,7 @@ impl Meter {
         };
 
         let check_label = if self.checking { "Checking..." } else { "Check connection" };
-        let check = button(crate::ui::label(check_label)).style(button::secondary).on_press_maybe((!self.checking).then_some(on_check));
+        let check = button(crate::ui::label(check_label)).style(crate::ui::secondary).on_press_maybe((!self.checking).then_some(on_check));
 
         let dot = container(Space::new().width(10).height(10)).style(move |_theme| container::Style {
             background: Some(Background::Color(color)),

@@ -136,7 +136,7 @@ impl State {
                 row![text("How often").size(13).width(Length::Fixed(90.0)), pick_list(INTERVALS, Some(Every(rotation.interval_minutes)), Message::Interval)].align_y(Alignment::Center).spacing(8),
                 toggler(rotation.shuffle).label("Shuffle").on_toggle(Message::Shuffle),
                 row![
-                    button(crate::ui::label("Next wallpaper now")).style(button::secondary).on_press(Message::Next),
+                    button(crate::ui::label("Next wallpaper now")).style(crate::ui::secondary).on_press(Message::Next),
                     text(self.note.clone().unwrap_or_default()).size(12).color(t.muted_foreground),
                 ]
                 .spacing(10)
@@ -159,7 +159,7 @@ impl State {
         for (index, rule) in rotation.rules.iter().enumerate() {
             schedule = schedule.push(rule_row(index, rule, &choices, picked(Some(rule.collection)), t));
         }
-        schedule = schedule.push(button(crate::ui::label("Add a rule")).style(button::secondary).on_press(Message::AddRule));
+        schedule = schedule.push(button(crate::ui::label("Add a rule")).style(crate::ui::secondary).on_press(Message::AddRule));
 
         column![always, card(schedule.into(), t)].spacing(14).into()
     }
@@ -177,7 +177,7 @@ fn rule_row<'a>(index: usize, rule: &'a Rule, choices: &[Choice], picked: Option
         .enumerate()
         .map(|(day, name)| {
             let on = rule.days & (1 << day) != 0;
-            button(crate::ui::label(*name).size(12)).style(if on { button::primary } else { button::secondary }).padding([3, 8]).on_press(Message::RuleDay(index, day as u8)).into()
+            button(crate::ui::label(*name).size(12)).style(if on { crate::ui::primary } else { crate::ui::secondary }).padding([3, 8]).on_press(Message::RuleDay(index, day as u8)).into()
         })
         .collect();
     container(
@@ -190,7 +190,7 @@ fn rule_row<'a>(index: usize, rule: &'a Rule, choices: &[Choice], picked: Option
                 text("to").size(13),
                 pick_list(clocks(), Some(Clock(rule.end)), move |clock| Message::RuleEnd(index, clock)),
                 Space::new().width(Length::Fill),
-                button(crate::ui::label("Remove").size(12)).style(button::text).on_press(Message::RemoveRule(index)),
+                button(crate::ui::label("Remove").size(12)).style(crate::ui::ghost).on_press(Message::RemoveRule(index)),
             ]
             .spacing(8)
             .align_y(Alignment::Center)

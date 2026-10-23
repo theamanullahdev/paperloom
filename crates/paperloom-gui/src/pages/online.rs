@@ -436,7 +436,7 @@ impl State {
 
         let chip = |label: &'static str, filter: QualityFilter| {
             button(crate::ui::label(label).size(13))
-                .style(if self.filter == filter { button::primary } else { button::secondary })
+                .style(if self.filter == filter { crate::ui::primary } else { crate::ui::secondary })
                 .padding([6, 10])
                 .on_press(Message::SetFilter(filter))
         };
@@ -447,7 +447,7 @@ impl State {
 
         header = header.push(
             button(crate::ui::label(if self.hide_owned { "Hiding ones you have" } else { "Showing ones you have" }).size(13))
-                .style(if self.hide_owned { button::primary } else { button::secondary })
+                .style(if self.hide_owned { crate::ui::primary } else { crate::ui::secondary })
                 .padding([6, 10])
                 .on_press(Message::ToggleHideOwned),
         );
@@ -455,7 +455,7 @@ impl State {
         header = header.push(
             iced::widget::text_input("Paste a link to a video or page", &self.link).on_input(Message::LinkChanged).on_submit(Message::AddLink).padding(6).width(Length::Fixed(260.0)),
         );
-        header = header.push(button(crate::ui::label("Add link").size(13)).style(button::secondary).padding([6, 10]).on_press_maybe((!self.link.trim().is_empty()).then_some(Message::AddLink)));
+        header = header.push(button(crate::ui::label("Add link").size(13)).style(crate::ui::secondary).padding([6, 10]).on_press_maybe((!self.link.trim().is_empty()).then_some(Message::AddLink)));
         if let Some(note) = &self.link_note {
             header = header.push(text(note.clone()).size(12).color(t.muted_foreground));
         }
@@ -517,12 +517,12 @@ impl State {
                 Failure::Other(err) => format!("Couldn't load more: {err}"),
             };
             page = page.push(
-                row![text(message).color(t.muted_foreground), button(crate::ui::label("Try again")).style(button::secondary).on_press(Message::LoadMore)]
+                row![text(message).color(t.muted_foreground), button(crate::ui::label("Try again")).style(crate::ui::secondary).on_press(Message::LoadMore)]
                     .spacing(12)
                     .align_y(iced::Alignment::Center),
             );
         } else if self.has_more() {
-            page = page.push(button(crate::ui::label("Load more")).style(button::secondary).on_press(Message::LoadMore));
+            page = page.push(button(crate::ui::label("Load more")).style(crate::ui::secondary).on_press(Message::LoadMore));
         }
 
         let grid_page: Element<'a, Message> = crate::ui::scroll_page(page).into();
@@ -553,7 +553,7 @@ impl State {
         } else if let Some(job) = job {
             job_status(job, t)
         } else {
-            let pick = |label: &'static str, quality: &'static str| button(crate::ui::label(label).center()).style(button::primary).on_press(Message::Download(key.clone(), quality));
+            let pick = |label: &'static str, quality: &'static str| button(crate::ui::label(label).center()).style(crate::ui::primary).on_press(Message::Download(key.clone(), quality));
             if item.has_4k() {
                 row![pick("Download HD", "HD"), pick("Download 4K", "4K")].spacing(8).into()
             } else {
@@ -561,16 +561,16 @@ impl State {
             }
         };
         let mut actions = row![download].spacing(8).align_y(iced::Alignment::Center);
-        actions = actions.push(button(crate::ui::label("Watch preview")).style(button::secondary).on_press(Message::Watch(key.clone())));
+        actions = actions.push(button(crate::ui::label("Watch preview")).style(crate::ui::secondary).on_press(Message::Watch(key.clone())));
         if !item.page_url.is_empty() {
-            actions = actions.push(button(crate::ui::label(format!("Open on {}", item.source_name))).style(button::text).on_press(Message::OpenPage(item.page_url.clone())));
+            actions = actions.push(button(crate::ui::label(format!("Open on {}", item.source_name))).style(crate::ui::ghost).on_press(Message::OpenPage(item.page_url.clone())));
         }
 
         let card = container(
             column![
                 row![
                     text(item.title.clone()).size(20).color(t.foreground).width(Length::Fill),
-                    button(crate::ui::label("Close")).style(button::secondary).on_press(Message::CloseDetail),
+                    button(crate::ui::label("Close")).style(crate::ui::secondary).on_press(Message::CloseDetail),
                 ]
                 .spacing(12)
                 .align_y(iced::Alignment::Center),
@@ -608,7 +608,7 @@ impl State {
         }
         let mut line = row![
             text(format!("Results for “{}”", self.active_query)).size(15).color(t.foreground),
-            button(crate::ui::label("Clear").size(12)).style(button::text).padding([2, 6]).on_press(Message::Search(String::new())),
+            button(crate::ui::label("Clear").size(12)).style(crate::ui::ghost).padding([2, 6]).on_press(Message::Search(String::new())),
         ]
         .spacing(8)
         .align_y(iced::Alignment::Center);
@@ -617,7 +617,7 @@ impl State {
             for stream in &self.streams[1..] {
                 line = line.push(
                     button(crate::ui::label(stream.query.clone()).size(12))
-                        .style(button::secondary)
+                        .style(crate::ui::secondary)
                         .padding([2, 8])
                         .on_press(Message::Search(stream.query.clone())),
                 );
@@ -633,7 +633,7 @@ impl State {
                     svg(icons::wifi_off()).width(40).height(40).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) }),
                     text("You're offline").size(18).color(t.foreground),
                     text("Connect to the internet — this reloads by itself when you're back.").color(t.muted_foreground),
-                    button(crate::ui::label("Try again")).style(button::primary).on_press(Message::Reload),
+                    button(crate::ui::label("Try again")).style(crate::ui::primary).on_press(Message::Reload),
                 ]
                 .spacing(12)
                 .align_x(iced::Alignment::Center),
@@ -648,7 +648,7 @@ impl State {
             content = content.push(text("Searching...").color(t.muted_foreground));
         } else if let Some(Failure::Other(err)) = &self.failure {
             content = content.push(text(format!("Couldn't load wallpapers: {err}")).color(t.muted_foreground));
-            content = content.push(button(crate::ui::label("Try again")).style(button::primary).on_press(Message::Reload));
+            content = content.push(button(crate::ui::label("Try again")).style(crate::ui::primary).on_press(Message::Reload));
         } else if self.items.is_empty() {
             content = content.push(text("No wallpapers found. Try a broader word, or one of the related searches above.").color(t.muted_foreground));
         } else {
@@ -689,7 +689,7 @@ fn card<'a>(item: &'a OnlineItem, thumb: Option<&'a PathBuf>, job: Option<&Job>,
             None => {
                 let pick = |label: &'static str, quality: &'static str| {
                     button(crate::ui::label(label).size(12).center())
-                        .style(button::primary)
+                        .style(crate::ui::primary)
                         .width(Length::Fill)
                         .on_press(Message::Download(key.clone(), quality))
                 };
@@ -722,7 +722,7 @@ fn card<'a>(item: &'a OnlineItem, thumb: Option<&'a PathBuf>, job: Option<&Job>,
 /// One-line status for a queued job plus the buttons that apply to it. The
 /// full detail lives on the Downloads page.
 fn job_status<'a>(job: &Job, t: theme::Tokens) -> Element<'a, Message> {
-    let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(button::text).padding([2, 6]).on_press(message);
+    let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(crate::ui::ghost).padding([2, 6]).on_press(message);
 
     let (label, buttons): (String, Vec<Element<'a, Message>>) = match job.status {
         Status::Queued if job.last_error.is_some() => ("Waiting for connection".into(), vec![small("Cancel", Message::Cancel(job.id.clone())).into()]),
