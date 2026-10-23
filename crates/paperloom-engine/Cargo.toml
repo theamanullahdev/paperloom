@@ -63,3 +63,6 @@ windows-sys = { version = "0.61", features = [
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSDate", "NSDictionary", "NSGeometry", "NSString", "NSValue", "NSRunLoop", "NSObjCRuntime"] }
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSEvent", "NSGraphics", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "NSColor"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
