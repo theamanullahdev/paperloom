@@ -100,6 +100,14 @@ pub struct Ctx<'a> {
 }
 
 impl State {
+    /// Closes whichever share screen is open; `false` when none was.
+    pub fn close(&mut self) -> bool {
+        let was_open = self.sender.is_some() || self.import.is_some();
+        self.sender = None;
+        self.import = None;
+        was_open
+    }
+
     /// Opens the sender dialog for `share`, called `title`.
     pub fn send(&mut self, title: String, share: Share, posters: HashMap<String, PathBuf>) {
         let code = share.encode();
@@ -111,7 +119,8 @@ impl State {
     pub fn open_import(&mut self, text: &str, ctx: &Ctx) -> Task<Message> {
         self.import = Some(Import { text: String::new(), error: None, share: None, states: Vec::new(), picked: Vec::new(), quality: Quality::Hd, collection: String::new() });
         if text.trim().is_empty() {
-            Task::none()
+            // Ready to paste into.
+            iced::widget::operation::focus(view::CODE_INPUT)
         } else {
             self.read(text, ctx)
         }

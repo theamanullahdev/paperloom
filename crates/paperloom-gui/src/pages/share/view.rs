@@ -7,6 +7,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length};
 use super::{ItemState, Message, State, QUALITIES};
 use crate::theme;
 
+pub const CODE_INPUT: &str = "share-code";
 const CARD_WIDTH: f32 = 190.0;
 const THUMB_HEIGHT: f32 = 107.0;
 
@@ -99,7 +100,7 @@ impl State {
 
         let mut side = column![
             text("Share code").size(13).color(t.muted_foreground),
-            text_input("Paste the code here", &import.text).on_input(Message::Text).padding(8).width(Length::Fill),
+            text_input("Paste the code here", &import.text).id(CODE_INPUT).on_input(Message::Text).padding(8).width(Length::Fill),
             row![
                 iced::widget::button(crate::ui::label("Paste").center()).style(crate::ui::secondary).padding([8, 14]).width(Length::Fill).on_press(Message::Paste),
                 iced::widget::button(crate::ui::label("Open file…").center()).style(crate::ui::secondary).padding([8, 14]).width(Length::Fill).on_press(Message::ChooseFile),

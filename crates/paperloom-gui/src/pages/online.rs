@@ -13,7 +13,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use iced::widget::{button, column, container, grid, image, mouse_area, opaque, row, stack, svg, text, Space};
+use iced::widget::{button, column, container, grid, image, mouse_area, row, stack, svg, text, Space};
 use iced::{Background, Border, Element, Length, Shadow, Subscription, Task};
 
 use paperloom_common::Settings;
@@ -528,28 +528,21 @@ impl State {
             page = page.push(button(crate::ui::label("Load more")).style(crate::ui::secondary).on_press(Message::LoadMore));
         }
 
-        let grid_page: Element<'a, Message> = crate::ui::scroll_page(page).into();
-        match self.selected.as_ref().and_then(|key| self.items.iter().find(|item| &item.key() == key)) {
-            Some(item) => {
-                let key = item.key();
-                stack![grid_page, self.detail(item, self.thumbs.get(&key), jobs.get(&key), in_library(&key), t)].into()
-            }
-            None => grid_page,
-        }
+        crate::ui::scroll_page(page).into()
+    }
+
+    /// The wallpaper screen, when one is open: drawn over the whole window.
+    pub fn overlay<'a>(&'a self, t: theme::Tokens, in_library: &dyn Fn(&str) -> bool) -> Option<Element<'a, Message>> {
+        let item = self.selected.as_ref().and_then(|key| self.items.iter().find(|item| &item.key() == key))?;
+        let key = item.key();
+        let job = self.queue.snapshot().into_iter().find(|job| job.id == key);
+        Some(self.detail(item, self.thumbs.get(&key), job.as_ref(), in_library(&key), t))
     }
 
     /// The half-screen pop-up for one wallpaper: bigger preview, where it
     /// comes from, what it is, and the download choices.
     fn detail<'a>(&'a self, item: &'a OnlineItem, thumb: Option<&'a PathBuf>, job: Option<&Job>, in_library: bool, t: theme::Tokens) -> Element<'a, Message> {
         let key = item.key();
-        let picture: Element<'a, Message> = match thumb {
-            Some(path) => image(image::Handle::from_path(path)).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(Length::Fixed(280.0)).into(),
-            None => container(svg(icons::film()).width(40).height(40).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) }))
-                .center(Length::Fill)
-                .height(Length::Fixed(280.0))
-                .style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), ..container::Style::default() })
-                .into(),
-        };
         let qualities = item.variants.iter().map(|variant| variant.label.as_str()).collect::<Vec<_>>().join(" · ");
         let download: Element<'a, Message> = if in_library {
             text("In your library").size(14).color(t.success).into()
@@ -563,43 +556,38 @@ impl State {
                 pick("Download", "HD").into()
             }
         };
-        let mut actions = row![download].spacing(8).align_y(iced::Alignment::Center);
+        let mut actions = row![].spacing(8).align_y(iced::Alignment::Center);
         actions = actions.push(button(crate::ui::label("Watch preview")).style(crate::ui::secondary).on_press(Message::Watch(key.clone())));
         if !item.page_url.is_empty() {
             actions = actions.push(button(crate::ui::label(format!("Open on {}", item.source_name))).style(crate::ui::ghost).on_press(Message::OpenPage(item.page_url.clone())));
         }
 
-        let card = container(
-            column![
-                row![
-                    text(item.title.clone()).size(20).color(t.foreground).width(Length::Fill),
-                    button(crate::ui::label("Close")).style(crate::ui::secondary).on_press(Message::CloseDetail),
-                ]
-                .spacing(12)
-                .align_y(iced::Alignment::Center),
-                container(picture).clip(true).style(|_theme| container::Style { border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() }),
-                text(format!("{} · {}", item.source_name, qualities)).size(13).color(t.muted_foreground),
-                actions.wrap().vertical_spacing(8),
-            ]
-            .spacing(14),
-        )
-        .padding(20)
-        .max_width(640)
-        .style(move |_theme| container::Style {
-            background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
-            shadow: Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 8.0), blur_radius: 28.0 },
-            ..container::Style::default()
-        });
-
-        // The dimmed backdrop closes the pop-up when clicked; `opaque` keeps
-        // clicks on the card itself from reaching it.
-        let backdrop = mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
-            background: Some(Background::Color(iced::Color { a: 0.55, ..iced::Color::BLACK })),
-            ..container::Style::default()
-        }))
-        .on_press(Message::CloseDetail);
-        stack![backdrop, container(opaque(card)).center(Length::Fill).padding(24)].into()
+        let picture: Element<'a, Message> = match thumb {
+            Some(path) => image(image::Handle::from_path(path)).content_fit(iced::ContentFit::Contain).width(Length::Fill).height(Length::Fill).into(),
+            None => container(svg(icons::film()).width(40).height(40).style(move |_theme, _status| svg::Style { color: Some(t.muted_foreground) }))
+                .center(Length::Fill)
+                .into(),
+        };
+        let left = container::<Message, iced::Theme, iced::Renderer>(picture)
+            .width(Length::FillPortion(6))
+            .height(Length::Fill)
+            .clip(true)
+            .style(move |_theme| container::Style {
+                background: Some(Background::Color(t.muted)),
+                border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
+                ..container::Style::default()
+            });
+        let right = column![
+            text(item.title.clone()).font(theme::DISPLAY_FONT).size(22).color(t.foreground),
+            text(format!("{} · {}", item.source_name, qualities)).size(13).color(t.muted_foreground),
+            crate::ui::rule(t),
+            download,
+            actions.wrap().vertical_spacing(8),
+        ]
+        .spacing(14)
+        .width(Length::FillPortion(3));
+        let body: Element<'a, Message> = row![left, right].spacing(24).height(Length::Fill).into();
+        crate::ui::screen(item.title.clone(), Some(format!("{} · {}", item.source_name, qualities)), body, Message::CloseDetail, t)
     }
 
     /// "Results for X" plus the related keywords that were searched too

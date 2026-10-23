@@ -418,10 +418,12 @@ impl State {
             let content = self.dashboard(settings, update_summary.clone(), size.width, t);
             crate::ui::scroll_page(content).id(SCROLL_ID).into()
         });
-        match &self.capture {
-            Some(capture) => iced::widget::stack![page, self.capture_dialog(capture, settings, t)].into(),
-            None => page.into(),
-        }
+        page.into()
+    }
+
+    /// The shortcut pop-up, when one is open: drawn over the whole window.
+    pub fn overlay<'a>(&'a self, settings: &Settings, t: theme::Tokens) -> Option<Element<'a, Message>> {
+        self.capture.as_ref().map(|capture| self.capture_dialog(capture, settings, t))
     }
 
     /// The pop-up that listens for the new shortcut.

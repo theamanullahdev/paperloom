@@ -158,6 +158,8 @@ pub enum Message {
     Share(super::share::Message),
     ShareEntry(u64),
     OpenHub,
+    /// Escape: closes the topmost pop-up, or leaves picking.
+    Escape,
     /// Where older downloads came from, found in the background.
     OriginsFound(Vec<(String, paperloom_common::Origin)>),
     CloseHub,
@@ -432,6 +434,19 @@ impl State {
                 for (key, origin) in found {
                     let result = self.library.set_origin(&key, origin);
                     self.saved(result);
+                }
+            }
+            Message::Escape => {
+                if self.confirm_stop {
+                    self.confirm_stop = false;
+                } else if self.share.close() {
+                } else if self.hub {
+                    self.hub = false;
+                } else if self.selection.close_dialog() {
+                } else if self.actions.is_some() {
+                    self.actions = None;
+                } else if self.selection.is_active() {
+                    self.selection.reset();
                 }
             }
             Message::OpenHub => self.hub = true,
@@ -953,7 +968,13 @@ impl State {
             });
             return mouse_area(framed).on_press(Message::Select(super::selection::Message::Toggle(entry.id))).into();
         }
-        mouse_area(content).on_enter(Message::Hovered(entry.id)).on_exit(Message::Unhovered(entry.id)).on_double_click(Message::OpenPreview(entry.id)).into()
+        // Right-click opens the same actions as the ⋮.
+        mouse_area(content)
+            .on_enter(Message::Hovered(entry.id))
+            .on_exit(Message::Unhovered(entry.id))
+            .on_double_click(Message::OpenPreview(entry.id))
+            .on_right_press(Message::OpenActions(entry.id))
+            .into()
     }
 
     fn card<'a>(&self, entry: &'a LibraryEntry, size: ViewSize, t: theme::Tokens) -> Element<'a, Message> {

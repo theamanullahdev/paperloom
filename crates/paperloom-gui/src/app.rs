@@ -90,6 +90,7 @@ pub enum Message {
     DownloadsTick,
     Record,
     SystemTheme(iced::theme::Mode),
+    Escape,
     /// A file was dropped on the window (a share file opens the import dialog).
     FileDropped(std::path::PathBuf),
     // --- Global search (see `search.rs`)
@@ -173,7 +174,21 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        // Anything done outside the search box puts the search list away.
+        if self.search_open
+            && !matches!(
+                message,
+                Message::SearchChanged(_) | Message::SearchSubmitted | Message::SearchClosed | Message::SearchOnline(_) | Message::Record | Message::DownloadsTick | Message::SystemTheme(_) | Message::CheckReplaced
+            )
+        {
+            self.search_open = false;
+        }
         match message {
+            Message::Escape => match self.page {
+                Page::Library => self.library_page.update(&mut self.settings, library::Message::Escape).map(Message::Library),
+                Page::Online => self.online_page.update(&self.settings, online::Message::CloseDetail).map(Message::Online),
+                _ => Task::none(),
+            },
             Message::CheckReplaced => {
                 self.replaced = paperloom_common::process::exe_replaced();
                 Task::none()
@@ -390,6 +405,10 @@ impl App {
             self.developers_page.subscription(self.page == Page::Developers).map(Message::Developers),
             iced::time::every(crate::telemetry::EVERY).map(|_| Message::Record),
             Subscription::run(|| crate::instance::requests().map(Message::OtherLaunch)),
+            iced::event::listen_with(|event, status, _window| match event {
+                iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape), .. }) if status == iced::event::Status::Ignored => Some(Message::Escape),
+                _ => None,
+            }),
             iced::event::listen_with(|event, _status, _window| match event {
                 iced::Event::Window(iced::window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
                 _ => None,
@@ -618,8 +637,17 @@ impl App {
             .height(Length::Fill)
             .into();
         // Pop-ups and screens cover the whole window, sidebar and top bar included.
-        match (self.page == Page::Library).then(|| self.library_page.overlay(t)).flatten() {
-            Some(overlay) => stack![root, overlay.map(Message::Library)].into(),
+        let overlay: Option<Element<'_, Message>> = match self.page {
+            Page::Library => self.library_page.overlay(t).map(|o| o.map(Message::Library)),
+            Page::Online => {
+                let in_library = |id: &str| self.library_page.has_source(id);
+                self.online_page.overlay(t, &in_library).map(|o| o.map(Message::Online))
+            }
+            Page::Settings => self.settings_page.overlay(&self.settings, t).map(|o| o.map(Message::Settings)),
+            _ => None,
+        };
+        match overlay {
+            Some(overlay) => stack![root, overlay].into(),
             None => root,
         }
     }

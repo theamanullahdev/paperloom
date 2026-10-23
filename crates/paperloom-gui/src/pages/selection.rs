@@ -126,6 +126,11 @@ impl Selection {
         Outcome::Nothing
     }
 
+    /// Closes the add/remove pop-up; `false` when none was open.
+    pub fn close_dialog(&mut self) -> bool {
+        self.dialog.take().is_some()
+    }
+
     fn sorted(&self) -> Vec<u64> {
         let mut ids: Vec<u64> = self.picked.iter().copied().collect();
         ids.sort_unstable();
