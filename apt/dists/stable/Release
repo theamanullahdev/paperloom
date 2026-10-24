@@ -1,0 +1,24 @@
+Architectures: amd64
+Codename: stable
+Components: main
+Date: Sat, 24 Oct 2026 00:49:28 +0000
+Description: Paperloom live wallpapers
+Label: Paperloom
+Origin: Paperloom
+Suite: stable
+MD5Sum:
+ f11f111b65c57f41eb2b0f6a394b37f8              181 Release
+ 523736724b6ff091c4cd9b3cd442de4b             1176 main/binary-amd64/Packages
+ 9dd712421a782d53401a90757d7707f7              798 main/binary-amd64/Packages.gz
+SHA1:
+ 86f89a84f5db4558fd97f5c4721e36c511cedada              181 Release
+ e74cb8c5590ff8fdb12f8dcaf6740ed6fd11b482             1176 main/binary-amd64/Packages
+ 126e76bea6c365479f4e72d05fe040a5a4f01f3e              798 main/binary-amd64/Packages.gz
+SHA256:
+ 777f201b555985785e946b3bfcca3bc493227323085d6e6d589d24a53d84aac6              181 Release
+ cfcfc1bd93f2ecccbfded78c2fc99476f18fd0a013fc123811129c8d964d9df2             1176 main/binary-amd64/Packages
+ e378d4e6dd6e00fc3cee9ae717e3df4d41c4fbb1791016a5a85d7d1029b6e197              798 main/binary-amd64/Packages.gz
+SHA512:
+ 147d4ecdb4506f6c98594b1aa5b768f84dd9cceed2b4f00a90603ed506457d0d0976fe56713652fddf822f2c6918e04ca0a0e44b3aae71e1a7d6826969c7dcbd              181 Release
+ 81144c6ba16fc7c497ebca785e3aa188565c9d49ce0e75a7aaa8075e4e83143efe2d7d0d5471b967b08dbfd7cc3461d7b65b4264c56176bb02dbb703bbc211d5             1176 main/binary-amd64/Packages
+ 7c26a95da7519407e24b9d9c8bd4dbfc3f5f68d540f8696f380c9cf9bc8ae3d45062b3b03bc8db2cccf059f008b8072eae1c2f1072ace40f2ac99a89872ea2f0              798 main/binary-amd64/Packages.gz

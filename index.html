@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Paperloom — live wallpapers</title>
+<meta name="description" content="Live video wallpapers for Linux, Windows and macOS. Download every Paperloom release.">
+<meta name="theme-color" content="#FFFBEB" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1C1917" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://theamanullahdev.github.io/paperloom/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Paperloom">
+<meta property="og:url" content="https://theamanullahdev.github.io/paperloom/">
+<meta property="og:title" content="Paperloom — live wallpapers for Linux, Windows and macOS">
+<meta property="og:description" content="Play any video as your real desktop background. Pauses itself, so an idle desktop stays idle. Download every release.">
+<meta property="og:image" content="https://theamanullahdev.github.io/paperloom/assets/og-image.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Paperloom logo on a blurred volcano wallpaper">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Paperloom — live wallpapers">
+<meta name="twitter:description" content="Play any video as your real desktop background on Linux, Windows and macOS.">
+<meta name="twitter:image" content="https://theamanullahdev.github.io/paperloom/assets/og-image.jpg">
+<link rel="icon" type="image/png" href="assets/icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="32" height="32"><span>Paperloom</span></a>
+  <nav>
+    <a href="#platforms">Platforms</a>
+    <a href="#releases">All releases</a>
+    <a href="https://github.com/theamanullahdev/paperloom">GitHub</a>
+    <a class="nav-cta" href="#platforms">Download</a>
+  </nav>
+</header>
+
+<main id="top">
+
+  <section class="hero">
+    <div class="hero-copy">
+      <h1>Live wallpapers that cost next to nothing.</h1>
+      <p class="lede">Play any video as your real desktop background on Linux, Windows and macOS. It pauses by itself when you can't see it, so an idle desktop stays idle.</p>
+
+      <div class="cta" id="download">
+        <a id="primary" class="btn primary" href="https://github.com/theamanullahdev/paperloom/releases/latest">
+          <span class="btn-title">Download Paperloom</span>
+          <span class="btn-sub" id="primary-sub">Latest release</span>
+        </a>
+        <a class="btn ghost" href="#platforms">Other systems</a>
+      </div>
+      <p class="fine" id="primary-note"></p>
+      <div class="chips" aria-label="Jump to a system">
+        <a href="#p-windows">Windows</a>
+        <a href="#p-macos">macOS</a>
+        <a href="#p-deb">Ubuntu · Mint · Debian</a>
+        <a href="#p-rpm">Fedora</a>
+        <a href="#p-flatpak">Flatpak</a>
+      </div>
+    </div>
+
+    <div class="hero-media">
+      <video id="promo" controls playsinline preload="metadata" poster="assets/poster.jpg">
+        <source src="assets/paperloom-promo.mp4" type="video/mp4">
+      </video>
+    </div>
+  </section>
+
+  <section class="features">
+    <article><h3>Real desktop background</h3><p>Sits behind your icons on X11, Wayland, Windows 10/11 and macOS.</p></article>
+    <article><h3>Pauses itself</h3><p>Fullscreen app, locked screen, low battery, covered desktop, chosen apps or idle time.</p></article>
+    <article><h3>Online library</h3><p>Search several wallpaper sites at once, preview, and download straight into your library.</p></article>
+    <article><h3>Rotation &amp; schedule</h3><p>Change wallpapers on an interval or a weekly schedule, even with the window closed.</p></article>
+  </section>
+
+  <section class="shots">
+    <h2>Inside the app</h2>
+    <div class="shot-row" tabindex="0" aria-label="App screenshots, swipe sideways">
+      <figure><a href="assets/downloads.png" target="_blank" rel="noopener"><img loading="lazy" decoding="async" src="assets/downloads.png" alt="Downloads page with progress and speed"></a><figcaption>Downloads</figcaption></figure>
+      <figure><a href="assets/sources.png" target="_blank" rel="noopener"><img loading="lazy" decoding="async" src="assets/sources.png" alt="Sources page listing wallpaper sites"></a><figcaption>Sources</figcaption></figure>
+      <figure><a href="assets/usage.png" target="_blank" rel="noopener"><img loading="lazy" decoding="async" src="assets/usage.png" alt="Usage page with CPU and memory graphs"></a><figcaption>Usage</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="platforms" class="platforms">
+    <h2>Download for your system</h2>
+    <p class="sub" id="platforms-sub">Files for the <strong id="platforms-ver">latest</strong> release.</p>
+
+    <div id="platform-grid" class="grid" aria-live="polite">
+      <p class="muted">Loading releases…</p>
+    </div>
+
+    <div class="card arch">
+      <h3>Arch, Manjaro, EndeavourOS</h3>
+      <p>Build and install with the PKGBUILD from the repository:</p>
+      <pre><code>sudo pacman -S --needed base-devel git
+git clone https://github.com/theamanullahdev/paperloom
+cd paperloom/packaging/arch &amp;&amp; makepkg -si</code></pre>
+      <p>Prefer a bundle? The Flatpak above runs on any distribution.</p>
+    </div>
+
+    <div class="card apt">
+      <h3>Ubuntu, Linux Mint, Debian, Kali — with updates</h3>
+      <p>Add the apt repository once and Paperloom updates with your normal system updates:</p>
+      <pre><code>sudo curl -fsSLo /usr/share/keyrings/paperloom.asc https://theamanullahdev.github.io/paperloom/apt/paperloom.asc
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/paperloom.asc] https://theamanullahdev.github.io/paperloom/apt stable main" | sudo tee /etc/apt/sources.list.d/paperloom.list
+sudo apt update &amp;&amp; sudo apt install paperloom</code></pre>
+      <button class="copy" type="button" data-copy-from="previous">Copy commands</button>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <h3>First launch on Windows</h3>
+        <p>SmartScreen shows “Windows protected your PC”. Click <strong>More info → Run anyway</strong>.</p>
+      </div>
+      <div class="card">
+        <h3>First launch on macOS</h3>
+        <p>Open <strong>System Settings → Privacy &amp; Security</strong> and click <strong>Open Anyway</strong> next to Paperloom, or run:</p>
+        <pre><code>xattr -dr com.apple.quarantine /Applications/Paperloom.app</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="releases" class="releases">
+    <h2>All releases</h2>
+    <p class="sub">Pick any version, older ones included.</p>
+
+    <div class="picker">
+      <label for="version">Version</label>
+      <select id="version" disabled><option>Loading…</option></select>
+      <a id="gh-link" class="link" href="https://github.com/theamanullahdev/paperloom/releases">View on GitHub ↗</a>
+    </div>
+
+    <div id="release-detail" class="detail"></div>
+
+    <details class="history">
+      <summary>Version history</summary>
+      <ul id="history-list"></ul>
+    </details>
+  </section>
+
+
+</main>
+
+<footer>
+  <p>Paperloom is free software, GPL-3.0-or-later. Found a problem? <a href="https://github.com/theamanullahdev/paperloom/issues">Open an issue</a>.</p>
+  <p><a href="https://github.com/theamanullahdev/paperloom">Source on GitHub</a> · <a href="https://github.com/theamanullahdev/paperloom/releases">Releases</a></p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

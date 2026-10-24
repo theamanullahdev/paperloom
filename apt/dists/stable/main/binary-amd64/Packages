@@ -1,0 +1,24 @@
+Package: paperloom
+Architecture: amd64
+Version: 0.23.0-1
+Priority: optional
+Section: video
+Maintainer: Amanullah Behlim <theamanullahdev@gmail.com>
+Installed-Size: 35313
+Depends: libc6 (>= 2.39), libmpv2 (>= 0.29)
+Recommends: ffmpeg
+Filename: pool/main/p/paperloom/paperloom-0.23.0-linux-x86_64.deb
+Size: 9818992
+MD5sum: 154382fd591cf95b2b611f49d01a5240
+SHA1: 1aac2324a0a4728b1ca46556480ca8e38c061522
+SHA256: d6300b75878f4a214569443b12787e7a63b3ff01ebee83d60d40251ea0bedd94
+SHA512: 8a9dec3bfaa12ce8d49fa7689c35e06c0b14ee055d6190d7e1546624d9fdacb016400b6d32d8916523b78d3826e908ea3ea3021ad137d7176b96203e71f20fb9
+Homepage: https://github.com/theamanullahdev/paperloom
+Description: Live video wallpapers — play MP4 loops as your desktop background.
+ Paperloom plays looping MP4 videos as your Linux desktop background (Wallpaper
+ Engine / Lively Wallpaper, but native to X11/Wayland). GUI-only: import videos
+ (or download them from the built-in online library), click "Set as wallpaper",
+ done. Designed to idle at near-zero CPU/RAM — the renderer pauses on
+ fullscreen apps, screen lock, low battery, or any window covering the desktop
+ (each independently configurable).
+
