@@ -756,7 +756,7 @@ pub fn preview(path: &str) -> Result<(), Box<dyn Error>> {
         Ok(())
     })?;
     mpv.set_property("loop-file", "inf".to_string())?;
-    mpv.set_property("osc", false)?;
+    let _ = mpv.set_property("osc", false); // absent when mpv is built without Lua (the Flatpak)
     mpv.set_property("input-default-bindings", false)?;
     mpv.set_property("input-vo-keyboard", false)?;
     mpv.set_property("cursor-autohide", "always".to_string())?;

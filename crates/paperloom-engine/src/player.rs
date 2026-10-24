@@ -97,7 +97,7 @@ fn set_audio(mpv: &Mpv, muted: bool) {
 /// ratio doesn't match the display's (`panscan=1.0` crops-to-fill).
 pub fn configure_wallpaper(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
     mpv.set_property("loop-file", "inf".to_string())?;
-    mpv.set_property("osc", false)?;
+    let _ = mpv.set_property("osc", false); // absent when mpv is built without Lua (the Flatpak)
     mpv.set_property("input-default-bindings", false)?;
     mpv.set_property("input-vo-keyboard", false)?;
     mpv.set_property("cursor-autohide", "no".to_string())?;
