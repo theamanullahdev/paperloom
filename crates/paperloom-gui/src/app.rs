@@ -157,6 +157,8 @@ impl App {
             Some(text) => app.library_page.open_share_text(&app.settings, app.online_page.queue(), &text).map(Message::Library),
             None => Task::none(),
         };
+        // Clears away stuck or doubled-up engines left by an older build.
+        std::thread::spawn(crate::engine_client::heal_engines);
         let check = if app.settings.updates.check_on_startup {
             app.updates_page.start_check(&app.settings).map(Message::Updates)
         } else {

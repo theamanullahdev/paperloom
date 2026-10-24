@@ -19,7 +19,9 @@ use x11rb::protocol::Event;
 use x11rb::wrapper::ConnectionExt as _;
 
 pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
-    if !Path::new(path).is_file() {
+    // A web address is streamed by mpv; anything else must be a file.
+    let is_web = path.starts_with("https://") || path.starts_with("http://");
+    if !is_web && !Path::new(path).is_file() {
         return Err(format!("no such video file: {path}").into());
     }
 

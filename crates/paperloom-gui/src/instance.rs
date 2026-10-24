@@ -20,6 +20,12 @@ pub fn claim(name: &str, message: &str) -> bool {
     imp::claim(name, message)
 }
 
+/// Gives up being the running instance called `name` (restarting into a new
+/// copy), so the next launch starts fresh instead of talking to this one.
+pub fn release(name: &str) {
+    imp::release(name);
+}
+
 /// What later launches asked for, as a stream of lines. Take it once; the
 /// subscription that owns it keeps it for the life of the process.
 pub fn requests() -> BoxStream<'static, String> {
@@ -45,6 +51,10 @@ mod imp {
             // No runtime dir (rare): a per-user name in the temp folder.
             None => std::env::temp_dir().join(format!("paperloom-{name}-{}.sock", std::env::var("USER").unwrap_or_default())),
         }
+    }
+
+    pub fn release(name: &str) {
+        let _ = std::fs::remove_file(socket_path(name));
     }
 
     pub fn claim(name: &str, message: &str) -> bool {
@@ -81,6 +91,8 @@ mod imp {
 
 #[cfg(not(unix))]
 mod imp {
+    pub fn release(_name: &str) {}
+
     pub fn claim(_name: &str, _message: &str) -> bool {
         true
     }

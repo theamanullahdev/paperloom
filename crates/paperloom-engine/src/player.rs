@@ -254,6 +254,15 @@ pub fn periodic(settings: &paperloom_common::Settings, mpv: &Mpv) {
     }
 }
 
+/// The shortcut and feature status lines, each lock taken once and let go
+/// of straight away. (Taking one of these locks twice in a single statement
+/// waits on itself forever, which froze the engine's housekeeping.)
+fn feature_texts() -> ((String, String), (String, String)) {
+    let hotkeys = HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+    let features = FEATURES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+    (hotkeys, features)
+}
+
 /// Tells the rest of the app what the engine and its video look like
 /// (decoder in use, codec, size, frame rate…). Written only when something
 /// changed; the property reads are a few microseconds.
@@ -264,6 +273,7 @@ fn publish_status(mpv: &Mpv, with_drops: bool) {
     let started = *STARTED.get_or_init(paperloom_common::log::now_unix);
 
     let text = |name: &str| mpv.get_property::<String>(name).unwrap_or_default();
+    let (hotkeys, features) = feature_texts();
     let info = EngineInfo {
         pid: std::process::id(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -276,10 +286,10 @@ fn publish_status(mpv: &Mpv, with_drops: bool) {
         video_output: text("current-vo"),
         dropped_frames: if with_drops { mpv.get_property::<i64>("frame-drop-count").unwrap_or(0) } else { 0 },
         guard_level: crate::perf_guard::level(),
-        hotkey_next: HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).0.clone(),
-        hotkey_pause: HOTKEYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).1.clone(),
-        tray: FEATURES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).0.clone(),
-        lock_screen: FEATURES.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).1.clone(),
+        hotkey_next: hotkeys.0,
+        hotkey_pause: hotkeys.1,
+        tray: features.0,
+        lock_screen: features.1,
     };
     let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if last.as_ref() == Some(&info) {
@@ -389,5 +399,24 @@ mod tests {
         for (name, value) in [("vd-lavc-fast", "yes"), ("vd-lavc-skiploopfilter", "nonref"), ("vd-lavc-skipframe", "nonref"), ("aid", "no"), ("aid", "auto")] {
             assert!(mpv.set_property(name, value.to_string()).is_ok(), "{name}={value}");
         }
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+
+    #[test]
+    fn reading_the_status_lines_does_not_wait_on_itself() {
+        set_hotkey_status("ok", "in use");
+        set_tray_status("ok");
+        set_lock_screen_status("off");
+        let (done, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(feature_texts());
+        });
+        let (hotkeys, features) = receiver.recv_timeout(std::time::Duration::from_secs(5)).expect("feature_texts hung");
+        assert_eq!(hotkeys, ("ok".to_string(), "in use".to_string()));
+        assert_eq!(features, ("ok".to_string(), "off".to_string()));
     }
 }

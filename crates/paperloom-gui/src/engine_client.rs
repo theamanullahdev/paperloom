@@ -63,13 +63,64 @@ pub fn restart_engine() {
             break;
         }
     }
+    // One that ignored the request (stuck, or an older build) is ended
+    // outright, so the new engine isn't started next to it.
+    end_stale_engines();
     let _ = spawn_engine();
+}
+
+/// At start-up: if wallpaper engines are piled up, or one that has been
+/// running a while never reported in (a stuck one from an older build), end
+/// them and start a single fresh one. Healthy setups are left alone.
+pub fn heal_engines() {
+    let mut system = sysinfo::System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let engines: Vec<_> = system
+        .processes()
+        .values()
+        .filter(|process| process.name().to_string_lossy().starts_with("paperloom-engin") && !process.cmd().iter().any(|arg| arg == "--preview"))
+        .collect();
+    if engines.is_empty() {
+        return;
+    }
+    // Only judge engines that have had time to report their status.
+    if engines.iter().any(|process| process.run_time() < 20) {
+        return;
+    }
+    let reported = paperloom_common::EngineState::load().engine.pid;
+    let healthy = engines.len() == 1 && engines[0].pid().as_u32() == reported;
+    if !healthy {
+        paperloom_common::log::warn(&format!("{} wallpaper engine(s) running, none reporting in; restarting one", engines.len()));
+        end_stale_engines();
+        let _ = spawn_engine();
+    }
+}
+
+/// Ends every wallpaper engine still running (not a full-screen preview).
+fn end_stale_engines() {
+    let mut system = sysinfo::System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let me = std::process::id();
+    let mut ended = false;
+    for process in system.processes().values() {
+        let is_engine = process.name().to_string_lossy().starts_with("paperloom-engin");
+        let is_preview = process.cmd().iter().any(|arg| arg == "--preview");
+        if is_engine && !is_preview && process.pid().as_u32() != me {
+            ended |= process.kill();
+        }
+    }
+    if ended {
+        std::thread::sleep(Duration::from_millis(400));
+    }
 }
 
 /// Restarts Paperloom into the newly installed version: the engine, then a
 /// fresh window, then this process exits.
 pub fn restart_app() -> ! {
     restart_engine();
+    // Let go of the "one window" socket first: otherwise the new window finds
+    // this one still listening, hands it a request and quits, leaving nothing.
+    crate::instance::release("gui");
     if let Some(exe) = process::current_exe() {
         let _ = std::process::Command::new(exe).spawn();
     }
