@@ -12,6 +12,8 @@ use crate::ui::Width;
 use crate::{icons, search, theme};
 
 pub struct App {
+    /// The "Forgot password?" pop-up, when open.
+    lock_reset: Option<crate::lock_reset::State>,
     page: Page,
     settings: Settings,
     settings_page: settings::State,
@@ -91,6 +93,7 @@ pub enum Message {
     Record,
     SystemTheme(iced::theme::Mode),
     Escape,
+    LockReset(crate::lock_reset::Message),
     /// A file was dropped on the window (a share file opens the import dialog).
     FileDropped(std::path::PathBuf),
     // --- Global search (see `search.rs`)
@@ -120,6 +123,7 @@ impl App {
             updates_page: updates::State::new(),
             usage_page: usage::State::new(),
             developers_page: developers::State::new(),
+            lock_reset: None,
             recorder: crate::telemetry::Recorder::new(),
             expanded: HashSet::from([Group::Library, Group::Online, Group::Settings]),
             online_stale: false,
@@ -186,6 +190,34 @@ impl App {
             self.search_open = false;
         }
         match message {
+            Message::Library(library::Message::ForgotPassword) | Message::Settings(settings::Message::ForgotPassword) => {
+                self.lock_reset = Some(crate::lock_reset::State::new());
+                Task::none()
+            }
+            Message::LockReset(msg) => {
+                let Some(state) = self.lock_reset.as_mut() else { return Task::none() };
+                let (task, outcome) = state.update(msg);
+                match outcome {
+                    crate::lock_reset::Outcome::Nothing => {}
+                    crate::lock_reset::Outcome::Close => self.lock_reset = None,
+                    crate::lock_reset::Outcome::Replace(stored) => {
+                        self.lock_reset = None;
+                        self.settings.hidden_lock = stored.clone();
+                        let _ = paperloom_common::save(&self.settings);
+                        self.library_page.open_after_reset(stored);
+                        self.settings_page.clear_lock_inputs();
+                    }
+                }
+                task.map(Message::LockReset)
+            }
+            Message::Escape if self.lock_reset.is_some() => {
+                if let Some(state) = self.lock_reset.as_mut() {
+                    if let (_, crate::lock_reset::Outcome::Close) = state.update(crate::lock_reset::Message::Close) {
+                        self.lock_reset = None;
+                    }
+                }
+                Task::none()
+            }
             Message::Escape => match self.page {
                 Page::Library => self.library_page.update(&mut self.settings, library::Message::Escape).map(Message::Library),
                 Page::Online => self.online_page.update(&self.settings, online::Message::CloseDetail).map(Message::Online),
@@ -639,7 +671,11 @@ impl App {
             .height(Length::Fill)
             .into();
         // Pop-ups and screens cover the whole window, sidebar and top bar included.
-        let overlay: Option<Element<'_, Message>> = match self.page {
+        let reset = self.lock_reset.as_ref().map(|state| state.view(t).map(Message::LockReset));
+        let overlay: Option<Element<'_, Message>> = if reset.is_some() {
+            reset
+        } else {
+            match self.page {
             Page::Library => self.library_page.overlay(t).map(|o| o.map(Message::Library)),
             Page::Online => {
                 let in_library = |id: &str| self.library_page.has_source(id);
@@ -647,6 +683,7 @@ impl App {
             }
             Page::Settings => self.settings_page.overlay(&self.settings, t).map(|o| o.map(Message::Settings)),
             _ => None,
+            }
         };
         match overlay {
             Some(overlay) => stack![root, overlay].into(),

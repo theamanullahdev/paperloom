@@ -18,6 +18,7 @@ mod library;
 pub mod lock;
 pub mod log;
 pub mod media;
+pub mod os_auth;
 mod paths;
 pub mod process;
 pub mod usage_history;

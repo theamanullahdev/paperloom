@@ -14,6 +14,7 @@ mod desktop_colors;
 mod engine_client;
 mod icons;
 mod instance;
+mod lock_reset;
 mod optimizer;
 mod pages;
 mod search;

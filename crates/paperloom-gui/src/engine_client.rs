@@ -69,17 +69,43 @@ pub fn restart_engine() {
     let _ = spawn_engine();
 }
 
-/// At start-up: if wallpaper engines are piled up, or one that has been
-/// running a while never reported in (a stuck one from an older build), end
-/// them and start a single fresh one. Healthy setups are left alone.
+/// The wallpaper engines that belong to *this* copy of Paperloom: the same
+/// program file (an upgraded one shows as "(deleted)") run by the same user,
+/// never a full-screen preview. Another install or profile on the machine is
+/// never touched.
+fn own_engines(system: &sysinfo::System) -> Vec<&sysinfo::Process> {
+    let Some(mine) = process::sibling_binary("paperloom-engine") else { return Vec::new() };
+    let me = sysinfo::get_current_pid().ok().and_then(|pid| system.process(pid)).and_then(|process| process.user_id());
+    system
+        .processes()
+        .values()
+        .filter(|process| process.exe().is_some_and(|exe| same_program(exe, &mine)))
+        .filter(|process| me.is_none() || process.user_id() == me)
+        .filter(|process| !process.cmd().iter().any(|arg| arg == "--preview"))
+        .filter(|process| process.pid().as_u32() != std::process::id())
+        .collect()
+}
+
+/// Whether two paths are the same program, ignoring the " (deleted)" Linux
+/// adds to a file that was replaced while it ran.
+fn same_program(running: &Path, installed: &Path) -> bool {
+    let running = running.to_string_lossy();
+    let running = running.strip_suffix(" (deleted)").unwrap_or(&running);
+    let installed = installed.to_string_lossy();
+    if cfg!(windows) {
+        running.eq_ignore_ascii_case(&installed)
+    } else {
+        running == installed
+    }
+}
+
+/// At start-up: if this copy's wallpaper engines are piled up, or one that
+/// has been running a while never reported in (a stuck one from an older
+/// build), end them and start a single fresh one. Healthy setups are left alone.
 pub fn heal_engines() {
     let mut system = sysinfo::System::new();
     system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let engines: Vec<_> = system
-        .processes()
-        .values()
-        .filter(|process| process.name().to_string_lossy().starts_with("paperloom-engin") && !process.cmd().iter().any(|arg| arg == "--preview"))
-        .collect();
+    let engines = own_engines(&system);
     if engines.is_empty() {
         return;
     }
@@ -96,19 +122,11 @@ pub fn heal_engines() {
     }
 }
 
-/// Ends every wallpaper engine still running (not a full-screen preview).
+/// Ends every wallpaper engine of this copy still running.
 fn end_stale_engines() {
     let mut system = sysinfo::System::new();
     system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let me = std::process::id();
-    let mut ended = false;
-    for process in system.processes().values() {
-        let is_engine = process.name().to_string_lossy().starts_with("paperloom-engin");
-        let is_preview = process.cmd().iter().any(|arg| arg == "--preview");
-        if is_engine && !is_preview && process.pid().as_u32() != me {
-            ended |= process.kill();
-        }
-    }
+    let ended = own_engines(&system).into_iter().fold(false, |ended, process| process.kill() | ended);
     if ended {
         std::thread::sleep(Duration::from_millis(400));
     }
@@ -224,4 +242,23 @@ fn spawn_engine() -> Result<std::process::Child, Error> {
     let mut command = std::process::Command::new(engine_path);
     process::hide_console(&mut command);
     command.spawn().map_err(Error::Io)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_upgraded_engine_is_still_the_same_program() {
+        let installed = Path::new("/usr/bin/paperloom-engine");
+        assert!(same_program(Path::new("/usr/bin/paperloom-engine"), installed));
+        assert!(same_program(Path::new("/usr/bin/paperloom-engine (deleted)"), installed));
+    }
+
+    #[test]
+    fn another_install_is_not_ours() {
+        let installed = Path::new("/usr/bin/paperloom-engine");
+        assert!(!same_program(Path::new("/opt/other/paperloom-engine"), installed));
+        assert!(!same_program(Path::new("/media/x/target/debug/paperloom-engine"), installed));
+    }
 }

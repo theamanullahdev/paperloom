@@ -156,6 +156,8 @@ pub enum Message {
     SortSelected(Sort),
     UnlockText(String),
     Unlock,
+    /// Opens the password reset (the app shows it).
+    ForgotPassword,
     /// Creates a collection named in the dialog, with this wallpaper in it.
     CreateCollectionWith(u64),
     RemoveClicked,
@@ -362,6 +364,8 @@ impl State {
                 self.unlock_text = text;
                 self.unlock_wrong = false;
             }
+            // Handled by the app.
+            Message::ForgotPassword => {}
             Message::Unlock => {
                 if self.lock.as_deref().is_some_and(|stored| paperloom_common::lock::verify(stored, &self.unlock_text)) {
                     self.unlocked = true;
@@ -1318,6 +1322,15 @@ impl State {
     }
 
     /// Called when the settings change (the password may have been set or removed).
+    /// After the password was reset by someone the computer just confirmed:
+    /// the Hidden section opens straight away.
+    pub fn open_after_reset(&mut self, lock: Option<String>) {
+        self.lock = lock;
+        self.unlocked = true;
+        self.unlock_text.clear();
+        self.unlock_wrong = false;
+    }
+
     pub fn set_lock(&mut self, lock: Option<String>) {
         if lock != self.lock {
             self.lock = lock;
@@ -1340,6 +1353,7 @@ impl State {
                     .spacing(8)
                     .align_y(Alignment::Center),
                     text(if self.unlock_wrong { "That password is not right." } else { "" }).size(12).color(t.destructive),
+                    button(crate::ui::label("Forgot password?").size(12)).style(crate::ui::ghost).padding([4, 8]).on_press(Message::ForgotPassword),
                 ]
                 .spacing(10),
             )

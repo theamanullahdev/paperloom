@@ -171,6 +171,8 @@ pub enum Message {
     LockConfirm(String),
     LockSet,
     LockRemove,
+    /// Opens the password reset (the app shows it).
+    ForgotPassword,
     HotkeyChange(HotkeyTarget),
     HotkeyKey(iced::keyboard::Key, iced::keyboard::Modifiers),
     HotkeySave,
@@ -281,6 +283,8 @@ impl State {
                 self.flash(SettingId::ScreenTarget);
                 let _ = paperloom_common::save(settings);
             }
+            // Handled by the app.
+            Message::ForgotPassword => {}
             Message::LockCurrent(text) => self.lock_current = text,
             Message::LockNew(text) => self.lock_new = text,
             Message::LockConfirm(text) => self.lock_confirm = text,
@@ -422,6 +426,14 @@ impl State {
     }
 
     /// The shortcut pop-up, when one is open: drawn over the whole window.
+    /// Clears the password boxes (the password was just reset elsewhere).
+    pub fn clear_lock_inputs(&mut self) {
+        self.lock_current.clear();
+        self.lock_new.clear();
+        self.lock_confirm.clear();
+        self.lock_note = Some("Password reset.".into());
+    }
+
     pub fn overlay<'a>(&'a self, settings: &Settings, t: theme::Tokens) -> Option<Element<'a, Message>> {
         self.capture.as_ref().map(|capture| self.capture_dialog(capture, settings, t))
     }
@@ -730,6 +742,7 @@ impl State {
                     let mut buttons = row![button(crate::ui::label(if has_password { "Change password" } else { "Set password" })).on_press(Message::LockSet)].spacing(8);
                     if has_password {
                         buttons = buttons.push(button(crate::ui::label("Remove password")).style(crate::ui::secondary).on_press(Message::LockRemove));
+                        buttons = buttons.push(button(crate::ui::label("Forgot password?")).style(crate::ui::ghost).on_press(Message::ForgotPassword));
                     }
                     body = body.push(buttons);
                     if let Some(note) = &self.lock_note {
