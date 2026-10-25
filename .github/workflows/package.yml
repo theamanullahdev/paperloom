@@ -173,6 +173,37 @@ jobs:
           iscc /DAppVersion=$version /DStage=C:\stage "/DOutputDir=$PWD\dist" packaging\windows\paperloom.iss
           Remove-Item dist\*.wixpdb -ErrorAction SilentlyContinue
           Get-ChildItem dist
+      # Code signing through SignPath (free for open-source projects). Runs only
+      # when the repository has the SIGNPATH_* secrets, so SmartScreen sees a
+      # signed installer; without them the unsigned installers ship as before.
+      - name: Upload unsigned installers
+        id: unsigned
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned
+          path: dist/*
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      - name: Sign installers
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: paperloom
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist-signed
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      - name: Use the signed installers
+        if: env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        run: Copy-Item dist-signed\* dist\ -Force
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: packages-windows
