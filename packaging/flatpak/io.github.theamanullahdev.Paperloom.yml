@@ -79,6 +79,9 @@ modules:
     buildsystem: meson
     config-opts:
       - -Dlibmpv=true
+      - -Dx11=enabled
+      - -Dgl-x11=enabled
+      - -Degl-x11=enabled
       - -Dcplayer=false
       - -Dlua=disabled
       - -Djavascript=disabled
