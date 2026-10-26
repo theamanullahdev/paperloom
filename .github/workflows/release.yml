@@ -1,12 +1,12 @@
 name: Release
 
-# Fully automatic releases. Every push to main that changes more than docs
-# becomes a GitHub Release:
+# Releases are cut on purpose, never by a push: run this workflow by hand
+# (Actions tab → Release → "Run workflow", or `gh workflow run release.yml`)
+# when main is ready to ship. Pushing commits only runs ci.yml. A run does:
 #
 #   1. plan     — next version from the commits since the last tag
 #                 (scripts/next-version.sh: feat → minor, fix/other → patch,
-#                 breaking → major, minor while 0.x). Docs-only pushes, or a
-#                 commit message containing [skip release], release nothing.
+#                 breaking → major, minor while 0.x), or the bump you pick.
 #   2. package  — every installer, with that version stamped in: the Linux
 #                 packages (a couple of minutes) and the rest (Windows,
 #                 macOS, Flatpak — up to ~15 minutes) as separate groups.
@@ -25,11 +25,7 @@ name: Release
 # job here has a timeout, so a stuck runner fails fast instead of blocking
 # the next release.
 #
-# Run it by hand from the Actions tab ("Run workflow") to force a
-# patch/minor/major release.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       bump:
@@ -89,6 +85,7 @@ jobs:
       ref: ${{ github.sha }}
       version: ${{ needs.plan.outputs.version }}
       targets: linux
+    secrets: inherit
 
   package-rest:
     needs: plan
@@ -98,6 +95,7 @@ jobs:
       ref: ${{ github.sha }}
       version: ${{ needs.plan.outputs.version }}
       targets: windows,macos,flatpak
+    secrets: inherit
 
   publish:
     needs: [plan, package-linux]

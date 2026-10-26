@@ -27,7 +27,7 @@ mod settings;
 mod state;
 
 pub use config_store::{load, save};
-pub use display::{primary_aspect_ratio, primary_size};
+pub use display::{primary_aspect_ratio, primary_size, work_area};
 pub use library::{fingerprint, Collection, Library, LibraryEntry, Optimize, Origin};
 pub use paths::rotation_file as paths_rotation_file;
 pub use paths::usage_history_file;

@@ -240,6 +240,7 @@ fn spawn_engine() -> Result<std::process::Child, Error> {
         }
     }
     let mut command = std::process::Command::new(engine_path);
+    command.arg("--on-demand");
     process::hide_console(&mut command);
     command.spawn().map_err(Error::Io)
 }

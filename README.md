@@ -113,9 +113,9 @@ On Fedora, replace `\.deb` with `\.rpm` and the last line with `sudo dnf install
 
 Linux requirements: the `.deb`/`.rpm` need the system's libmpv (`libmpv2` on Ubuntu 24.04 / Mint 22; `mpv-libs` on Fedora), which the package manager installs automatically. Ubuntu 22.04 / Mint 21 ship an mpv that's too old (client API v1).
 
-## Releases (fully automatic)
+## Releases
 
-There is nothing to do by hand. Every push to `main` that changes more than documentation becomes a new [GitHub Release](https://github.com/theamanullahdev/paperloom/releases), built by `.github/workflows/release.yml`:
+A release is started on purpose from the Actions tab and becomes a new [GitHub Release](https://github.com/theamanullahdev/paperloom/releases), built by `.github/workflows/release.yml`:
 
 1. **Version:** worked out from the commit messages since the last release (`scripts/next-version.sh`):
    - `feat: …` → minor (0.**2**.0)
@@ -125,7 +125,7 @@ There is nothing to do by hand. Every push to `main` that changes more than docu
 3. **Build every installer:** `.deb`, `.rpm`, `.flatpak`, `.msi`, setup `.exe`, and both `.dmg`s, each on its real platform (`package.yml`).
 4. **Publish, only if all of that passed:** commit the version bump, tag `vX.Y.Z`, and create the Release. It carries every installer, `SHA256SUMS.txt`, and notes listing the commits.
 
-Pushes that only touch `*.md`/`docs/` don't release. Neither does a commit message containing `[skip release]`. To force a release, open **Actions → Release → Run workflow** and pick patch, minor or major.
+Pushing commits never releases. To cut a release, open **Actions → Release → Run workflow** (or `gh workflow run release.yml`) and leave the bump on auto or pick patch, minor or major.
 
 CI (`ci.yml`) runs on every push and PR. It builds all the same installers without publishing them, and they're downloadable from that run's **Artifacts** section.
 

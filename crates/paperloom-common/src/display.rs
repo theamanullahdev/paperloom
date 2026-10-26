@@ -15,6 +15,28 @@ pub fn primary_size() -> Option<(u32, u32)> {
     primary_resolution()
 }
 
+/// The primary screen's usable area (left, top, right, bottom): the screen
+/// minus the taskbar. Windows only; elsewhere callers fall back to the
+/// whole screen.
+pub fn work_area() -> Option<(i32, i32, i32, i32)> {
+    work_area_impl()
+}
+
+#[cfg(windows)]
+fn work_area_impl() -> Option<(i32, i32, i32, i32)> {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
+    let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    // SAFETY: SPI_GETWORKAREA writes one RECT through the pointer we own.
+    let ok = unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut rect as *mut RECT).cast(), 0) };
+    (ok != 0 && rect.right > rect.left && rect.bottom > rect.top).then_some((rect.left, rect.top, rect.right, rect.bottom))
+}
+
+#[cfg(not(windows))]
+fn work_area_impl() -> Option<(i32, i32, i32, i32)> {
+    None
+}
+
 pub fn primary_aspect_ratio() -> (u32, u32) {
     // Asked once: on Linux this runs `xrandr`.
     static RATIO: std::sync::OnceLock<(u32, u32)> = std::sync::OnceLock::new();

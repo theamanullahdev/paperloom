@@ -76,6 +76,9 @@ jobs:
     if: inputs.targets == '' || inputs.targets == 'all' || contains(inputs.targets, 'windows')
     runs-on: windows-2022
     timeout-minutes: 45
+    env:
+      # At job level so the signing steps' `if` can see it.
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:

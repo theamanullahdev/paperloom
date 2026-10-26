@@ -22,18 +22,57 @@ use crate::{icons, theme};
 const WIDTH: f32 = 360.0;
 const HEIGHT: f32 = 610.0;
 
+/// Where the widget sits and which way its arrow points.
+#[derive(Clone, Copy)]
+struct Placement {
+    point: Point,
+    /// The screen edge the tray icon is on; the arrow points that way.
+    edge: Edge,
+    /// Where along that edge the arrow sits, from the window's own edge.
+    arrow_at: f32,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+const ARROW: f32 = 10.0;
+const GAP: f32 = 4.0;
+const MARGIN: f32 = 8.0;
+
+static PLACEMENT: std::sync::OnceLock<Placement> = std::sync::OnceLock::new();
+
+fn placement() -> Placement {
+    *PLACEMENT.get_or_init(|| Placement { point: Point::new(MARGIN, MARGIN), edge: Edge::Bottom, arrow_at: WIDTH / 2.0 })
+}
+
+fn window_size(edge: Edge) -> Size {
+    match edge {
+        Edge::Top | Edge::Bottom => Size::new(WIDTH, HEIGHT + ARROW),
+        Edge::Left | Edge::Right => Size::new(WIDTH + ARROW, HEIGHT),
+    }
+}
+
 pub fn run(at: Option<(i32, i32)>) -> iced::Result {
+    let placed = place(at);
+    let _ = PLACEMENT.set(placed);
     iced::application(Widget::new, Widget::update, Widget::view)
         .title("Paperloom")
         .theme(Widget::theme)
+        .style(|_widget, theme| iced::theme::Style { background_color: iced::Color::TRANSPARENT, text_color: theme.palette().text })
         .subscription(Widget::subscription)
         .default_font(theme::BODY_FONT)
         .font(include_bytes!("../assets/fonts/IBMPlexSans.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/BricolageGrotesque.ttf").as_slice())
         .window(iced::window::Settings {
-            size: Size::new(WIDTH, HEIGHT),
-            position: iced::window::Position::Specific(place(at)),
+            size: window_size(placed.edge),
+            position: iced::window::Position::Specific(placed.point),
             decorations: false,
+            transparent: true,
             resizable: false,
             level: iced::window::Level::AlwaysOnTop,
             icon: iced::window::icon::from_file_data(include_bytes!("../assets/icon-256.png"), None).ok(),
@@ -42,18 +81,118 @@ pub fn run(at: Option<(i32, i32)>) -> iced::Result {
         .run()
 }
 
-/// Near where the tray was clicked (above it when the panel is at the
-/// bottom, below it when it's at the top), kept on screen.
-fn place(at: Option<(i32, i32)>) -> Point {
-    let (screen_w, screen_h) = paperloom_common::primary_size().map_or((1920.0, 1080.0), |(w, h)| (w as f32, h as f32));
-    let (x, y) = match at {
-        Some((x, y)) => {
-            let (x, y) = (x as f32, y as f32);
-            (x - WIDTH / 2.0, if y > screen_h / 2.0 { y - HEIGHT - 14.0 } else { y + 14.0 })
-        }
-        None => (screen_w - WIDTH - 14.0, screen_h - HEIGHT - 56.0),
+/// Next to the tray icon that was clicked, never over the taskbar: the
+/// widget stays inside the screen's work area, on the side of the icon that
+/// faces the screen's middle, with an arrow pointing back at the icon. An
+/// icon in the overflow flyout sits higher than the taskbar, so the widget
+/// does too.
+fn place(at: Option<(i32, i32)>) -> Placement {
+    let (screen_w, screen_h) = paperloom_common::primary_size().map_or((1920, 1080), |(w, h)| (w as i32, h as i32));
+    let (left, top, right, bottom) = paperloom_common::work_area().unwrap_or((0, 0, screen_w, screen_h));
+    let (left, top, right, bottom) = (left as f32, top as f32, right as f32, bottom as f32);
+    let (screen_w, screen_h) = (screen_w as f32, screen_h as f32);
+
+    let Some((ax, ay)) = at else {
+        let edge = Edge::Bottom;
+        let size = window_size(edge);
+        return Placement { point: Point::new(right - size.width - MARGIN, bottom - size.height - MARGIN), edge, arrow_at: size.width - 40.0 };
     };
-    Point::new(x.clamp(8.0, (screen_w - WIDTH - 8.0).max(8.0)), y.clamp(8.0, (screen_h - HEIGHT - 8.0).max(8.0)))
+    let (ax, ay) = (ax as f32, ay as f32);
+
+    // The taskbar's edge: where the work area stops short of the screen,
+    // else (no taskbar to measure) the half of the screen the click was in.
+    let edge = if bottom < screen_h - 1.0 {
+        Edge::Bottom
+    } else if top > 1.0 {
+        Edge::Top
+    } else if left > 1.0 {
+        Edge::Left
+    } else if right < screen_w - 1.0 {
+        Edge::Right
+    } else if ay > screen_h / 2.0 {
+        Edge::Bottom
+    } else {
+        Edge::Top
+    };
+
+    let size = window_size(edge);
+    let (x, y) = match edge {
+        Edge::Bottom | Edge::Top => {
+            let x = (ax - size.width / 2.0).clamp(left + MARGIN, (right - size.width - MARGIN).max(left + MARGIN));
+            let y = if edge == Edge::Bottom {
+                // Above the icon, but never lower than the work area's bottom.
+                ay.min(bottom) - size.height - GAP
+            } else {
+                ay.max(top) + GAP
+            };
+            (x, y)
+        }
+        Edge::Left | Edge::Right => {
+            let y = (ay - size.height / 2.0).clamp(top + MARGIN, (bottom - size.height - MARGIN).max(top + MARGIN));
+            let x = if edge == Edge::Right { ax.min(right) - size.width - GAP } else { ax.max(left) + GAP };
+            (x, y)
+        }
+    };
+    let x = x.clamp(left + MARGIN, (right - size.width - MARGIN).max(left + MARGIN));
+    let y = y.clamp(top + MARGIN, (bottom - size.height - MARGIN).max(top + MARGIN));
+    let arrow_at = match edge {
+        Edge::Bottom | Edge::Top => (ax - x).clamp(20.0, size.width - 20.0),
+        Edge::Left | Edge::Right => (ay - y).clamp(20.0, size.height - 20.0),
+    };
+    Placement { point: Point::new(x, y), edge, arrow_at }
+}
+
+/// The little triangle that points at the tray icon.
+struct Pointer {
+    edge: Edge,
+    at: f32,
+    color: iced::Color,
+}
+
+impl<M> iced::widget::canvas::Program<M> for Pointer {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &(),
+        renderer: &iced::Renderer,
+        _theme: &Theme,
+        bounds: iced::Rectangle,
+        _cursor: iced::mouse::Cursor,
+    ) -> Vec<iced::widget::canvas::Geometry> {
+        use iced::widget::canvas::{Frame, Path};
+        let mut frame = Frame::new(renderer, bounds.size());
+        let (w, h) = (bounds.width, bounds.height);
+        let half = ARROW;
+        let path = match self.edge {
+            Edge::Bottom => Path::new(|b| {
+                b.move_to(Point::new(self.at - half, 0.0));
+                b.line_to(Point::new(self.at + half, 0.0));
+                b.line_to(Point::new(self.at, h));
+                b.close();
+            }),
+            Edge::Top => Path::new(|b| {
+                b.move_to(Point::new(self.at - half, h));
+                b.line_to(Point::new(self.at + half, h));
+                b.line_to(Point::new(self.at, 0.0));
+                b.close();
+            }),
+            Edge::Right => Path::new(|b| {
+                b.move_to(Point::new(0.0, self.at - half));
+                b.line_to(Point::new(0.0, self.at + half));
+                b.line_to(Point::new(w, self.at));
+                b.close();
+            }),
+            Edge::Left => Path::new(|b| {
+                b.move_to(Point::new(w, self.at - half));
+                b.line_to(Point::new(w, self.at + half));
+                b.line_to(Point::new(0.0, self.at));
+                b.close();
+            }),
+        };
+        frame.fill(&path, self.color);
+        vec![frame.into_geometry()]
+    }
 }
 
 struct Widget {
@@ -341,16 +480,23 @@ impl Widget {
         .spacing(12)
         .padding(16);
 
-        container(body)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(move |_theme| container::Style {
-                background: Some(Background::Color(t.background)),
-                border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
-                shadow: Shadow::default(),
-                ..container::Style::default()
-            })
-            .into()
+        let card = container(body).width(Length::Fill).height(Length::Fill).style(move |_theme| container::Style {
+            background: Some(Background::Color(t.background)),
+            border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
+            shadow: Shadow::default(),
+            ..container::Style::default()
+        });
+
+        let placed = placement();
+        let pointer = |width: Length, height: Length| {
+            iced::widget::canvas::Canvas::new(Pointer { edge: placed.edge, at: placed.arrow_at, color: t.background }).width(width).height(height)
+        };
+        match placed.edge {
+            Edge::Bottom => column![card, pointer(Length::Fill, Length::Fixed(ARROW))].into(),
+            Edge::Top => column![pointer(Length::Fill, Length::Fixed(ARROW)), card].into(),
+            Edge::Right => row![card, pointer(Length::Fixed(ARROW), Length::Fill)].into(),
+            Edge::Left => row![pointer(Length::Fixed(ARROW), Length::Fill), card].into(),
+        }
     }
 }
 

@@ -45,7 +45,19 @@ fn main() -> ExitCode {
     paperloom_common::log::init("engine");
     player::refresh_dev(&paperloom_common::load());
     let mut args = env::args().skip(1);
-    let first = args.next();
+    let mut first = args.next();
+
+    // `--on-demand`: the app started the engine to play something it is
+    // about to send. Without it (login autostart) an engine with no remembered
+    // wallpaper has nothing to show, and its window would be a black rectangle
+    // over the desktop after a Stop — so it exits instead.
+    let on_demand = first.as_deref() == Some("--on-demand");
+    if on_demand {
+        first = args.next();
+    }
+    if !on_demand && first.is_none() && player::startup_wallpaper(None).is_none() {
+        return ExitCode::SUCCESS;
+    }
 
     // `--selftest [clip]`: step-by-step startup checks printed as text.
     if first.as_deref() == Some("--selftest") {
