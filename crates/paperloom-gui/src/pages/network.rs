@@ -11,7 +11,7 @@ use iced::{Background, Border, Element, Length, Task};
 
 use paperloom_fetch::{Diagnosis, Verdict};
 
-use super::charts::{line_chart, Series};
+use super::charts::{line_chart, Series, Unit};
 use crate::theme;
 
 /// Two minutes of history at one sample per half second.
@@ -172,7 +172,7 @@ impl Meter {
         .spacing(28)
         .wrap();
 
-        let chart = line_chart(vec![Series { samples: self.samples.iter().copied().collect(), color: t.primary }], t, 256.0 * 1024.0, MAX_SAMPLES, 96.0);
+        let chart = line_chart(vec![Series { samples: self.samples.iter().copied().collect(), color: t.primary }], t, Unit::BytesPerSecond, 256.0 * 1024.0, MAX_SAMPLES, 96.0);
 
         let mut panel = column![heading, stats, chart].spacing(12);
 

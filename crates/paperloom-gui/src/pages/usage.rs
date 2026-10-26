@@ -12,7 +12,7 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
 use paperloom_common::Settings;
 
-use super::charts::{line_chart, Series};
+use super::charts::{line_chart, Series, Unit};
 use super::settings::{bytes, storage_chart, tile_style, Stats};
 use crate::telemetry::{History, WINDOW};
 use crate::theme;
@@ -223,6 +223,7 @@ impl State {
             line_chart(
                 vec![Series { samples: samples(&history.cpu_app), color: app_color }, Series { samples: samples(&history.cpu_engine), color: engine_color }],
                 t,
+                Unit::Percent,
                 5.0,
                 WINDOW,
                 110.0,
@@ -236,6 +237,7 @@ impl State {
             line_chart(
                 vec![Series { samples: samples(&history.memory_app), color: app_color }, Series { samples: samples(&history.memory_engine), color: engine_color }],
                 t,
+                Unit::Bytes,
                 128.0 * 1_048_576.0,
                 WINDOW,
                 110.0,
@@ -246,7 +248,7 @@ impl State {
             "Network",
             "Paperloom only — bytes received per second",
             vec![("download", app_color)],
-            line_chart(vec![Series { samples: samples(&history.network), color: app_color }], t, 256.0 * 1024.0, WINDOW, 110.0),
+            line_chart(vec![Series { samples: samples(&history.network), color: app_color }], t, Unit::BytesPerSecond, 256.0 * 1024.0, WINDOW, 110.0),
             t,
         );
         let disk_chart = graph_card(
@@ -256,6 +258,7 @@ impl State {
             line_chart(
                 vec![Series { samples: samples(&history.disk_read), color: app_color }, Series { samples: samples(&history.disk_write), color: engine_color }],
                 t,
+                Unit::BytesPerSecond,
                 256.0 * 1024.0,
                 WINDOW,
                 110.0,
