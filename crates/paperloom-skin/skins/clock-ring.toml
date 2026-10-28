@@ -1,0 +1,38 @@
+id = "clock/ring"
+name = "Ring"
+author = "Paperloom"
+kinds = ["clock"]
+size = [170, 170]
+
+[[element]]
+type = "circle"
+cx = 85
+cy = 85
+r = 83
+fill = "$card"
+
+[[element]]
+type = "arc"
+cx = 85
+cy = 85
+r = 72
+width = 8
+value = "minute_fraction"
+
+[[element]]
+type = "text"
+text = "{time}"
+x = 85
+y = 56
+size = 42
+bold = true
+align = "center"
+
+[[element]]
+type = "text"
+text = "{date_short}"
+x = 85
+y = 106
+size = 15
+color = "$muted"
+align = "center"

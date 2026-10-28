@@ -1,0 +1,51 @@
+id = "date/badge"
+name = "Badge"
+author = "Paperloom"
+kinds = ["date"]
+size = [120, 130]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 120
+h = 130
+radius = 12
+fill = "$card"
+stroke = "$border"
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 120
+h = 32
+radius = 12
+fill = "$accent"
+
+[[element]]
+type = "rect"
+x = 0
+y = 18
+w = 120
+h = 14
+fill = "$accent"
+
+[[element]]
+type = "text"
+text = "{month_short}"
+x = 60
+y = 5
+size = 18
+bold = true
+color = "#1c1917"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{day}"
+x = 60
+y = 40
+size = 66
+bold = true
+align = "center"

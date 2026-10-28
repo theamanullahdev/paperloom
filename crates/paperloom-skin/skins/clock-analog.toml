@@ -1,0 +1,61 @@
+id = "clock/analog"
+name = "Analog"
+author = "Paperloom"
+kinds = ["clock"]
+size = [160, 160]
+
+[[element]]
+type = "circle"
+cx = 80
+cy = 80
+r = 77
+fill = "$card"
+stroke = "$border"
+stroke_width = 2
+
+[[element]]
+type = "ticks"
+cx = 80
+cy = 80
+outer = 70
+inner = 65
+count = 60
+width = 1
+color = "$muted"
+big_every = 5
+big_inner = 58
+
+[[element]]
+type = "hand"
+cx = 80
+cy = 80
+length = 38
+width = 5
+angle = "hour_angle"
+tail = 6
+
+[[element]]
+type = "hand"
+cx = 80
+cy = 80
+length = 58
+width = 3
+angle = "minute_angle"
+tail = 8
+
+[[element]]
+type = "hand"
+cx = 80
+cy = 80
+length = 62
+width = 1.5
+angle = "second_angle"
+color = "$accent"
+tail = 12
+
+[[element]]
+type = "circle"
+cx = 80
+cy = 80
+r = 4
+fill = "$accent"

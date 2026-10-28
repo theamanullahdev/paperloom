@@ -1,0 +1,48 @@
+id = "meter/card"
+name = "Card"
+author = "Paperloom"
+kinds = ["cpu", "memory", "disk", "network", "battery", "uptime"]
+size = [230, 104]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 230
+h = 104
+radius = 10
+fill = "$card"
+stroke = "$border"
+
+[[element]]
+type = "text"
+text = "{title}"
+x = 14
+y = 10
+size = 12
+color = "$muted"
+
+[[element]]
+type = "text"
+text = "{value}"
+x = 14
+y = 26
+size = 32
+bold = true
+
+[[element]]
+type = "text"
+text = "{detail}"
+x = 14
+y = 68
+size = 12
+color = "$muted"
+
+[[element]]
+type = "bar"
+x = 14
+y = 86
+w = 202
+h = 6
+value = "fraction"
+show_if = "fraction"

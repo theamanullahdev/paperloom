@@ -1,0 +1,55 @@
+id = "meter/neon"
+name = "Neon"
+author = "Paperloom"
+kinds = ["cpu", "memory", "disk", "network", "battery", "uptime"]
+size = [230, 104]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 230
+h = 104
+radius = 12
+fill = "#0a0612e0"
+stroke = "#7df9ff"
+stroke_width = 2
+
+[[element]]
+type = "text"
+text = "{title}"
+x = 14
+y = 10
+size = 12
+mono = true
+color = "#ff7af6"
+
+[[element]]
+type = "text"
+text = "{value}"
+x = 14
+y = 26
+size = 30
+bold = true
+mono = true
+color = "#7df9ff"
+
+[[element]]
+type = "text"
+text = "{detail}"
+x = 14
+y = 66
+size = 12
+mono = true
+color = "#ff7af6"
+
+[[element]]
+type = "bar"
+x = 14
+y = 86
+w = 202
+h = 6
+value = "fraction"
+fill = "#ff3df2"
+track = "#ffffff22"
+show_if = "fraction"

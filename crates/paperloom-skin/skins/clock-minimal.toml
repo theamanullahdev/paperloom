@@ -1,0 +1,23 @@
+id = "clock/minimal"
+name = "Minimal"
+author = "Paperloom"
+kinds = ["clock"]
+size = [300, 130]
+
+[[element]]
+type = "text"
+text = "{time}"
+x = 150
+y = 0
+size = 92
+bold = true
+align = "center"
+
+[[element]]
+type = "text"
+text = "{date}"
+x = 150
+y = 98
+size = 18
+color = "$muted"
+align = "center"

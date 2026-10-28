@@ -1,0 +1,43 @@
+id = "meter/gauge"
+name = "Gauge"
+author = "Paperloom"
+kinds = ["cpu", "memory", "disk", "battery"]
+size = [200, 128]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 200
+h = 128
+radius = 10
+fill = "$card"
+stroke = "$border"
+
+[[element]]
+type = "arc"
+cx = 100
+cy = 92
+r = 66
+width = 10
+start = 270
+sweep = 180
+value = "fraction"
+
+[[element]]
+type = "text"
+text = "{value}"
+x = 100
+y = 62
+size = 30
+bold = true
+align = "center"
+
+[[element]]
+type = "text"
+text = "{title}"
+x = 100
+y = 102
+size = 13
+color = "$muted"
+align = "center"

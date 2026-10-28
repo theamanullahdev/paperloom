@@ -8,8 +8,8 @@ description = "Paperloom desktop widgets: a small separate process that draws cl
 [dependencies]
 paperloom-common = { path = "../paperloom-common" }
 # Software drawing: no GPU, no windowing toolkit, so the process stays small.
+paperloom-skin = { path = "../paperloom-skin" }
 tiny-skia = "0.11"
-cosmic-text = "0.15"
 sysinfo = { version = "0.39", default-features = false, features = ["system", "disk", "network"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 

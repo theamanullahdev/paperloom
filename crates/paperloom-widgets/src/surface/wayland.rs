@@ -69,7 +69,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
         .unwrap_or((1920, 1080));
 
     for placed in widgets.placed.iter().cloned() {
-        let (w, h) = widgets::size_of(&placed.kind);
+        let (w, h) = widgets::size_of(&placed);
         let (w, h) = ((w as f32 * placed.scale) as u32, (h as f32 * placed.scale) as u32);
         let surface = compositor.create_surface(&qh);
         let layer = layer_shell.create_layer_surface(&qh, surface, Layer::Bottom, Some("paperloom-widget"), None);
@@ -104,7 +104,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 continue;
             }
             if window.due <= now || window.pixmap.is_none() {
-                match widgets::render(&window.placed.kind, window.placed.scale, text, &Context { sample: &control.sample, slow }) {
+                match widgets::render(&window.placed, text, &Context { sample: &control.sample, slow }) {
                     Some(frame) => {
                         window.due = now + frame.next_change;
                         window.pixmap = Some(frame.pixmap);

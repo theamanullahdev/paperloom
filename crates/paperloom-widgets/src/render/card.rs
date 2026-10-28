@@ -34,19 +34,3 @@ pub(crate) fn rounded_rect(x: f32, y: f32, w: f32, h: f32, r: f32) -> Option<tin
     b.close();
     b.finish()
 }
-
-/// A thin progress bar: a track and, on top, the filled part (0.0–1.0).
-pub fn bar(pixmap: &mut Pixmap, x: f32, y: f32, width: f32, height: f32, fraction: f32) {
-    let mut paint = Paint { anti_alias: true, ..Paint::default() };
-    paint.set_color(color([0xFF, 0xFF, 0xFF, 0x1A]));
-    if let Some(track) = rounded_rect(x, y, width, height, height / 2.0) {
-        pixmap.fill_path(&track, &paint, FillRule::Winding, Transform::identity(), None);
-    }
-    let filled = (width * fraction.clamp(0.0, 1.0)).max(height.min(width * fraction.clamp(0.0, 1.0) + 0.001));
-    if fraction > 0.0 {
-        paint.set_color(color(palette::ACCENT));
-        if let Some(fill) = rounded_rect(x, y, filled, height, height / 2.0) {
-            pixmap.fill_path(&fill, &paint, FillRule::Winding, Transform::identity(), None);
-        }
-    }
-}

@@ -1,0 +1,42 @@
+id = "date/card"
+name = "Page"
+author = "Paperloom"
+kinds = ["date"]
+size = [170, 170]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 170
+h = 170
+radius = 10
+fill = "$card"
+stroke = "$border"
+
+[[element]]
+type = "text"
+text = "{weekday}"
+x = 85
+y = 14
+size = 15
+color = "$accent"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{day}"
+x = 85
+y = 34
+size = 78
+bold = true
+align = "center"
+
+[[element]]
+type = "text"
+text = "{month_year}"
+x = 85
+y = 134
+size = 15
+color = "$muted"
+align = "center"

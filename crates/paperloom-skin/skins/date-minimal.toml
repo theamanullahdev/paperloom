@@ -1,0 +1,21 @@
+id = "date/minimal"
+name = "Minimal"
+author = "Paperloom"
+kinds = ["date"]
+size = [240, 96]
+
+[[element]]
+type = "text"
+text = "{weekday}"
+x = 0
+y = 0
+size = 20
+color = "$accent"
+
+[[element]]
+type = "text"
+text = "{day} {month}"
+x = 0
+y = 26
+size = 44
+bold = true

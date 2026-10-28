@@ -7,9 +7,10 @@ use iced::mouse;
 use iced::widget::canvas::{self, Action, Frame, Geometry, Path, Stroke, Text};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme};
 
-use paperloom_common::widgets::{entry, natural_size, Placed};
+use paperloom_common::widgets::{entry, Placed};
 
 use super::widgets::Message;
+use super::widgets_looks::size_of as natural_size;
 use crate::theme;
 
 /// How close (as a fraction of the screen) an edge must be to snap.
@@ -45,7 +46,7 @@ struct Drag {
 impl Layout<'_> {
     /// A widget's size as a fraction of the screen.
     fn size_of(&self, placed: &Placed) -> (f32, f32) {
-        let (w, h) = natural_size(&placed.kind);
+        let (w, h) = natural_size(placed);
         (w as f32 * placed.scale / self.screen.0 as f32, h as f32 * placed.scale / self.screen.1 as f32)
     }
 

@@ -7,6 +7,8 @@
 
 use tiny_skia::{Color, FillRule, Paint, Pixmap, Transform};
 
+use paperloom_skin::Style;
+
 use super::{card, palette, Text};
 
 pub const WIDTH: u32 = 220;
@@ -60,7 +62,7 @@ pub fn draw(items: &[(Choice, &str)], hover: Option<usize>, text: &mut Text) -> 
             }
         }
         let color = if *choice == Choice::Remove { [0xF8, 0x71, 0x71, 0xFF] } else { palette::FOREGROUND };
-        text.draw(&mut pixmap, label, (PAD + 12.0, top + 7.0), 15.0, false, color);
+        text.draw(&mut pixmap, label, (PAD + 12.0, top + 7.0), &Style::plain(15.0, color));
     }
     pixmap
 }

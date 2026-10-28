@@ -2915,9 +2915,21 @@ dependencies = [
  "iced",
  "paperloom-common",
  "paperloom-fetch",
+ "paperloom-skin",
  "rfd",
  "sysinfo",
+ "tiny-skia",
  "winresource",
+]
+
+[[package]]
+name = "paperloom-skin"
+version = "0.26.0"
+dependencies = [
+ "cosmic-text",
+ "serde",
+ "tiny-skia",
+ "toml",
 ]
 
 [[package]]
@@ -2925,12 +2937,12 @@ name = "paperloom-widgets"
 version = "0.27.0"
 dependencies = [
  "chrono",
- "cosmic-text",
  "libc",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "paperloom-common",
+ "paperloom-skin",
  "smithay-client-toolkit 0.21.1",
  "sysinfo",
  "tiny-skia",

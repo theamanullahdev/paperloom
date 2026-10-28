@@ -1,0 +1,41 @@
+id = "meter/compact"
+name = "Compact"
+author = "Paperloom"
+kinds = ["cpu", "memory", "disk", "network", "battery", "uptime"]
+size = [220, 58]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 220
+h = 58
+radius = 8
+fill = "$card"
+stroke = "$border"
+
+[[element]]
+type = "text"
+text = "{title}"
+x = 14
+y = 10
+size = 14
+color = "$muted"
+
+[[element]]
+type = "text"
+text = "{value}"
+x = 206
+y = 6
+size = 26
+bold = true
+align = "right"
+
+[[element]]
+type = "bar"
+x = 14
+y = 42
+w = 192
+h = 5
+value = "fraction"
+show_if = "fraction"

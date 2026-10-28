@@ -110,7 +110,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 if window.due > now && window.pixmap.is_some() {
                     continue;
                 }
-                let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text, &Context { sample: &control.sample, slow }) else {
+                let Some(frame) = widgets::render(&window.placed, text, &Context { sample: &control.sample, slow }) else {
                     window.due = now + Duration::from_secs(3600);
                     continue;
                 };
@@ -399,7 +399,7 @@ fn build(widgets: &Widgets) -> Result<(Layer, Vec<Window>), Box<dyn Error>> {
 
         let mut windows = Vec::new();
         for placed in &widgets.placed {
-            let (w, h) = widgets::size_of(&placed.kind);
+            let (w, h) = widgets::size_of(&placed);
             let (w, h) = ((w as f32 * placed.scale) as i32, (h as f32 * placed.scale) as i32);
             let x = (placed.x * screen_w as f32) as i32 - origin_x;
             let y = (placed.y * screen_h as f32) as i32 - origin_y;

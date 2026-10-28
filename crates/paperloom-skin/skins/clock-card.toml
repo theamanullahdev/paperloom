@@ -1,0 +1,33 @@
+id = "clock/card"
+name = "Card"
+author = "Paperloom"
+kinds = ["clock"]
+size = [280, 120]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 280
+h = 120
+radius = 10
+fill = "$card"
+stroke = "$border"
+
+[[element]]
+type = "text"
+text = "{time}"
+x = 140
+y = 8
+size = 56
+bold = true
+align = "center"
+
+[[element]]
+type = "text"
+text = "{date}"
+x = 140
+y = 80
+size = 16
+color = "$muted"
+align = "center"

@@ -1,0 +1,37 @@
+id = "clock/neon"
+name = "Neon"
+author = "Paperloom"
+kinds = ["clock"]
+size = [300, 126]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 300
+h = 126
+radius = 14
+fill = "#0a0612e0"
+stroke = "#ff3df2"
+stroke_width = 2
+
+[[element]]
+type = "text"
+text = "{time_seconds}"
+x = 150
+y = 14
+size = 52
+bold = true
+mono = true
+color = "#ff7af6"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{date}"
+x = 150
+y = 84
+size = 16
+mono = true
+color = "#7df9ff"
+align = "center"

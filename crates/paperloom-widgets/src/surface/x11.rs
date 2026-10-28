@@ -78,7 +78,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
 
     let mut windows: Vec<Window> = Vec::new();
     for placed in widgets.placed.iter().cloned() {
-        let (w, h) = widgets::size_of(&placed.kind);
+        let (w, h) = widgets::size_of(&placed);
         let size = ((w as f32 * placed.scale) as u16, (h as f32 * placed.scale) as u16);
         let at = ((placed.x * f32::from(screen_w)) as i16, (placed.y * f32::from(screen_h)) as i16);
         let id = conn.generate_id()?;
@@ -126,7 +126,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
             if window.due > now && window.pixmap.is_some() {
                 continue;
             }
-            let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text, &Context { sample: &control.sample, slow }) else {
+            let Some(frame) = widgets::render(&window.placed, text, &Context { sample: &control.sample, slow }) else {
                 window.due = now + Duration::from_secs(3600);
                 continue;
             };

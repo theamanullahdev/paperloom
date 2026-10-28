@@ -1,0 +1,38 @@
+id = "meter/ring"
+name = "Ring"
+author = "Paperloom"
+kinds = ["cpu", "memory", "disk", "battery"]
+size = [150, 150]
+
+[[element]]
+type = "circle"
+cx = 75
+cy = 75
+r = 73
+fill = "$card"
+
+[[element]]
+type = "arc"
+cx = 75
+cy = 75
+r = 62
+width = 9
+value = "fraction"
+
+[[element]]
+type = "text"
+text = "{value}"
+x = 75
+y = 46
+size = 30
+bold = true
+align = "center"
+
+[[element]]
+type = "text"
+text = "{title}"
+x = 75
+y = 84
+size = 13
+color = "$muted"
+align = "center"

@@ -30,15 +30,6 @@ pub const BUILT_IN: &[Entry] = &[
     Entry { kind: "uptime", name: "Uptime", about: "How long this computer has been running." },
 ];
 
-/// Natural size of a widget in pixels at scale 1.0.
-pub fn natural_size(kind: &str) -> (u32, u32) {
-    match kind {
-        "date" => (170, 170),
-        "clock" => (280, 120),
-        _ => (230, 104),
-    }
-}
-
 pub fn entry(kind: &str) -> Option<&'static Entry> {
     BUILT_IN.iter().find(|entry| entry.kind == kind)
 }
@@ -58,6 +49,8 @@ pub struct Placed {
     pub id: u32,
     /// Which widget: `clock`, `date`, `cpu`, … or a pack id (`author/name`).
     pub kind: String,
+    /// Which look draws it (`clock/neon`); empty = the kind's default look.
+    pub skin: String,
     /// Top-left corner as a fraction of the monitor (0.0–1.0), so a
     /// resolution change keeps the widget where it was.
     pub x: f32,
@@ -83,7 +76,7 @@ impl Placed {
 
 impl Default for Placed {
     fn default() -> Self {
-        Self { id: 1, kind: "clock".into(), x: 0.76, y: 0.06, scale: 1.0, opacity: 1.0, drag: true, menu: true }
+        Self { id: 1, kind: "clock".into(), skin: String::new(), x: 0.76, y: 0.06, scale: 1.0, opacity: 1.0, drag: true, menu: true }
     }
 }
 

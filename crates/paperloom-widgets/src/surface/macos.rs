@@ -58,7 +58,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
             if paused || window.due > now {
                 continue;
             }
-            let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text, &Context { sample: &control.sample, slow }) else {
+            let Some(frame) = widgets::render(&window.placed, text, &Context { sample: &control.sample, slow }) else {
                 window.due = now + Duration::from_secs(3600);
                 continue;
             };
@@ -82,7 +82,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
 }
 
 fn open(mtm: MainThreadMarker, screen: NSRect, placed: &Placed) -> Window {
-    let (w, h) = widgets::size_of(&placed.kind);
+    let (w, h) = widgets::size_of(&placed);
     let (w, h) = (f64::from(w) * f64::from(placed.scale), f64::from(h) * f64::from(placed.scale));
     // AppKit's origin is the bottom-left of the screen; the settings' is the top-left.
     let x = screen.origin.x + f64::from(placed.x) * screen.size.width;

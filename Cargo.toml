@@ -5,6 +5,7 @@ members = [
     "crates/paperloom-gui",
     "crates/paperloom-engine",
     "crates/paperloom-widgets",
+    "crates/paperloom-skin",
     "crates/paperloom-fetch",
 ]
 
