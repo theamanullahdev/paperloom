@@ -37,24 +37,22 @@ struct Window {
     due: Instant,
 }
 
-pub fn run() -> Result<(), Box<dyn Error>> {
+pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool) -> Result<(), Box<dyn Error>> {
     let mtm = MainThreadMarker::new().ok_or("the macOS backend must run on the main thread")?;
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     app.finishLaunching();
 
     let screen = NSScreen::mainScreen(mtm).ok_or("no display")?.frame();
-    let widgets = Widgets::load();
-    let mut text = Text::new();
     let mut windows: Vec<Window> = widgets.placed.iter().map(|placed| open(mtm, screen, placed)).collect();
 
-    loop {
+    while !changed() {
         let now = Instant::now();
         for window in &mut windows {
             if window.due > now {
                 continue;
             }
-            let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, &mut text) else {
+            let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text) else {
                 window.due = now + Duration::from_secs(3600);
                 continue;
             };
@@ -71,6 +69,10 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             app.sendEvent(&event);
         }
     }
+    for window in &windows {
+        window.window.orderOut(None);
+    }
+    Ok(())
 }
 
 fn open(mtm: MainThreadMarker, screen: NSRect, placed: &Placed) -> Window {

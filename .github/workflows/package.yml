@@ -108,7 +108,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force C:\stage | Out-Null
-          Copy-Item target\release\paperloom-gui.exe, target\release\paperloom-engine.exe, C:\mpv\libmpv-2.dll, C:\mpv\vulkan-1.dll, C:\mpv\ffmpeg.exe C:\stage
+          Copy-Item target\release\paperloom-gui.exe, target\release\paperloom-engine.exe, target\release\paperloom-widgets.exe, C:\mpv\libmpv-2.dll, C:\mpv\vulkan-1.dll, C:\mpv\ffmpeg.exe C:\stage
           Copy-Item LICENSE C:\stage\LICENSE.txt
           Get-ChildItem C:\stage
       - name: Smoke test (engine loads libmpv)
@@ -117,7 +117,7 @@ jobs:
         run: |
           # What every shipped binary imports, so a missing DLL is named in
           # the log rather than guessed at.
-          foreach ($bin in "paperloom-engine.exe", "paperloom-gui.exe", "libmpv-2.dll") {
+          foreach ($bin in "paperloom-engine.exe", "paperloom-widgets.exe", "paperloom-gui.exe", "libmpv-2.dll") {
             Write-Host "== $bin imports:"
             dumpbin /dependents "C:\stage\$bin" | Select-String '\.dll' | ForEach-Object {
               $dll = $_.Line.Trim()

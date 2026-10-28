@@ -44,6 +44,11 @@ pub fn widgets_file() -> PathBuf {
     project_dirs().config_dir().join("widgets.toml")
 }
 
+/// Held (exclusively) by the running widgets process; see `widgets.rs`.
+pub fn widgets_lock() -> PathBuf {
+    project_dirs().config_dir().join("widgets.lock")
+}
+
 /// Rotation and schedule (see `rotation.rs`).
 pub fn rotation_file() -> PathBuf {
     project_dirs().config_dir().join("rotation.toml")

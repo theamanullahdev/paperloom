@@ -305,6 +305,7 @@ impl State {
             let label = match row_data.kind {
                 Kind::App => format!("{} (this window)", row_data.name),
                 Kind::Engine => format!("{} (wallpaper)", row_data.name),
+                Kind::Helper if row_data.name.to_lowercase().starts_with("paperloom-widget") => format!("{} (widgets)", row_data.name),
                 Kind::Helper => row_data.name.clone(),
             };
             table = table.push(

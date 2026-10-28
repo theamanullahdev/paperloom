@@ -16,7 +16,7 @@ awk -v v="$version" '
 ' Cargo.toml > Cargo.toml.new && mv Cargo.toml.new Cargo.toml
 
 # Workspace members carry the workspace version in the lock file.
-for crate in paperloom-common paperloom-engine paperloom-fetch paperloom-gui; do
+for crate in paperloom-common paperloom-engine paperloom-fetch paperloom-gui paperloom-widgets; do
   awk -v c="$crate" -v v="$version" '
     $0 == "name = \"" c "\"" { hit = 1; print; next }
     hit && /^version = / { $0 = "version = \"" v "\""; hit = 0 }

@@ -45,7 +45,7 @@ struct App {
     exit: bool,
 }
 
-pub fn run() -> Result<(), Box<dyn Error>> {
+pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool) -> Result<(), Box<dyn Error>> {
     let conn = Connection::connect_to_env()?;
     let (globals, mut queue) = registry_queue_init(&conn)?;
     let qh = queue.handle();
@@ -67,8 +67,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         .and_then(|info| info.logical_size)
         .unwrap_or((1920, 1080));
 
-    let widgets = Widgets::load();
-    for placed in widgets.placed {
+    for placed in widgets.placed.iter().cloned() {
         let (w, h) = widgets::size_of(&placed.kind);
         let (w, h) = ((w as f32 * placed.scale) as u32, (h as f32 * placed.scale) as u32);
         let surface = compositor.create_surface(&qh);
@@ -88,8 +87,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         app.windows.push(Window { layer, placed, configured: false, pixmap: None, due: Instant::now(), dirty: true });
     }
 
-    let mut text = Text::new();
-    while !app.exit {
+    while !app.exit && !changed() {
         queue.dispatch_pending(&mut app)?;
 
         let now = Instant::now();
@@ -99,7 +97,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 continue;
             }
             if window.due <= now || window.pixmap.is_none() {
-                match widgets::render(&window.placed.kind, window.placed.scale, &mut text) {
+                match widgets::render(&window.placed.kind, window.placed.scale, text) {
                     Some(frame) => {
                         window.due = now + frame.next_change;
                         window.pixmap = Some(frame.pixmap);

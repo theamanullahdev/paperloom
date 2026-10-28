@@ -47,6 +47,9 @@ pub struct State {
     /// the config file), refreshed after every change.
     autostart: bool,
     autostart_error: Option<String>,
+    widgets_enabled: bool,
+    widgets_autostart: bool,
+    widgets_error: Option<String>,
     stats: Option<Stats>,
     /// The pause-by-app list as typed (commas included).
     pause_apps_text: String,
@@ -143,6 +146,9 @@ impl Default for State {
             highlight_fade: Animation::new(false).quick(),
             autostart: paperloom_common::autostart::is_enabled(),
             autostart_error: None,
+            widgets_enabled: paperloom_common::widgets::Widgets::load().enabled,
+            widgets_autostart: paperloom_common::autostart::is_program_enabled(paperloom_common::autostart::Program::Widgets),
+            widgets_error: None,
             stats: None,
             pause_apps_text: String::new(),
             lock_current: String::new(),
@@ -241,6 +247,15 @@ impl State {
                     SettingId::Autostart => {
                         self.autostart_error = paperloom_common::autostart::set_enabled(value).err().map(|err| err.to_string());
                         self.autostart = paperloom_common::autostart::is_enabled();
+                    }
+                    SettingId::WidgetsEnabled => {
+                        self.widgets_error = paperloom_common::widgets::set_enabled(value).err().map(|err| err.to_string());
+                        self.widgets_enabled = paperloom_common::widgets::Widgets::load().enabled;
+                    }
+                    SettingId::WidgetsAutostart => {
+                        use paperloom_common::autostart::{is_program_enabled, set_program, Program};
+                        self.widgets_error = set_program(Program::Widgets, value).err().map(|err| err.to_string());
+                        self.widgets_autostart = is_program_enabled(Program::Widgets);
                     }
                     SettingId::AllowMature => settings.allow_mature = value,
                     SettingId::TrayIcon => settings.show_tray_icon = value,
@@ -412,6 +427,7 @@ impl State {
     /// it walks a few folders, so not on every redraw).
     pub fn refresh(&mut self, library: &paperloom_common::Library) {
         self.stats = Some(Stats::gather(library));
+        self.widgets_enabled = paperloom_common::widgets::Widgets::load().enabled;
         self.read_hotkey_status();
     }
 
@@ -770,6 +786,36 @@ impl State {
             t,
         );
 
+        let widgets_card = card(
+            "Widgets",
+            "Clocks and meters on the desktop, drawn by their own small process — the wallpaper is never touched.",
+            column![
+                item(
+                    SettingId::WidgetsEnabled,
+                    column![
+                        toggler(self.widgets_enabled).label("Show desktop widgets").on_toggle(|v| Message::Toggle(SettingId::WidgetsEnabled, v)),
+                        hint("Choose and arrange them under Widgets in the sidebar."),
+                    ]
+                    .spacing(6)
+                    .into(),
+                ),
+                item(SettingId::WidgetsAutostart, {
+                    let mut content = column![
+                        toggler(self.widgets_autostart).label("Start widgets when I log in").on_toggle(|v| Message::Toggle(SettingId::WidgetsAutostart, v)),
+                        hint("Widgets follow the same pause rules as the wallpaper: hidden under a fullscreen app and on a locked screen."),
+                    ]
+                    .spacing(6);
+                    if let Some(error) = &self.widgets_error {
+                        content = content.push(text(format!("Couldn't change this: {error}")).size(12).color(t.destructive));
+                    }
+                    content.into()
+                }),
+            ]
+            .spacing(14)
+            .into(),
+            t,
+        );
+
         let startup = card(
             "Startup & tray",
             "What runs when you log in, and the icon in your panel.",
@@ -842,12 +888,12 @@ impl State {
         let cards: Element<'a, Message> = if width >= 760.0 {
             row![
                 column![pausing, playback, content].spacing(16).width(Length::FillPortion(1)),
-                column![appearance, library, shortcuts, privacy, startup, about, advanced].spacing(16).width(Length::FillPortion(1)),
+                column![appearance, library, shortcuts, privacy, widgets_card, startup, about, advanced].spacing(16).width(Length::FillPortion(1)),
             ]
             .spacing(16)
             .into()
         } else {
-            column![pausing, appearance, playback, shortcuts, library, content, privacy, startup, about, advanced].spacing(16).into()
+            column![pausing, appearance, playback, shortcuts, library, content, privacy, widgets_card, startup, about, advanced].spacing(16).into()
         };
 
         let mut page = column![].spacing(16);
@@ -1087,6 +1133,8 @@ const ORDER: &[SettingId] = &[
     SettingId::PauseLowBattery,
     SettingId::LowBatteryPercent,
     SettingId::Autostart,
+    SettingId::WidgetsEnabled,
+    SettingId::WidgetsAutostart,
     SettingId::Muted,
     SettingId::HardwareDecoding,
     SettingId::TrayIcon,

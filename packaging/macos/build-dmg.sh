@@ -23,7 +23,7 @@ work="$(mktemp -d)"
 app="$work/Paperloom.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 
-cp "$bin_dir/paperloom-gui" "$bin_dir/paperloom-engine" "$app/Contents/MacOS/"
+cp "$bin_dir/paperloom-gui" "$bin_dir/paperloom-engine" "$bin_dir/paperloom-widgets" "$app/Contents/MacOS/"
 cp -L "$(brew --prefix)/bin/ffmpeg" "$app/Contents/MacOS/ffmpeg"
 chmod u+w "$app/Contents/MacOS/"*
 cp "$here/Paperloom.icns" "$app/Contents/Resources/"

@@ -123,3 +123,8 @@ pub fn share() -> svg::Handle {
 pub fn select() -> svg::Handle {
     svg::Handle::from_memory(include_bytes!("../assets/icons/square-check.svg").as_slice())
 }
+
+/// Widgets.
+pub fn clock() -> svg::Handle {
+    svg::Handle::from_memory(include_bytes!("../assets/icons/clock.svg").as_slice())
+}

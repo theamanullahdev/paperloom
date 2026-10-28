@@ -13,3 +13,4 @@ pub mod settings;
 pub mod sources;
 pub mod updates;
 pub mod usage;
+pub mod widgets;

@@ -20,7 +20,7 @@ use paperloom_common::{EngineState, Library, Settings};
 use crate::{icons, theme};
 
 const WIDTH: f32 = 360.0;
-const HEIGHT: f32 = 610.0;
+const HEIGHT: f32 = 640.0;
 
 /// Where the widget sits and which way its arrow points.
 #[derive(Clone, Copy)]
@@ -196,6 +196,8 @@ impl<M> iced::widget::canvas::Program<M> for Pointer {
 }
 
 struct Widget {
+    /// Desktop widgets are switched on.
+    desktop_widgets: bool,
     settings: Settings,
     system_theme: iced::theme::Mode,
     state: EngineState,
@@ -221,6 +223,7 @@ enum Message {
     Stop,
     Shuffle,
     Muted(bool),
+    DesktopWidgets(bool),
     PauseFullscreen(bool),
     PauseBattery(bool),
     OpenApp,
@@ -233,6 +236,7 @@ enum Message {
 impl Widget {
     fn new() -> (Self, Task<Message>) {
         let mut widget = Self {
+            desktop_widgets: paperloom_common::widgets::Widgets::load().enabled,
             settings: paperloom_common::load(),
             system_theme: iced::theme::Mode::None,
             state: EngineState::load(),
@@ -320,6 +324,10 @@ impl Widget {
                 self.settings.muted = muted;
                 let _ = paperloom_common::save(&self.settings);
                 let _ = ipc::send(&Command::Mute(muted));
+            }
+            Message::DesktopWidgets(on) => {
+                let _ = paperloom_common::widgets::set_enabled(on);
+                self.desktop_widgets = paperloom_common::widgets::Widgets::load().enabled;
             }
             Message::PauseFullscreen(value) => {
                 self.settings.pause_on_fullscreen_app = value;
@@ -443,6 +451,7 @@ impl Widget {
         // --- Quick switches
         let switches = column![
             toggler(self.settings.muted).label("Mute audio").on_toggle(Message::Muted).size(18),
+            toggler(self.desktop_widgets).label("Desktop widgets").on_toggle(Message::DesktopWidgets).size(18),
             toggler(self.settings.pause_on_fullscreen_app).label("Pause for fullscreen apps").on_toggle(Message::PauseFullscreen).size(18),
             toggler(self.settings.pause_on_low_battery).label("Pause on low battery").on_toggle(Message::PauseBattery).size(18),
         ]

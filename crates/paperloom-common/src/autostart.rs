@@ -11,22 +11,68 @@
 use std::io;
 use std::path::PathBuf;
 
-const ENGINE: &str = "paperloom-engine";
-
-fn engine_path() -> io::Result<PathBuf> {
-    crate::process::sibling_binary(ENGINE)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "paperloom-engine isn't installed next to this app"))
+/// What gets started at login: the wallpaper engine (restores the last
+/// wallpaper) or the widgets process (draws the placed widgets).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Program {
+    Engine,
+    Widgets,
 }
 
+impl Program {
+    fn binary(self) -> &'static str {
+        match self {
+            Program::Engine => "paperloom-engine",
+            Program::Widgets => "paperloom-widgets",
+        }
+    }
+
+    /// The name of the login entry (file stem / label suffix).
+    #[cfg_attr(windows, allow(dead_code))]
+    fn entry(self) -> &'static str {
+        self.binary()
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn registry_value(self) -> &'static str {
+        match self {
+            Program::Engine => "Paperloom",
+            Program::Widgets => "PaperloomWidgets",
+        }
+    }
+
+    #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+    fn title(self) -> (&'static str, &'static str) {
+        match self {
+            Program::Engine => ("Paperloom wallpaper", "Restores your live wallpaper at login"),
+            Program::Widgets => ("Paperloom widgets", "Shows your desktop widgets at login"),
+        }
+    }
+}
+
+fn program_path(program: Program) -> io::Result<PathBuf> {
+    crate::process::sibling_binary(program.binary())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("{} isn't installed next to this app", program.binary())))
+}
+
+/// Whether the wallpaper engine starts at login.
 pub fn is_enabled() -> bool {
-    imp::is_enabled()
+    imp::is_enabled(Program::Engine)
 }
 
 pub fn set_enabled(enabled: bool) -> io::Result<()> {
+    set_program(Program::Engine, enabled)
+}
+
+pub fn is_program_enabled(program: Program) -> bool {
+    imp::is_enabled(program)
+}
+
+pub fn set_program(program: Program, enabled: bool) -> io::Result<()> {
     if enabled {
-        imp::enable()
+        imp::enable(program)
     } else {
-        imp::disable()
+        imp::disable(program)
     }
 }
 
@@ -37,39 +83,42 @@ mod imp {
     /// Always the *host* `~/.config/autostart`: inside a Flatpak
     /// `XDG_CONFIG_HOME` points into the sandbox, which the session never
     /// reads (the manifest grants `xdg-config/autostart:create` for this).
-    fn entry_file() -> PathBuf {
+    use super::Program;
+
+    fn entry_file(program: Program) -> PathBuf {
         let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf()).unwrap_or_default();
-        home.join(".config/autostart/paperloom-engine.desktop")
+        home.join(format!(".config/autostart/{}.desktop", program.entry()))
     }
 
-    fn exec_line() -> io::Result<String> {
+    fn exec_line(program: Program) -> io::Result<String> {
         if let Ok(app_id) = std::env::var("FLATPAK_ID") {
-            return Ok(format!("flatpak run --command={} {app_id}", super::ENGINE));
+            return Ok(format!("flatpak run --command={} {app_id}", program.binary()));
         }
-        let path = super::engine_path()?;
+        let path = super::program_path(program)?;
         Ok(format!("\"{}\"", path.display()))
     }
 
-    pub fn is_enabled() -> bool {
-        entry_file().is_file()
+    pub fn is_enabled(program: Program) -> bool {
+        entry_file(program).is_file()
     }
 
-    pub fn enable() -> io::Result<()> {
-        let file = entry_file();
+    pub fn enable(program: Program) -> io::Result<()> {
+        let file = entry_file(program);
         if let Some(parent) = file.parent() {
             fs::create_dir_all(parent)?;
         }
+        let (name, comment) = program.title();
         fs::write(
             file,
             format!(
-                "[Desktop Entry]\nType=Application\nName=Paperloom wallpaper\nComment=Restores your live wallpaper at login\nExec={}\nIcon=paperloom\nTerminal=false\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n",
-                exec_line()?
+                "[Desktop Entry]\nType=Application\nName={name}\nComment={comment}\nExec={}\nIcon=paperloom\nTerminal=false\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n",
+                exec_line(program)?
             ),
         )
     }
 
-    pub fn disable() -> io::Result<()> {
-        match fs::remove_file(entry_file()) {
+    pub fn disable(program: Program) -> io::Result<()> {
+        match fs::remove_file(entry_file(program)) {
             Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
             _ => Ok(()),
         }
@@ -80,24 +129,32 @@ mod imp {
 mod imp {
     use std::{fs, io, path::PathBuf};
 
-    const LABEL: &str = "io.github.theamanullahdev.paperloom.engine";
+    use super::Program;
 
-    fn agent_file() -> PathBuf {
+    fn label(program: Program) -> String {
+        match program {
+            Program::Engine => "io.github.theamanullahdev.paperloom.engine".to_string(),
+            Program::Widgets => "io.github.theamanullahdev.paperloom.widgets".to_string(),
+        }
+    }
+
+    fn agent_file(program: Program) -> PathBuf {
         let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf()).unwrap_or_default();
-        home.join("Library/LaunchAgents").join(format!("{LABEL}.plist"))
+        home.join("Library/LaunchAgents").join(format!("{}.plist", label(program)))
     }
 
     fn xml_escape(value: &str) -> String {
         value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
     }
 
-    pub fn is_enabled() -> bool {
-        agent_file().is_file()
+    pub fn is_enabled(program: Program) -> bool {
+        agent_file(program).is_file()
     }
 
-    pub fn enable() -> io::Result<()> {
-        let engine = super::engine_path()?;
-        let file = agent_file();
+    pub fn enable(program: Program) -> io::Result<()> {
+        let engine = super::program_path(program)?;
+        let label = label(program);
+        let file = agent_file(program);
         if let Some(parent) = file.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -109,7 +166,7 @@ mod imp {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>{LABEL}</string>
+    <string>{label}</string>
     <key>ProgramArguments</key>
     <array>
         <string>{}</string>
@@ -126,8 +183,8 @@ mod imp {
         )
     }
 
-    pub fn disable() -> io::Result<()> {
-        match fs::remove_file(agent_file()) {
+    pub fn disable(program: Program) -> io::Result<()> {
+        match fs::remove_file(agent_file(program)) {
             Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
             _ => Ok(()),
         }
@@ -148,11 +205,12 @@ mod imp {
         std::ffi::OsStr::new(value).encode_wide().chain(Some(0)).collect()
     }
 
-    const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-    const VALUE: &str = "Paperloom";
+    use super::Program;
 
-    pub fn is_enabled() -> bool {
-        let (key, value) = (wide(RUN_KEY), wide(VALUE));
+    const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
+    pub fn is_enabled(program: Program) -> bool {
+        let (key, value) = (wide(RUN_KEY), wide(program.registry_value()));
         // SAFETY: valid NUL-terminated strings; null data pointer = existence/size query.
         let status = unsafe {
             RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), value.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut())
@@ -160,9 +218,9 @@ mod imp {
         status == ERROR_SUCCESS
     }
 
-    pub fn enable() -> io::Result<()> {
-        let command = wide(&format!("\"{}\"", super::engine_path()?.display()));
-        let (key, value) = (wide(RUN_KEY), wide(VALUE));
+    pub fn enable(program: Program) -> io::Result<()> {
+        let command = wide(&format!("\"{}\"", super::program_path(program)?.display()));
+        let (key, value) = (wide(RUN_KEY), wide(program.registry_value()));
         // SAFETY: valid NUL-terminated strings; the size covers the trailing NUL.
         let status = unsafe {
             RegSetKeyValueW(
@@ -181,8 +239,8 @@ mod imp {
         }
     }
 
-    pub fn disable() -> io::Result<()> {
-        let (key, value) = (wide(RUN_KEY), wide(VALUE));
+    pub fn disable(program: Program) -> io::Result<()> {
+        let (key, value) = (wide(RUN_KEY), wide(program.registry_value()));
         // SAFETY: valid NUL-terminated strings.
         let status = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), value.as_ptr()) };
         if status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND {

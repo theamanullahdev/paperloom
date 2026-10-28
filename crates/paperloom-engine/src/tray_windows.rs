@@ -42,6 +42,7 @@ enum Action {
     Mute,
     OpenApp,
     OpenPage(&'static str),
+    ToggleWidgets,
 }
 
 struct Tray {
@@ -270,6 +271,7 @@ unsafe fn show_menu(window: HWND) -> Option<Action> {
     item(3, if playing { 0 } else { MF_GRAYED }, "Stop wallpaper");
     item(4, if paperloom_common::load().muted { MF_CHECKED } else { 0 }, "Mute audio");
     AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+    item(8, if paperloom_common::widgets::Widgets::load().enabled { MF_CHECKED } else { 0 }, "Desktop widgets");
     item(5, 0, "Open Paperloom");
     item(6, 0, "Usage");
     item(7, 0, "Settings");
@@ -289,6 +291,7 @@ unsafe fn show_menu(window: HWND) -> Option<Action> {
         5 => Some(Action::OpenApp),
         6 => Some(Action::OpenPage("usage")),
         7 => Some(Action::OpenPage("settings")),
+        8 => Some(Action::ToggleWidgets),
         _ => None,
     }
 }
@@ -308,6 +311,10 @@ pub fn run_actions(mpv: &Mpv) {
                 settings.muted = !settings.muted;
                 let _ = paperloom_common::save(&settings);
                 let _ = ipc::send(&Command::Mute(settings.muted));
+            }
+            Action::ToggleWidgets => {
+                let on = paperloom_common::widgets::Widgets::load().enabled;
+                let _ = paperloom_common::widgets::set_enabled(!on);
             }
             Action::OpenApp => spawn_gui(&[]),
             Action::OpenPage(page) => spawn_gui(&["--page", page]),

@@ -47,6 +47,28 @@ pub fn stop() -> Result<(), Error> {
 /// Not running is fine.
 pub fn quit() {
     let _ = ipc::send(&Command::Quit);
+    // The widgets process is a program file too: an installer can't replace it while it runs.
+    end_widgets();
+}
+
+/// Ends this copy's widgets process, if one runs. Settings are untouched, so
+/// `paperloom_common::widgets::start()` brings the same widgets back.
+pub fn end_widgets() {
+    let mut system = sysinfo::System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let ended = own_processes(&system, "paperloom-widgets").into_iter().fold(false, |ended, process| process.kill() | ended);
+    if ended {
+        std::thread::sleep(Duration::from_millis(300));
+    }
+}
+
+/// Restarts the widgets process into the newly installed binary, if it was running.
+pub fn restart_widgets() {
+    let was_running = paperloom_common::widgets::is_running();
+    end_widgets();
+    if was_running {
+        let _ = paperloom_common::widgets::start();
+    }
 }
 
 /// Restarts a running engine so it runs the newly installed binary: asks
@@ -74,7 +96,12 @@ pub fn restart_engine() {
 /// never a full-screen preview. Another install or profile on the machine is
 /// never touched.
 fn own_engines(system: &sysinfo::System) -> Vec<&sysinfo::Process> {
-    let Some(mine) = process::sibling_binary("paperloom-engine") else { return Vec::new() };
+    own_processes(system, "paperloom-engine")
+}
+
+/// The same, for any of Paperloom's own helper programs.
+fn own_processes<'a>(system: &'a sysinfo::System, program: &str) -> Vec<&'a sysinfo::Process> {
+    let Some(mine) = process::sibling_binary(program) else { return Vec::new() };
     let me = sysinfo::get_current_pid().ok().and_then(|pid| system.process(pid)).and_then(|process| process.user_id());
     system
         .processes()
@@ -136,6 +163,7 @@ fn end_stale_engines() {
 /// fresh window, then this process exits.
 pub fn restart_app() -> ! {
     restart_engine();
+    restart_widgets();
     // Let go of the "one window" socket first: otherwise the new window finds
     // this one still listening, hands it a request and quits, leaving nothing.
     crate::instance::release("gui");

@@ -26,15 +26,13 @@ struct Window {
     due: Instant,
 }
 
-pub fn run() -> Result<(), Box<dyn Error>> {
+pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool) -> Result<(), Box<dyn Error>> {
     let (conn, screen_num) = x11rb::connect(None)?;
     let screen = conn.setup().roots[screen_num].clone();
     let (depth, visual) = argb_visual(&screen).ok_or("this X server has no 32-bit visual, widgets can't be transparent")?;
     let colormap = conn.generate_id()?;
     conn.create_colormap(ColormapAlloc::NONE, colormap, screen.root, visual)?;
 
-    let widgets = Widgets::load();
-    let mut text = Text::new();
     let mut windows: Vec<Window> = Vec::new();
     for placed in widgets.placed.iter().cloned() {
         let (w, h) = widgets::size_of(&placed.kind);
@@ -67,13 +65,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         conn.create_gc(gc, first.id, &Default::default())?;
     }
 
-    loop {
+    while !changed() {
         let now = Instant::now();
         for window in &mut windows {
             if window.due > now && window.pixmap.is_some() {
                 continue;
             }
-            let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, &mut text) else {
+            let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text) else {
                 window.due = now + Duration::from_secs(3600);
                 continue;
             };
@@ -86,7 +84,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         // Sleep until the next widget is due, answering events (a repaint
         // request after a compositor restart) in at most half a second.
         let wake = windows.iter().map(|window| window.due).min().unwrap_or(now + Duration::from_secs(1));
-        let nap = wake.saturating_duration_since(Instant::now()).min(Duration::from_millis(500));
+        let nap = wake.saturating_duration_since(Instant::now()).min(Duration::from_secs(1));
         std::thread::sleep(nap);
         while let Some(event) = conn.poll_for_event()? {
             if let x11rb::protocol::Event::Expose(expose) = event {
@@ -99,6 +97,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         }
         conn.flush()?;
     }
+    Ok(())
 }
 
 fn argb_visual(screen: &x11rb::protocol::xproto::Screen) -> Option<(u8, u32)> {

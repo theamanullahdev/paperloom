@@ -17,6 +17,8 @@ pub enum SettingId {
     HardwareDecoding,
     LowBatteryPercent,
     Autostart,
+    WidgetsEnabled,
+    WidgetsAutostart,
     Updates,
     AllowMature,
     TrayIcon,
@@ -106,6 +108,18 @@ pub const ENTRIES: &[Entry] = &[
         label: "Start Paperloom when I log in",
         section: "Startup",
         aliases: &["autostart", "login", "boot", "startup", "reboot", "launch at login", "run at startup"],
+    },
+    Entry {
+        id: SettingId::WidgetsEnabled,
+        label: "Show desktop widgets",
+        section: "Widgets",
+        aliases: &["widgets", "clock", "desktop widgets", "rainmeter", "gadgets", "date", "time", "meter"],
+    },
+    Entry {
+        id: SettingId::WidgetsAutostart,
+        label: "Start widgets when I log in",
+        section: "Widgets",
+        aliases: &["widgets login", "widgets startup", "widgets boot", "autostart widgets"],
     },
     Entry {
         id: SettingId::AllowMature,

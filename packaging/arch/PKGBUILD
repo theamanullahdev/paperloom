@@ -30,6 +30,7 @@ package() {
   cd "$pkgname-$pkgver"
   install -Dm755 target/release/paperloom-gui    "$pkgdir/usr/bin/paperloom-gui"
   install -Dm755 target/release/paperloom-engine "$pkgdir/usr/bin/paperloom-engine"
+  install -Dm755 target/release/paperloom-widgets "$pkgdir/usr/bin/paperloom-widgets"
   install -Dm644 packaging/linux/paperloom.desktop "$pkgdir/usr/share/applications/paperloom.desktop"
   install -Dm644 packaging/icon.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/paperloom.png"
   install -Dm644 packaging/linux/paperloom-share.xml "$pkgdir/usr/share/mime/packages/paperloom-share.xml"

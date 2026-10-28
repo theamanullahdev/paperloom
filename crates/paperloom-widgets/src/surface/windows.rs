@@ -61,14 +61,12 @@ struct Layer {
     icons: Option<HWND>,
 }
 
-pub fn run() -> Result<(), Box<dyn Error>> {
+pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool) -> Result<(), Box<dyn Error>> {
     adopt_desktop_dpi();
     register_class()?;
-    let widgets = Widgets::load();
-    let mut text = Text::new();
 
     loop {
-        let (layer, mut windows) = match build(&widgets) {
+        let (layer, mut windows) = match build(widgets) {
             Ok(built) => built,
             Err(err) => {
                 paperloom_common::log::warn(&format!("widgets: {err}; trying again"));
@@ -78,6 +76,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         };
         let mut next_restack = Instant::now() + RESTACK_EVERY;
         'alive: loop {
+            if changed() {
+                for window in &windows {
+                    // SAFETY: our own windows.
+                    unsafe { DestroyWindow(window.hwnd) };
+                }
+                return Ok(());
+            }
             pump_messages();
             let now = Instant::now();
             for window in &mut windows {
@@ -88,7 +93,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 if window.due > now && window.pixmap.is_some() {
                     continue;
                 }
-                let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, &mut text) else {
+                let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text) else {
                     window.due = now + Duration::from_secs(3600);
                     continue;
                 };
@@ -101,7 +106,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 next_restack = now + RESTACK_EVERY;
             }
             let wake = windows.iter().map(|window| window.due).chain([next_restack]).min().unwrap_or(now + Duration::from_secs(1));
-            std::thread::sleep(wake.saturating_duration_since(Instant::now()).min(Duration::from_millis(500)));
+            std::thread::sleep(wake.saturating_duration_since(Instant::now()).min(Duration::from_secs(1)));
         }
         for window in &windows {
             // SAFETY: our own windows; destroying one that is already gone is harmless.

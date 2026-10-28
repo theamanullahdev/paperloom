@@ -7,7 +7,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Size, 
 
 use paperloom_common::Settings;
 
-use crate::pages::{developers, downloads, library, online, settings, sources, updates, usage};
+use crate::pages::{developers, downloads, library, online, settings, sources, updates, usage, widgets};
 use crate::ui::Width;
 use crate::{icons, search, theme};
 
@@ -23,6 +23,7 @@ pub struct App {
     sources_page: sources::State,
     updates_page: updates::State,
     usage_page: usage::State,
+    widgets_page: widgets::State,
     developers_page: developers::State,
     /// Short usage history so the graphs are already filled when opened.
     recorder: crate::telemetry::Recorder,
@@ -53,6 +54,8 @@ pub(crate) enum Page {
     Updates,
     Usage,
     Developers,
+    Widgets,
+    WidgetsBrowse,
 }
 
 /// A collapsible group in the sidebar tree.
@@ -61,6 +64,7 @@ pub(crate) enum Group {
     Library,
     Collections,
     Online,
+    Widgets,
     Settings,
 }
 
@@ -81,6 +85,7 @@ pub enum Message {
     Sources(sources::Message),
     Updates(updates::Message),
     Usage(usage::Message),
+    Widgets(widgets::Message),
     Developers(developers::Message),
     /// Another launch of Paperloom (tray click, app menu…) asked this
     /// window for something: "SHOW", "PAGE usage", "TRAY-SETTINGS".
@@ -122,6 +127,7 @@ impl App {
             sources_page: sources::State::default(),
             updates_page: updates::State::new(),
             usage_page: usage::State::new(),
+            widgets_page: widgets::State::new(),
             developers_page: developers::State::new(),
             lock_reset: None,
             recorder: crate::telemetry::Recorder::new(),
@@ -317,6 +323,8 @@ impl App {
                 Task::none()
             }
             Message::Developers(msg) => self.developers_page.update(&self.settings, msg).map(Message::Developers),
+            Message::Widgets(widgets::Message::Browse) => self.update(Message::SwitchPage(Page::WidgetsBrowse)),
+            Message::Widgets(msg) => self.widgets_page.update(msg).map(Message::Widgets),
             Message::Usage(msg) => self.usage_page.update(msg).map(Message::Usage),
             Message::Settings(settings::Message::OpenUsage) => self.update(Message::SwitchPage(Page::Usage)),
             Message::SwitchPage(page) => {
@@ -333,6 +341,12 @@ impl App {
                     Page::Library => {
                         self.expanded.insert(Group::Library);
                     }
+                    Page::Widgets | Page::WidgetsBrowse => {
+                        self.expanded.insert(Group::Widgets);
+                    }
+                }
+                if matches!(page, Page::Widgets | Page::WidgetsBrowse) {
+                    self.widgets_page.open();
                 }
                 if page == Page::Usage {
                     self.usage_page.open(self.library_page.library());
@@ -436,6 +450,7 @@ impl App {
             self.library_page.subscription(self.page == Page::Library).map(Message::Library),
             self.online_page.subscription(self.page == Page::Online).map(Message::Online),
             self.usage_page.subscription(self.page == Page::Usage).map(Message::Usage),
+            self.widgets_page.subscription(matches!(self.page, Page::Widgets | Page::WidgetsBrowse)).map(Message::Widgets),
             self.developers_page.subscription(self.page == Page::Developers).map(Message::Developers),
             iced::time::every(crate::telemetry::EVERY).map(|_| Message::Record),
             Subscription::run(|| crate::instance::requests().map(Message::OtherLaunch)),
@@ -559,6 +574,8 @@ impl App {
             Page::Settings => ("Settings", Space::new().into(), self.settings_page.body(&self.settings, self.updates_page.summary(&self.settings), t).map(Message::Settings)),
             Page::Updates => ("Updates", self.updates_page.header().map(Message::Updates), self.updates_page.body(&self.settings, t).map(Message::Updates)),
             Page::Developers => ("Developers", self.developers_page.header().map(Message::Developers), self.developers_page.body(t).map(Message::Developers)),
+            Page::Widgets => ("Widgets", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(false, t).map(Message::Widgets)),
+            Page::WidgetsBrowse => ("Browse widgets", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(true, t).map(Message::Widgets)),
             Page::Usage => ("Usage", self.usage_page.header().map(Message::Usage), self.usage_page.body(&self.settings, t, &self.recorder.history).map(Message::Usage)),
         };
 
@@ -734,6 +751,7 @@ impl App {
     fn is_active(&self, page: Page) -> bool {
         match page {
             Page::Online => matches!(self.page, Page::Online | Page::Downloads | Page::Sources),
+            Page::Widgets => matches!(self.page, Page::Widgets | Page::WidgetsBrowse),
             Page::Settings => matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers),
             other => self.page == other,
         }
@@ -928,6 +946,24 @@ impl App {
             tree = tree.push(self.children(rows, 0, t));
         }
 
+        // --- Widgets
+        tree = tree.push(self.group_header(
+            icons::clock(),
+            "Widgets",
+            Group::Widgets,
+            go_page(Page::Widgets),
+            matches!(self.page, Page::Widgets | Page::WidgetsBrowse),
+            None,
+            t,
+        ));
+        if self.expanded.contains(&Group::Widgets) {
+            let rows = vec![
+                self.tree_row(icons::grid(), "My widgets".into(), 1, self.page == Page::Widgets, None, go_page(Page::Widgets), t),
+                self.tree_row(icons::compass(), "Browse".into(), 1, self.page == Page::WidgetsBrowse, None, go_page(Page::WidgetsBrowse), t),
+            ];
+            tree = tree.push(self.children(rows, 0, t));
+        }
+
         // --- Settings
         let update = self.updates_page.available(&self.settings).is_some();
         tree = tree.push(self.group_header(
@@ -991,8 +1027,13 @@ impl App {
 
 /// The rail / top-bar navigation: one icon per sidebar group (their
 /// sub-pages are reached from inside the pages, or from the full sidebar).
-fn nav_pages() -> [(svg::Handle, &'static str, Page); 3] {
-    [(icons::library(), "Library", Page::Library), (icons::globe(), "Online", Page::Online), (icons::settings(), "Settings", Page::Settings)]
+fn nav_pages() -> [(svg::Handle, &'static str, Page); 4] {
+    [
+        (icons::library(), "Library", Page::Library),
+        (icons::globe(), "Online", Page::Online),
+        (icons::clock(), "Widgets", Page::Widgets),
+        (icons::settings(), "Settings", Page::Settings),
+    ]
 }
 
 /// One navigation entry. `with_label`: icon + text (full sidebar), or icon
