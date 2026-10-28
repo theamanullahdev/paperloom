@@ -26,6 +26,18 @@ pub fn release(name: &str) {
     imp::release(name);
 }
 
+/// Waits (up to `limit`) until another process has become the running instance
+/// called `name`, then a moment longer for its window to appear. Used when
+/// restarting into a new copy, so the old window is never closed before the new
+/// one is there. Where there is no instance socket it simply waits a few seconds.
+pub fn wait_for_replacement(name: &str, limit: std::time::Duration) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < limit && !imp::exists(name) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+}
+
 /// What later launches asked for, as a stream of lines. Take it once; the
 /// subscription that owns it keeps it for the life of the process.
 pub fn requests() -> BoxStream<'static, String> {
@@ -55,6 +67,10 @@ mod imp {
 
     pub fn release(name: &str) {
         let _ = std::fs::remove_file(socket_path(name));
+    }
+
+    pub fn exists(name: &str) -> bool {
+        socket_path(name).exists()
     }
 
     pub fn claim(name: &str, message: &str) -> bool {
@@ -92,6 +108,11 @@ mod imp {
 #[cfg(not(unix))]
 mod imp {
     pub fn release(_name: &str) {}
+
+    /// No instance socket here: the caller's fixed wait is all there is.
+    pub fn exists(_name: &str) -> bool {
+        true
+    }
 
     pub fn claim(_name: &str, _message: &str) -> bool {
         true

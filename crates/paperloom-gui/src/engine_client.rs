@@ -162,14 +162,18 @@ fn end_stale_engines() {
 /// Restarts Paperloom into the newly installed version: the engine, then a
 /// fresh window, then this process exits.
 pub fn restart_app() -> ! {
-    restart_engine();
-    restart_widgets();
     // Let go of the "one window" socket first: otherwise the new window finds
     // this one still listening, hands it a request and quits, leaving nothing.
     crate::instance::release("gui");
     if let Some(exe) = process::current_exe() {
         let _ = std::process::Command::new(exe).spawn();
     }
+    // The new window comes up before anything is closed, so there is never a
+    // moment with no Paperloom window for the desktop to hand focus around in,
+    // and the wallpaper and widgets are swapped while the new window is showing.
+    crate::instance::wait_for_replacement("gui", Duration::from_secs(12));
+    restart_engine();
+    restart_widgets();
     std::process::exit(0)
 }
 

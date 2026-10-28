@@ -334,8 +334,10 @@ fn mark_as_desktop_widget(conn: &impl Connection, window: u32, placed: &Placed) 
         &[atom(conn, b"_NET_WM_STATE_STICKY")?, atom(conn, b"_NET_WM_STATE_SKIP_TASKBAR")?, atom(conn, b"_NET_WM_STATE_SKIP_PAGER")?],
     )?;
     conn.change_property8(PropMode::REPLACE, window, AtomEnum::WM_NAME, AtomEnum::STRING, b"Paperloom widget")?;
-    // Never takes focus.
+    // Never takes focus: input hint off, and a user time of 0 so the window manager
+    // doesn't focus it when it appears (see the wallpaper engine's window).
     conn.change_property32(PropMode::REPLACE, window, AtomEnum::WM_HINTS, AtomEnum::WM_HINTS, &[1, 0, 0, 0, 0, 0, 0, 0, 0])?;
+    conn.change_property32(PropMode::REPLACE, window, atom(conn, b"_NET_WM_USER_TIME")?, AtomEnum::CARDINAL, &[0])?;
     if !placed.interactive() {
         // An empty input shape: every click goes to what is underneath.
         conn.shape_rectangles(shape::SO::SET, SK::INPUT, x11rb::protocol::xproto::ClipOrdering::UNSORTED, window, 0, 0, &[])?;

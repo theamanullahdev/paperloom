@@ -28,7 +28,7 @@ impl Program {
     }
 
     /// The name of the login entry (file stem / label suffix).
-    #[cfg_attr(windows, allow(dead_code))]
+    #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
     fn entry(self) -> &'static str {
         self.binary()
     }

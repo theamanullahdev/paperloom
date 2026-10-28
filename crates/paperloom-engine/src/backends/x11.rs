@@ -181,5 +181,12 @@ fn mark_as_desktop_window(conn: &impl Connection, window: u32) -> Result<(), Box
         &[atom(b"_NET_WM_STATE_STICKY")?, atom(b"_NET_WM_STATE_SKIP_TASKBAR")?, atom(b"_NET_WM_STATE_SKIP_PAGER")?, atom(b"_NET_WM_STATE_BELOW")?],
     )?;
 
+    // Never takes focus, however it appears: input hint off, and a user time of 0
+    // ("not caused by the user"), which window managers honour by not focusing the
+    // window when it is mapped. Without this a restarting wallpaper could be handed
+    // focus, and Cinnamon reacted as if the desktop itself had been clicked.
+    conn.change_property32(PropMode::REPLACE, window, AtomEnum::WM_HINTS, AtomEnum::WM_HINTS, &[1, 0, 0, 0, 0, 0, 0, 0, 0])?;
+    conn.change_property32(PropMode::REPLACE, window, atom(b"_NET_WM_USER_TIME")?, AtomEnum::CARDINAL, &[0])?;
+
     Ok(())
 }

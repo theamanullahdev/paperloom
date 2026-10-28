@@ -399,7 +399,7 @@ fn build(widgets: &Widgets) -> Result<(Layer, Vec<Window>), Box<dyn Error>> {
 
         let mut windows = Vec::new();
         for placed in &widgets.placed {
-            let (w, h) = widgets::size_of(&placed);
+            let (w, h) = widgets::size_of(placed);
             let (w, h) = ((w as f32 * placed.scale) as i32, (h as f32 * placed.scale) as i32);
             let x = (placed.x * screen_w as f32) as i32 - origin_x;
             let y = (placed.y * screen_h as f32) as i32 - origin_y;
