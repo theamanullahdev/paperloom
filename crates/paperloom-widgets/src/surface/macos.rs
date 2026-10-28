@@ -104,7 +104,8 @@ fn open(mtm: MainThreadMarker, screen: NSRect, placed: &Placed) -> Window {
     window.setCollectionBehavior(
         NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::Stationary | NSWindowCollectionBehavior::IgnoresCycle,
     );
-    window.setIgnoresMouseEvents(placed.click_through);
+    // Mouse input isn't handled here yet, so the window stays click-through.
+    window.setIgnoresMouseEvents(true);
 
     let view = NSImageView::initWithFrame(NSImageView::alloc(mtm), NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(w, h)));
     window.setContentView(Some(&view));

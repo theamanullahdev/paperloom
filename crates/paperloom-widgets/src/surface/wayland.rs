@@ -78,7 +78,8 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
         layer.set_size(w, h);
         layer.set_exclusive_zone(-1);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-        if placed.click_through {
+        // Pointer input isn't handled here yet, so the surface stays click-through.
+        {
             // An empty input region: every click goes to what is underneath.
             if let Ok(region) = Region::new(&compositor) {
                 layer.wl_surface().set_input_region(Some(region.wl_region()));

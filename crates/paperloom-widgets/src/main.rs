@@ -7,6 +7,7 @@
 //! removing the last one) ends the process.
 
 mod control;
+mod interact;
 mod render;
 mod sample;
 mod surface;

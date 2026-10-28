@@ -13,30 +13,36 @@
 use std::error::Error;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER,
+    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, ScreenToClient, SelectObject, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER,
     BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::HiDpi::{
     AreDpiAwarenessContextsEqual, GetWindowDpiAwarenessContext, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE,
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE, DPI_AWARENESS_CONTEXT_UNAWARE,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GetSystemMetrics, GetTopWindow, GetWindow,
+    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, EnumWindows, GetCursorPos, GetParent,
+    GetWindowLongPtrW, GetWindowRect, PostMessageW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, FindWindowExW, FindWindowW, GetSystemMetrics, GetTopWindow, GetWindow,
     IsWindow, PeekMessageW, RegisterClassExW, SendMessageTimeoutW, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow,
     GW_HWNDNEXT, HWND_TOP, MSG, PM_REMOVE, SMTO_NORMAL, SM_CXSCREEN, SM_CYSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNOACTIVATE, ULW_ALPHA, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TRANSPARENT,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNOACTIVATE, ULW_ALPHA, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, GWLP_USERDATA, MF_STRING, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEMOVE, WM_NULL, WM_RBUTTONUP,
 };
 
 use paperloom_common::widgets::{Placed, Widgets};
 
 use crate::control::Control;
+use crate::interact;
+use crate::render::menu;
 use crate::render::Text;
 use crate::widgets::{self, Context};
 
@@ -65,6 +71,7 @@ struct Layer {
 pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<(), Box<dyn Error>> {
     adopt_desktop_dpi();
     register_class()?;
+    let owner = menu_owner()?;
 
     loop {
         let (layer, mut windows) = match build(widgets) {
@@ -85,6 +92,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 return Ok(());
             }
             pump_messages();
+            handle_events(&mut windows, owner, control);
             let now = Instant::now();
             let paused = control.paused();
             if !paused {
@@ -115,7 +123,9 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 next_restack = now + RESTACK_EVERY;
             }
             let wake = windows.iter().map(|window| window.due).chain([next_restack]).min().unwrap_or(now + Duration::from_secs(1));
-            std::thread::sleep(wake.saturating_duration_since(Instant::now()).min(Duration::from_secs(1)));
+            let dragging = INPUT.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).drag.is_some();
+            let nap = if dragging { Duration::from_millis(15) } else { wake.saturating_duration_since(Instant::now()).min(Duration::from_secs(1)) };
+            std::thread::sleep(nap);
         }
         for window in &windows {
             // SAFETY: our own windows; destroying one that is already gone is harmless.
@@ -125,9 +135,91 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
     }
 }
 
+/// What the mouse did, queued by the window procedure and handled in the main loop.
+enum Event {
+    /// A widget was dragged and let go at this top-left (screen pixels).
+    Dropped(isize, i32, i32),
+    /// Right-clicked at this screen position.
+    Menu(isize, i32, i32),
+}
+
+/// A drag in progress.
+#[derive(Clone, Copy)]
+struct Dragging {
+    window: isize,
+    /// Pointer and window top-left when the button went down (screen pixels).
+    start: (i32, i32),
+    from: (i32, i32),
+    moved: bool,
+}
+
+struct Input {
+    /// The widget being dragged: its window, where the pointer and the window were, and whether it moved.
+    drag: Option<Dragging>,
+    events: Vec<Event>,
+}
+
+static INPUT: Mutex<Input> = Mutex::new(Input { drag: None, events: Vec::new() });
+
+/// Per-window behaviour, kept in the window's user data.
+const CAN_DRAG: isize = 1;
+const CAN_MENU: isize = 2;
+/// Closer than this (pixels) and a press-and-release is a click, not a drag.
+const DRAG_SLOP: i32 = 3;
+
 unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    // SAFETY: forwarding the window's own message to the default handler.
-    unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+    // SAFETY: plain window and cursor queries on the window the message is for.
+    unsafe {
+        let flags = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        let mut input = INPUT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut cursor = POINT { x: 0, y: 0 };
+        GetCursorPos(&mut cursor);
+        match message {
+            WM_LBUTTONDOWN if flags & CAN_DRAG != 0 => {
+                let mut rect: RECT = std::mem::zeroed();
+                GetWindowRect(hwnd, &mut rect);
+                input.drag = Some(Dragging { window: hwnd as isize, start: (cursor.x, cursor.y), from: (rect.left, rect.top), moved: false });
+                SetCapture(hwnd);
+                return 0;
+            }
+            WM_MOUSEMOVE => {
+                if let Some(drag) = &mut input.drag {
+                    if drag.window == hwnd as isize {
+                        let (dx, dy) = (cursor.x - drag.start.0, cursor.y - drag.start.1);
+                        if drag.moved || dx.abs() >= DRAG_SLOP || dy.abs() >= DRAG_SLOP {
+                            drag.moved = true;
+                            // The window is a child of the desktop layer: move it in that layer's coordinates.
+                            let mut at = POINT { x: drag.from.0 + dx, y: drag.from.1 + dy };
+                            ScreenToClient(GetParent(hwnd), &mut at);
+                            SetWindowPos(hwnd, std::ptr::null_mut(), at.x, at.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                        }
+                        return 0;
+                    }
+                }
+            }
+            WM_LBUTTONUP => {
+                if let Some(drag) = input.drag {
+                    if drag.window == hwnd as isize {
+                        input.drag = None;
+                        ReleaseCapture();
+                        if drag.moved {
+                            let mut rect: RECT = std::mem::zeroed();
+                            GetWindowRect(hwnd, &mut rect);
+                            input.events.push(Event::Dropped(hwnd as isize, rect.left, rect.top));
+                        }
+                        return 0;
+                    }
+                }
+            }
+            WM_RBUTTONUP if flags & CAN_MENU != 0 => {
+                input.events.push(Event::Menu(hwnd as isize, cursor.x, cursor.y));
+                return 0;
+            }
+            _ => {}
+        }
+        drop(input);
+        DefWindowProcW(hwnd, message, wparam, lparam)
+    }
 }
 
 fn register_class() -> Result<(), Box<dyn Error>> {
@@ -144,6 +236,72 @@ fn register_class() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+/// A hidden top-level window that owns the right-click menu (a menu needs a
+/// top-level owner, which the desktop-layer child windows are not).
+fn menu_owner() -> Result<HWND, Box<dyn Error>> {
+    // SAFETY: creating a window of our own registered class; the strings outlive the call.
+    let owner = unsafe {
+        CreateWindowExW(
+            WS_EX_TOOLWINDOW,
+            wide(CLASS_NAME).as_ptr(),
+            wide("Paperloom widgets").as_ptr(),
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            GetModuleHandleW(std::ptr::null()),
+            std::ptr::null(),
+        )
+    };
+    if owner.is_null() {
+        return Err("couldn't create the menu owner window".into());
+    }
+    Ok(owner)
+}
+
+/// Saves finished drags and shows the right-click menu.
+fn handle_events(windows: &mut [Window], owner: HWND, control: &mut Control) {
+    let events = std::mem::take(&mut INPUT.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).events);
+    // SAFETY: plain metric query.
+    let (screen_w, screen_h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+    for event in events {
+        match event {
+            Event::Dropped(hwnd, left, top) => {
+                if let Some(window) = windows.iter_mut().find(|window| window.hwnd as isize == hwnd) {
+                    let (fx, fy) = (left as f32 / screen_w as f32, top as f32 / screen_h as f32);
+                    window.placed.x = fx.clamp(0.0, 0.95);
+                    window.placed.y = fy.clamp(0.0, 0.95);
+                    interact::dropped(window.placed.id, fx, fy, control);
+                }
+            }
+            Event::Menu(hwnd, x, y) => {
+                let Some(window) = windows.iter().find(|window| window.hwnd as isize == hwnd) else { continue };
+                let items = menu::items(window.placed.drag);
+                // SAFETY: a popup menu built, shown and destroyed here, owned by our hidden window.
+                let picked = unsafe {
+                    let popup = CreatePopupMenu();
+                    for (index, (_, label)) in items.iter().enumerate() {
+                        AppendMenuW(popup, MF_STRING, index + 1, wide(label).as_ptr());
+                    }
+                    SetForegroundWindow(owner);
+                    let picked = TrackPopupMenu(popup, TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, 0, owner, std::ptr::null());
+                    PostMessageW(owner, WM_NULL, 0, 0);
+                    DestroyMenu(popup);
+                    picked
+                };
+                if picked > 0 {
+                    if let Some((choice, _)) = items.get(picked as usize - 1) {
+                        interact::choose(*choice, window.placed.id);
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn pump_messages() {
@@ -245,8 +403,11 @@ fn build(widgets: &Widgets) -> Result<(Layer, Vec<Window>), Box<dyn Error>> {
             let (w, h) = ((w as f32 * placed.scale) as i32, (h as f32 * placed.scale) as i32);
             let x = (placed.x * screen_w as f32) as i32 - origin_x;
             let y = (placed.y * screen_h as f32) as i32 - origin_y;
+            // In the classic layout the icons' window sits above the desktop layer and
+            // would swallow every click, so there widgets stay click-through.
+            let takes_input = placed.interactive() && raised;
             let mut style = WS_EX_LAYERED | WS_EX_NOACTIVATE;
-            if placed.click_through {
+            if !takes_input {
                 style |= WS_EX_TRANSPARENT;
             }
             let hwnd = CreateWindowExW(
@@ -266,6 +427,10 @@ fn build(widgets: &Widgets) -> Result<(Layer, Vec<Window>), Box<dyn Error>> {
             if hwnd.is_null() {
                 return Err("couldn't create a widget window".into());
             }
+            if takes_input {
+                let flags = if placed.drag { CAN_DRAG } else { 0 } | if placed.menu { CAN_MENU } else { 0 };
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, flags);
+            }
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             windows.push(Window { hwnd, placed: placed.clone(), pixmap: None, due: Instant::now() });
         }
@@ -275,14 +440,29 @@ fn build(widgets: &Widgets) -> Result<(Layer, Vec<Window>), Box<dyn Error>> {
     }
 }
 
-/// Orders the widgets as a block directly below the icons (raised layout) or
-/// on top of the wallpaper inside the same `WorkerW` (classic layout),
-/// touching the order only when it has drifted.
+/// Orders the widgets. Ones that take mouse input go on top of the desktop layer
+/// (above the icons, which would otherwise swallow every click); click-through
+/// ones form a block directly below the icons (raised layout) or on top of the
+/// wallpaper inside the same `WorkerW` (classic layout). The order is touched
+/// only when it has drifted.
 fn restack(layer: &Layer, windows: &[Window]) {
     // SAFETY: z-order queries and changes on windows we own or just found.
     unsafe {
+        let interactive = |window: &&Window| window.placed.interactive() && layer.icons.is_some();
+        let mut previous: Option<HWND> = None;
+        for window in windows.iter().filter(interactive) {
+            let in_place = match previous {
+                Some(above) => GetWindow(above, GW_HWNDNEXT) == window.hwnd,
+                None => GetTopWindow(layer.parent) == window.hwnd,
+            };
+            if !in_place {
+                SetWindowPos(window.hwnd, previous.unwrap_or(HWND_TOP), 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+            }
+            previous = Some(window.hwnd);
+        }
+
         let mut previous = layer.icons;
-        for window in windows {
+        for window in windows.iter().filter(|window| !interactive(window)) {
             let in_place = match previous {
                 Some(above) => GetWindow(above, GW_HWNDNEXT) == window.hwnd,
                 // Classic layout: the first widget is the top child of its WorkerW.

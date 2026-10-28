@@ -32,7 +32,8 @@ pub enum Message {
     Opacity(u32, f32),
     X(u32, f32),
     Y(u32, f32),
-    ClickThrough(u32, bool),
+    Drag(u32, bool),
+    Menu(u32, bool),
     ResetLayout,
     Browse,
     Tick,
@@ -161,9 +162,14 @@ impl State {
                     }
                 }
             }
-            Message::ClickThrough(id, value) => {
+            Message::Drag(id, value) => {
                 if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
-                    target.click_through = value;
+                    target.drag = value;
+                }
+            }
+            Message::Menu(id, value) => {
+                if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
+                    target.menu = value;
                 }
             }
         }
@@ -283,7 +289,18 @@ impl State {
                 line("Opacity", slider(0.1..=1.0, placed.opacity, move |value| Message::Opacity(id, value)).step(0.05_f32).into(), percent(placed.opacity).into()),
                 line("Left", slider(0.0..=0.95, placed.x, move |value| Message::X(id, value)).step(0.01_f32).into(), percent(placed.x).into()),
                 line("Top", slider(0.0..=0.95, placed.y, move |value| Message::Y(id, value)).step(0.01_f32).into(), percent(placed.y).into()),
-                toggler(placed.click_through).label("Clicks go through to the desktop").on_toggle(move |value| Message::ClickThrough(id, value)),
+                column![
+                    toggler(placed.drag).label("Drag it on the desktop").on_toggle(move |value| Message::Drag(id, value)),
+                    toggler(placed.menu).label("Right-click menu").on_toggle(move |value| Message::Menu(id, value)),
+                    text(if placed.interactive() {
+                        "It sits above your desktop icons so it can be clicked. Turn both off and it sits below them, and every click goes through to the desktop."
+                    } else {
+                        "Clicks go through to the desktop and it sits below your desktop icons. Move it from Edit layout."
+                    })
+                    .size(12)
+                    .color(t.muted_foreground),
+                ]
+                .spacing(8),
                 row![Space::new().width(Length::Fill), button(ui::label("Remove from desktop")).style(ui::danger).on_press(Message::Remove(id))],
             ]
             .spacing(14)

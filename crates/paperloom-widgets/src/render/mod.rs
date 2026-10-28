@@ -2,6 +2,7 @@
 //! right-to-left and complex scripts render correctly) and tiny-skia shapes.
 
 pub mod card;
+pub mod menu;
 pub mod text;
 
 pub use text::Text;

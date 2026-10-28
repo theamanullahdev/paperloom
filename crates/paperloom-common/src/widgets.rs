@@ -66,13 +66,24 @@ pub struct Placed {
     pub scale: f32,
     /// 0.1–1.0.
     pub opacity: f32,
-    /// Mouse clicks pass through to whatever is underneath.
-    pub click_through: bool,
+    /// The widget can be dragged on the desktop.
+    pub drag: bool,
+    /// Right-clicking the widget opens its menu.
+    pub menu: bool,
+}
+
+impl Placed {
+    /// It takes mouse input, so it sits above the desktop icons (the icons'
+    /// window would otherwise swallow every click). With both off it is
+    /// click-through and sits below them.
+    pub fn interactive(&self) -> bool {
+        self.drag || self.menu
+    }
 }
 
 impl Default for Placed {
     fn default() -> Self {
-        Self { id: 1, kind: "clock".into(), x: 0.76, y: 0.06, scale: 1.0, opacity: 1.0, click_through: true }
+        Self { id: 1, kind: "clock".into(), x: 0.76, y: 0.06, scale: 1.0, opacity: 1.0, drag: true, menu: true }
     }
 }
 
