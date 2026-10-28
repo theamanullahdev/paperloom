@@ -222,7 +222,15 @@ mod tests {
         assert!(Running::claim_at(&lock).is_none());
         assert!(running_at(&lock));
         drop(first);
-        assert!(!running_at(&lock));
+        // A child process another test is starting may hold a copy of the handle for an instant.
+        let released = (0..50).any(|_| {
+            let free = !running_at(&lock);
+            if !free {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            free
+        });
+        assert!(released, "the lock stayed held after the process let go");
         let _ = fs::remove_dir_all(dir);
     }
 }
