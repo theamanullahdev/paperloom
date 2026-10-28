@@ -174,3 +174,24 @@ mod tests {
         assert!(install("http://127.0.0.1:1/", &missing_skin, Path::new("/nonexistent")).is_err());
     }
 }
+
+#[cfg(test)]
+mod live {
+    use super::*;
+
+    /// Reads the real catalogue and installs the first look from it into a scratch folder.
+    /// `cargo test -p paperloom-fetch --lib looks::live -- --ignored`
+    #[test]
+    #[ignore]
+    fn the_online_library_installs_a_look() {
+        let (index, base) = fetch_index().expect("catalogue");
+        assert!(!index.packs.is_empty(), "the catalogue lists looks");
+        let pack = index.packs.iter().find(|pack| pack.id == "clock/orbit").unwrap_or(&index.packs[0]);
+        assert!(fetch_preview(base, pack).is_ok(), "preview downloads");
+        let dir = std::env::temp_dir().join(format!("paperloom-live-looks-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        install(base, pack, &dir).expect("installs");
+        assert!(dir.join(&pack.folder).join("skin.toml").is_file());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

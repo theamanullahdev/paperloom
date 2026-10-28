@@ -150,6 +150,9 @@ impl App {
         };
         if let Some(page) = requested_page {
             app.page = page;
+            if std::env::args().any(|arg| arg == "--online") {
+                app.widgets_page.show_online();
+            }
             if page == Page::Usage {
                 app.usage_page.open(app.library_page.library());
             }

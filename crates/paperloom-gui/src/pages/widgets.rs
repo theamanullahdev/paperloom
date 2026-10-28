@@ -94,6 +94,11 @@ impl State {
         Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new() }
     }
 
+    /// Opens the Browse page on its Online tab (`--online`).
+    pub fn show_online(&mut self) {
+        self.tab = BrowseTab::Online;
+    }
+
     /// Re-reads the file (another window, the tray, or a reset may have changed it).
     pub fn open(&mut self) -> Task<Message> {
         self.widgets = Widgets::load();
@@ -146,6 +151,14 @@ impl State {
             Message::Tick => {
                 self.running = widgets::is_running();
                 // Opened straight from the command line, nothing asked for the previews yet.
+                if self.tab == BrowseTab::Online {
+                    let online = self.online.opened().map(Message::Online);
+                    if self.previews.is_empty() && !self.previews_loading {
+                        self.previews_loading = true;
+                        return Task::batch([online, widgets_looks::load(Message::PreviewsReady)]);
+                    }
+                    return online;
+                }
                 if self.previews.is_empty() && !self.previews_loading {
                     self.previews_loading = true;
                     return widgets_looks::load(Message::PreviewsReady);
