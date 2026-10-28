@@ -14,3 +14,4 @@ pub mod sources;
 pub mod updates;
 pub mod usage;
 pub mod widgets;
+pub mod widgets_layout;

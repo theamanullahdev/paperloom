@@ -24,6 +24,10 @@ pub enum Message {
     Add(&'static str),
     Remove(u32),
     Select(u32),
+    /// Dragged on the Layout page: moved, not saved yet.
+    Moved(u32, f32, f32),
+    /// Let go of a drag: save.
+    Dropped,
     Scale(u32, f32),
     Opacity(u32, f32),
     X(u32, f32),
@@ -40,13 +44,23 @@ pub struct State {
     running: bool,
     /// Why the widgets process couldn't be started, if it couldn't.
     problem: Option<String>,
+    /// The primary screen's size, which the Layout page draws to scale.
+    screen: (u32, u32),
+}
+
+/// Which sub-page the widgets body shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Mine,
+    Browse,
+    Layout,
 }
 
 impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)) }
     }
 
     /// Re-reads the file (another window, the tray, or a reset may have changed it).
@@ -121,6 +135,14 @@ impl State {
                 self.selected = Some(id);
                 return Task::none();
             }
+            Message::Moved(id, x, y) => {
+                if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
+                    target.x = x;
+                    target.y = y;
+                }
+                return Task::none();
+            }
+            Message::Dropped => {}
             Message::ResetLayout => {
                 let kinds: Vec<String> = self.widgets.placed.iter().map(|placed| placed.kind.clone()).collect();
                 self.widgets.placed.clear();
@@ -160,13 +182,29 @@ impl State {
         .into()
     }
 
-    pub fn body<'a>(&'a self, browse: bool, t: theme::Tokens) -> Element<'a, Message> {
+    pub fn body<'a>(&'a self, mode: Mode, t: theme::Tokens) -> Element<'a, Message> {
         let mut page = column![].spacing(12);
         if let Some(problem) = &self.problem {
             page = page.push(text(problem.as_str()).size(13).color(t.destructive));
         }
-        page = page.push(if browse { self.browse(t) } else { self.mine(t) });
+        page = page.push(match mode {
+            Mode::Browse => self.browse(t),
+            Mode::Mine => self.mine(t),
+            Mode::Layout => self.layout(t),
+        });
         ui::scroll_page(page).height(Length::Fill).into()
+    }
+
+    fn layout<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        if self.widgets.placed.is_empty() {
+            return self.mine(t);
+        }
+        column![
+            text("Drag a widget to move it. It snaps to the edges and the middle, and is saved when you let go.").size(13).color(t.muted_foreground),
+            super::widgets_layout::view(&self.widgets.placed, self.selected, self.screen, t),
+        ]
+        .spacing(12)
+        .into()
     }
 
     fn browse<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {

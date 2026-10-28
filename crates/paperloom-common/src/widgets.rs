@@ -30,6 +30,15 @@ pub const BUILT_IN: &[Entry] = &[
     Entry { kind: "uptime", name: "Uptime", about: "How long this computer has been running." },
 ];
 
+/// Natural size of a widget in pixels at scale 1.0.
+pub fn natural_size(kind: &str) -> (u32, u32) {
+    match kind {
+        "date" => (170, 170),
+        "clock" => (280, 120),
+        _ => (230, 104),
+    }
+}
+
 pub fn entry(kind: &str) -> Option<&'static Entry> {
     BUILT_IN.iter().find(|entry| entry.kind == kind)
 }

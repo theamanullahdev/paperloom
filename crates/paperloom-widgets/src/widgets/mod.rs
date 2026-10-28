@@ -40,11 +40,7 @@ impl Context<'_> {
 
 /// Natural size of a widget in pixels at scale 1.0.
 pub fn size_of(kind: &str) -> (u32, u32) {
-    match kind {
-        "date" => (170, 170),
-        "clock" => (280, 120),
-        _ => (230, 104),
-    }
+    paperloom_common::widgets::natural_size(kind)
 }
 
 pub fn render(kind: &str, scale: f32, text: &mut Text, context: &Context) -> Option<Frame> {
