@@ -23,6 +23,7 @@ mod paths;
 pub mod process;
 pub mod usage_history;
 pub mod rotation;
+pub mod battery;
 pub mod widgets;
 mod settings;
 mod state;

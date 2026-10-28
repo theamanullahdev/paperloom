@@ -15,8 +15,9 @@ use x11rb::wrapper::ConnectionExt as _;
 
 use paperloom_common::widgets::{Placed, Widgets};
 
+use crate::control::Control;
 use crate::render::Text;
-use crate::widgets;
+use crate::widgets::{self, Context};
 
 struct Window {
     id: u32,
@@ -26,7 +27,7 @@ struct Window {
     due: Instant,
 }
 
-pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool) -> Result<(), Box<dyn Error>> {
+pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<(), Box<dyn Error>> {
     let (conn, screen_num) = x11rb::connect(None)?;
     let screen = conn.setup().roots[screen_num].clone();
     let (depth, visual) = argb_visual(&screen).ok_or("this X server has no 32-bit visual, widgets can't be transparent")?;
@@ -65,13 +66,19 @@ pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool
         conn.create_gc(gc, first.id, &Default::default())?;
     }
 
-    while !changed() {
+    while !control.changed() {
+        if control.paused() {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        }
         let now = Instant::now();
+        control.refresh_sample();
+        let slow = control.slow();
         for window in &mut windows {
             if window.due > now && window.pixmap.is_some() {
                 continue;
             }
-            let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text) else {
+            let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text, &Context { sample: &control.sample, slow }) else {
                 window.due = now + Duration::from_secs(3600);
                 continue;
             };

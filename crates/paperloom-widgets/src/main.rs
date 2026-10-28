@@ -6,39 +6,29 @@
 //! is picked up within a couple of seconds, and switching widgets off (or
 //! removing the last one) ends the process.
 
+mod control;
 mod render;
+mod sample;
 mod surface;
 mod widgets;
 
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
 
-use paperloom_common::widgets::{changed_at, Running, Widgets};
-
-/// How often the settings file is looked at.
-const CHECK_EVERY: Duration = Duration::from_secs(2);
+use paperloom_common::widgets::{Running, Widgets};
 
 fn main() -> ExitCode {
     paperloom_common::log::init("widgets");
     let Some(_running) = Running::claim() else { return ExitCode::SUCCESS };
     let mut text = render::Text::new();
+    let mut control = control::Control::new();
 
     loop {
         let widgets = Widgets::load();
         if !widgets.enabled || widgets.placed.is_empty() {
             return ExitCode::SUCCESS;
         }
-        let seen = changed_at();
-        let mut last_check = Instant::now();
-        // True once widgets.toml is different from what is on screen.
-        let mut changed = move || {
-            if last_check.elapsed() < CHECK_EVERY {
-                return false;
-            }
-            last_check = Instant::now();
-            changed_at() != seen
-        };
-        if let Err(err) = surface::run(&widgets, &mut text, &mut changed) {
+        control.mark_seen();
+        if let Err(err) = surface::run(&widgets, &mut text, &mut control) {
             eprintln!("paperloom-widgets: {err}");
             paperloom_common::log::error(&format!("widgets stopped: {err}"));
             return ExitCode::FAILURE;

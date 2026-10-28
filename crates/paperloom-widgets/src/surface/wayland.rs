@@ -23,8 +23,9 @@ use wayland_client::{Connection, QueueHandle};
 
 use paperloom_common::widgets::{Placed, Widgets};
 
+use crate::control::Control;
 use crate::render::Text;
-use crate::widgets;
+use crate::widgets::{self, Context};
 
 struct Window {
     layer: LayerSurface,
@@ -45,7 +46,7 @@ struct App {
     exit: bool,
 }
 
-pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool) -> Result<(), Box<dyn Error>> {
+pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<(), Box<dyn Error>> {
     let conn = Connection::connect_to_env()?;
     let (globals, mut queue) = registry_queue_init(&conn)?;
     let qh = queue.handle();
@@ -87,17 +88,22 @@ pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool
         app.windows.push(Window { layer, placed, configured: false, pixmap: None, due: Instant::now(), dirty: true });
     }
 
-    while !app.exit && !changed() {
+    while !app.exit && !control.changed() {
         queue.dispatch_pending(&mut app)?;
 
         let now = Instant::now();
+        let paused = control.paused();
+        if !paused {
+            control.refresh_sample();
+        }
+        let slow = control.slow();
         for index in 0..app.windows.len() {
             let window = &mut app.windows[index];
-            if !window.configured {
+            if !window.configured || paused {
                 continue;
             }
             if window.due <= now || window.pixmap.is_none() {
-                match widgets::render(&window.placed.kind, window.placed.scale, text) {
+                match widgets::render(&window.placed.kind, window.placed.scale, text, &Context { sample: &control.sample, slow }) {
                     Some(frame) => {
                         window.due = now + frame.next_change;
                         window.pixmap = Some(frame.pixmap);

@@ -19,7 +19,16 @@ pub struct Entry {
 }
 
 /// Every built-in widget. Having them listed costs nothing; only placed ones run.
-pub const BUILT_IN: &[Entry] = &[Entry { kind: "clock", name: "Clock", about: "The time, with the date underneath." }];
+pub const BUILT_IN: &[Entry] = &[
+    Entry { kind: "clock", name: "Clock", about: "The time, with the date underneath." },
+    Entry { kind: "date", name: "Date", about: "A calendar page: weekday, day, month and year." },
+    Entry { kind: "cpu", name: "Processor", about: "How busy the processor is, across all cores." },
+    Entry { kind: "memory", name: "Memory", about: "How much memory is in use." },
+    Entry { kind: "disk", name: "Disk", about: "Used and free space on your main disk." },
+    Entry { kind: "network", name: "Network", about: "Download and upload speed right now." },
+    Entry { kind: "battery", name: "Battery", about: "Charge level, and whether you are plugged in." },
+    Entry { kind: "uptime", name: "Uptime", about: "How long this computer has been running." },
+];
 
 pub fn entry(kind: &str) -> Option<&'static Entry> {
     BUILT_IN.iter().find(|entry| entry.kind == kind)

@@ -18,8 +18,9 @@ use tiny_skia::Pixmap;
 
 use paperloom_common::widgets::{Placed, Widgets};
 
+use crate::control::Control;
 use crate::render::Text;
-use crate::widgets;
+use crate::widgets::{self, Context};
 
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
@@ -37,7 +38,7 @@ struct Window {
     due: Instant,
 }
 
-pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool) -> Result<(), Box<dyn Error>> {
+pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<(), Box<dyn Error>> {
     let mtm = MainThreadMarker::new().ok_or("the macOS backend must run on the main thread")?;
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
@@ -46,13 +47,18 @@ pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool
     let screen = NSScreen::mainScreen(mtm).ok_or("no display")?.frame();
     let mut windows: Vec<Window> = widgets.placed.iter().map(|placed| open(mtm, screen, placed)).collect();
 
-    while !changed() {
+    while !control.changed() {
         let now = Instant::now();
+        let paused = control.paused();
+        if !paused {
+            control.refresh_sample();
+        }
+        let slow = control.slow();
         for window in &mut windows {
-            if window.due > now {
+            if paused || window.due > now {
                 continue;
             }
-            let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text) else {
+            let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text, &Context { sample: &control.sample, slow }) else {
                 window.due = now + Duration::from_secs(3600);
                 continue;
             };

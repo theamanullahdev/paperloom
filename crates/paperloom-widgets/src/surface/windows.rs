@@ -36,8 +36,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use paperloom_common::widgets::{Placed, Widgets};
 
+use crate::control::Control;
 use crate::render::Text;
-use crate::widgets;
+use crate::widgets::{self, Context};
 
 const CLASS_NAME: &str = "PaperloomWidget";
 /// How often the stacking order is verified.
@@ -61,7 +62,7 @@ struct Layer {
     icons: Option<HWND>,
 }
 
-pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool) -> Result<(), Box<dyn Error>> {
+pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<(), Box<dyn Error>> {
     adopt_desktop_dpi();
     register_class()?;
 
@@ -76,7 +77,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool
         };
         let mut next_restack = Instant::now() + RESTACK_EVERY;
         'alive: loop {
-            if changed() {
+            if control.changed() {
                 for window in &windows {
                     // SAFETY: our own windows.
                     unsafe { DestroyWindow(window.hwnd) };
@@ -85,15 +86,23 @@ pub fn run(widgets: &Widgets, text: &mut Text, changed: &mut dyn FnMut() -> bool
             }
             pump_messages();
             let now = Instant::now();
+            let paused = control.paused();
+            if !paused {
+                control.refresh_sample();
+            }
+            let slow = control.slow();
             for window in &mut windows {
                 // SAFETY: a plain handle validity query.
                 if unsafe { IsWindow(window.hwnd) } == 0 {
                     break 'alive; // Explorer restarted and took them with it.
                 }
+                if paused {
+                    continue;
+                }
                 if window.due > now && window.pixmap.is_some() {
                     continue;
                 }
-                let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text) else {
+                let Some(frame) = widgets::render(&window.placed.kind, window.placed.scale, text, &Context { sample: &control.sample, slow }) else {
                     window.due = now + Duration::from_secs(3600);
                     continue;
                 };

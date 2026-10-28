@@ -2932,6 +2932,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "paperloom-common",
  "smithay-client-toolkit 0.21.1",
+ "sysinfo",
  "tiny-skia",
  "wayland-client",
  "windows-sys 0.61.2",
