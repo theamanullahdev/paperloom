@@ -2926,8 +2926,15 @@ version = "0.23.8"
 dependencies = [
  "chrono",
  "cosmic-text",
+ "libc",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "paperloom-common",
+ "smithay-client-toolkit 0.21.1",
  "tiny-skia",
+ "wayland-client",
+ "windows-sys 0.61.2",
  "x11rb 0.14.0",
 ]
 

@@ -10,10 +10,7 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     paperloom_common::log::init("widgets");
-    #[cfg(all(unix, not(target_os = "macos")))]
     let result = surface::run();
-    #[cfg(not(all(unix, not(target_os = "macos"))))]
-    let result: Result<(), Box<dyn std::error::Error>> = Err("widgets are not available on this platform in this build".into());
     if let Err(err) = result {
         eprintln!("paperloom-widgets: {err}");
         paperloom_common::log::error(&format!("widgets stopped: {err}"));
