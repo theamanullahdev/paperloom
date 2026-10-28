@@ -39,6 +39,11 @@ pub fn usage_history_file() -> PathBuf {
     project_dirs().data_dir().join("engine-usage.txt")
 }
 
+/// Placed desktop widgets (see `widgets.rs`).
+pub fn widgets_file() -> PathBuf {
+    project_dirs().config_dir().join("widgets.toml")
+}
+
 /// Rotation and schedule (see `rotation.rs`).
 pub fn rotation_file() -> PathBuf {
     project_dirs().config_dir().join("rotation.toml")

@@ -90,3 +90,22 @@ Because of that tradeoff, this is a **setting, not a mandate** — per the philo
 
 ## 9. Non-goals (for now — confirm)
 - Image/GIF/shader-based wallpapers (unless later requested) — MP4 is the explicit initial format.
+
+## 10. Desktop widgets (decided 2026-10-29)
+
+Clock, date, system meters and the like on the desktop, in the spirit of Rainmeter. Decisions from the maintainer:
+
+- **Separate process:** a new `paperloom-widgets` daemon with its own windows. The wallpaper engine never draws widgets and is unaffected by them. Widgets sit visibly on top of the wallpaper.
+- **Platforms:** one backend each for X11, Windows, Wayland and macOS in the first design; X11 and Windows are brought up first.
+- **Off by default.** Enabled in Settings → Widgets (master switch, start at login). The tray icon's menu gets a Widgets on/off toggle; there is no second tray icon.
+- **Same pause rules as the wallpaper:** fullscreen app, screen lock, battery, window covering the desktop (shared detector in `paperloom-common`), each a setting.
+- **Every built-in widget ships in the catalogue.** A widget that is not placed costs nothing; only placed ones run.
+- **Placement:** drag in an "Edit layout" mode; size, opacity and monitor per widget. Click-through and interactive are both options per widget; default click-through.
+- **Own widgets:** declarative widget packs (a folder with a layout file and assets, using built-in data sources: time, CPU, memory, disk, network, battery, weather, wallpaper state, text file). No script engine, no web view. A pack that reads a command's output asks for that permission explicitly. Animated widgets are a later addition.
+- **Online catalogue is a hard requirement of the first release:** packs live in the repository under `widgets/`; CI publishes `widgets/index.json` and the pack files to GitHub Pages next to `releases.json`; the app's **Widgets → Browse** reads it. Sharing as a `.paperloomwidget` file (same idea as `.paperloomshare`).
+- **Weather:** location comes from the system where it offers one (geoclue, Windows, macOS), with a lookup by network address as fallback and a manual override. Open-Meteo, no key.
+- **Look:** built-in widgets use Paperloom's theme tokens for now; full per-widget styling comes later.
+- **UI:** new top-level **Widgets** page with sub-pages (My widgets, Browse, Layout). Per-widget settings open in a workspace pane (list left, settings right, like Updates), never one long scroll.
+- **Budget:** under about 1% CPU and 30 MB with three widgets placed, measured on the Usage page and in `tools/bench`. Redraw only while visible, once a second at most for clocks, every 2 s for meters. Software renderer (tiny-skia + softbuffer), not the Iced/wgpu stack.
+
+Widget safety rules (details in PLAN.md "edge cases"): above the wallpaper, below the desktop icons and below windows, click-through by default, never takes focus; never lose a widget (clamp to the work area, Find my widgets, Reset layout, edit mode always has an exit); coalesced wall-clock ticks and draw-on-change only, with slower rates on battery; packs are declarative and validated, commands need explicit permission; the daemon runs only while at least one widget is placed; the updater ends it before an installer runs.

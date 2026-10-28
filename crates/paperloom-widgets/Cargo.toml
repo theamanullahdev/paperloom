@@ -1,0 +1,16 @@
+[package]
+name = "paperloom-widgets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Paperloom desktop widgets: a small separate process that draws clocks and meters on the desktop."
+
+[dependencies]
+paperloom-common = { path = "../paperloom-common" }
+# Software drawing: no GPU, no windowing toolkit, so the process stays small.
+tiny-skia = "0.11"
+cosmic-text = "0.15"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+x11rb = { version = "0.14", features = ["shape", "randr"] }
