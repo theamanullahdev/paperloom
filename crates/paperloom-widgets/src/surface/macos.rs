@@ -8,7 +8,7 @@ use std::error::Error;
 use std::time::{Duration, Instant};
 
 use objc2::rc::Retained;
-use objc2::MainThreadOnly;
+use objc2::{AnyThread, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageRep, NSColor, NSDeviceRGBColorSpace, NSEventMask, NSImage,
     NSImageView, NSScreen, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
