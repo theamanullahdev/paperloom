@@ -1,0 +1,39 @@
+id = "meter/thin"
+name = "Thin"
+author = "Paperloom"
+description = "Large light numerals and a hairline progress bar, no card."
+kinds = ["cpu", "memory", "disk", "network", "battery", "uptime"]
+fonts = ["fonts/Rajdhani-Bold.ttf", "fonts/Rajdhani-Regular.ttf"]
+size = [230, 96]
+
+[[element]]
+type = "text"
+text = "{title}"
+x = 0
+y = 0
+size = 17
+font = "Rajdhani"
+color = "#ffffffaa"
+shadow = "#00000066"
+
+[[element]]
+type = "text"
+text = "{value}"
+x = 0
+y = 14
+size = 66
+bold = true
+font = "Rajdhani"
+color = "#ffffff"
+shadow = "#00000077"
+
+[[element]]
+type = "bar"
+x = 0
+y = 84
+w = 230
+h = 3
+value = "fraction"
+fill = "#ffd27a"
+track = "#ffffff30"
+show_if = "fraction"

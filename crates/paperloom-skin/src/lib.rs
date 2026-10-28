@@ -15,7 +15,7 @@ mod text;
 mod vars;
 
 pub use element::Skin;
-pub use registry::{all, default_for, for_kind, get};
+pub use registry::{all, default_for, for_kind, get, refresh, set_user_dir};
 pub use text::{Style, Text};
 pub use vars::{clock, meter, preview, Value, Vars};
 

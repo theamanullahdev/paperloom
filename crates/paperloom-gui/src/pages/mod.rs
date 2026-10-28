@@ -16,3 +16,4 @@ pub mod usage;
 pub mod widgets;
 pub mod widgets_layout;
 pub mod widgets_looks;
+pub mod widgets_online;

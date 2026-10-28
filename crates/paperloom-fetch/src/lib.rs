@@ -9,6 +9,7 @@ mod download;
 mod generic;
 mod http;
 pub mod keywords;
+pub mod looks;
 mod mixkit;
 mod motionbgs;
 mod net;

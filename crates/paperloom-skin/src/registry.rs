@@ -1,7 +1,11 @@
-//! The skins that ship with Paperloom, parsed once. (Installed and downloaded
-//! skins will join them through the same format.)
+//! The looks that are available: the ones that ship with Paperloom, plus the
+//! ones installed in the user's skins folder (one folder each, with a
+//! `skin.toml` and any fonts and images it uses). The installed ones are read
+//! when `refresh` is called, so a look that has just been downloaded shows up
+//! without restarting.
 
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
 
 use crate::element::Skin;
 
@@ -21,7 +25,7 @@ const BUILT_IN: &[&str] = &[
     include_str!("../skins/meter-neon.toml"),
 ];
 
-pub fn all() -> &'static [Skin] {
+fn built_in() -> &'static [Skin] {
     static SKINS: OnceLock<Vec<Skin>> = OnceLock::new();
     SKINS.get_or_init(|| {
         BUILT_IN
@@ -37,18 +41,62 @@ pub fn all() -> &'static [Skin] {
     })
 }
 
-pub fn get(id: &str) -> Option<&'static Skin> {
-    all().iter().find(|skin| skin.id == id)
+struct Installed {
+    dir: PathBuf,
+    skins: Vec<&'static Skin>,
 }
 
-/// Every skin that can show `kind`, in the order they ship.
-pub fn for_kind(kind: &str) -> impl Iterator<Item = &'static Skin> + '_ {
-    all().iter().filter(move |skin| skin.kinds.iter().any(|candidate| candidate == kind))
+static INSTALLED: RwLock<Installed> = RwLock::new(Installed { dir: PathBuf::new(), skins: Vec::new() });
+
+/// Where installed looks live, and reads them. Call once at start-up.
+pub fn set_user_dir(dir: &Path) {
+    INSTALLED.write().unwrap_or_else(|poisoned| poisoned.into_inner()).dir = dir.to_path_buf();
+    refresh();
+}
+
+/// Reads the installed looks again (after one was downloaded or removed).
+pub fn refresh() {
+    let dir = INSTALLED.read().unwrap_or_else(|poisoned| poisoned.into_inner()).dir.clone();
+    let mut found: Vec<&'static Skin> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        let mut folders: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).filter(|path| path.is_dir()).collect();
+        folders.sort();
+        for folder in folders {
+            let Ok(source) = std::fs::read_to_string(folder.join("skin.toml")) else { continue };
+            match Skin::parse(&source) {
+                Ok(mut skin) => {
+                    skin.dir = Some(folder);
+                    // Skins live for the whole run (a few kilobytes each); a refresh replaces the list.
+                    found.push(Box::leak(Box::new(skin)));
+                }
+                Err(err) => eprintln!("paperloom-skin: {} didn't parse: {err}", folder.display()),
+            }
+        }
+    }
+    INSTALLED.write().unwrap_or_else(|poisoned| poisoned.into_inner()).skins = found;
+}
+
+/// Every look, built-in ones first; an installed look replaces a built-in one with the same id.
+pub fn all() -> Vec<&'static Skin> {
+    let installed = INSTALLED.read().unwrap_or_else(|poisoned| poisoned.into_inner()).skins.clone();
+    let mut skins: Vec<&'static Skin> = built_in().iter().filter(|skin| !installed.iter().any(|other| other.id == skin.id)).collect();
+    skins.extend(installed);
+    skins
+}
+
+pub fn get(id: &str) -> Option<&'static Skin> {
+    all().into_iter().find(|skin| skin.id == id)
+}
+
+/// Every look that can show `kind`, in order.
+pub fn for_kind(kind: &str) -> Vec<&'static Skin> {
+    all().into_iter().filter(|skin| skin.kinds.iter().any(|candidate| candidate == kind)).collect()
 }
 
 /// The look a new widget of `kind` starts with: its `…/card`.
 pub fn default_for(kind: &str) -> Option<&'static Skin> {
-    for_kind(kind).find(|skin| skin.id.ends_with("/card")).or_else(|| for_kind(kind).next())
+    let skins = for_kind(kind);
+    skins.iter().copied().find(|skin| skin.id.ends_with("/card")).or_else(|| skins.first().copied())
 }
 
 #[cfg(test)]
@@ -58,9 +106,9 @@ mod tests {
 
     #[test]
     fn every_built_in_skin_parses_and_draws_for_each_of_its_kinds() {
-        assert_eq!(all().len(), BUILT_IN.len(), "a built-in skin failed to parse");
+        assert_eq!(built_in().len(), BUILT_IN.len(), "a built-in skin failed to parse");
         let mut text = Text::new();
-        for skin in all() {
+        for skin in built_in() {
             for kind in &skin.kinds {
                 let pixmap = render(skin, &preview(kind), 1.0, &mut text);
                 assert!(pixmap.pixels().iter().any(|pixel| pixel.alpha() > 0), "{} draws nothing for {kind}", skin.id);
@@ -73,5 +121,19 @@ mod tests {
         for kind in ["clock", "date", "cpu", "memory", "disk", "network", "battery", "uptime"] {
             assert!(default_for(kind).is_some(), "{kind} has no look");
         }
+    }
+
+    #[test]
+    fn an_installed_look_is_found_and_can_use_its_own_files() {
+        let dir = std::env::temp_dir().join(format!("paperloom-skins-test-{}", std::process::id()));
+        let folder = dir.join("clock-test");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("skin.toml"), "id = \"clock/test\"\nname = \"Test\"\nkinds = [\"clock\"]\nsize = [100, 40]\n[[element]]\ntype = \"text\"\ntext = \"{time}\"\nx = 0\ny = 0\nsize = 20\n").unwrap();
+        set_user_dir(&dir);
+        let skin = get("clock/test").expect("installed look is listed");
+        assert_eq!(skin.dir.as_deref(), Some(folder.as_path()));
+        assert!(for_kind("clock").iter().any(|candidate| candidate.id == "clock/test"));
+        set_user_dir(Path::new(""));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

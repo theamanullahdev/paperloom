@@ -93,7 +93,12 @@ pub fn preview(kind: &str) -> Vars {
 pub fn meter(title: &str, value: &str, detail: &str, fraction: Option<f32>) -> Vars {
     let vars = Vars::new().text("title", title).text("value", value).text("detail", detail);
     match fraction {
-        Some(fraction) => vars.number("fraction", fraction.clamp(0.0, 1.0)),
+        Some(fraction) => {
+            let fraction = fraction.clamp(0.0, 1.0);
+            let lit = (fraction * 20.0).round() as usize;
+            let bar = format!("{}{}", "█".repeat(lit), "░".repeat(20 - lit));
+            vars.number("fraction", fraction).text("ascii_bar", bar)
+        }
         None => vars,
     }
 }
@@ -114,5 +119,6 @@ pub fn clock(hour: u32, minute: u32, second: u32) -> Vars {
         .number("minute_angle", minute_angle)
         .number("second_angle", second as f32 * 6.0)
         .number("second_fraction", second as f32 / 60.0)
+        .number("hour_fraction", ((hour % 12) as f32 + minute as f32 / 60.0) / 12.0)
         .number("minute_fraction", minute as f32 / 60.0)
 }

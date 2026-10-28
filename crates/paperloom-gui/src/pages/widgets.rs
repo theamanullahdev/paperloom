@@ -16,6 +16,7 @@ use iced::{Alignment, Background, Border, Element, Length, Subscription, Task};
 use paperloom_common::widgets::{self, Widgets, BUILT_IN, MAX_PLACED};
 
 use super::widgets_looks::{self, Previews};
+use super::widgets_online;
 use crate::theme;
 use crate::ui;
 
@@ -49,6 +50,15 @@ pub enum Message {
     /// Put a new widget of this kind on the desktop with this look.
     AddWithLook(String, String),
     SetLook(u32, String),
+    /// Browse: Installed or Online.
+    Tab(BrowseTab),
+    Online(widgets_online::Message),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowseTab {
+    Installed,
+    Online,
 }
 
 pub struct State {
@@ -62,6 +72,8 @@ pub struct State {
     previews: Previews,
     previews_loading: bool,
     filter: String,
+    tab: BrowseTab,
+    online: widgets_online::State,
 }
 
 /// Which sub-page the widgets body shows.
@@ -79,7 +91,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new() }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new() }
     }
 
     /// Re-reads the file (another window, the tray, or a reset may have changed it).
@@ -145,6 +157,23 @@ impl State {
                 self.previews = widgets_looks::into_previews(drawn);
                 self.previews_loading = false;
                 return Task::none();
+            }
+            Message::Tab(tab) => {
+                self.tab = tab;
+                return if tab == BrowseTab::Online { self.online.opened().map(Message::Online) } else { Task::none() };
+            }
+            Message::Online(message) => {
+                let (task, changed) = self.online.update(message);
+                let mut tasks = vec![task.map(Message::Online)];
+                if changed {
+                    // A look was installed or removed: draw the previews again.
+                    self.previews.clear();
+                    self.previews_loading = true;
+                    tasks.push(widgets_looks::load(Message::PreviewsReady));
+                    // A widget whose look is gone falls back to its default.
+                    self.widgets = Widgets::load();
+                }
+                return Task::batch(tasks);
             }
             Message::Filter(kind) => {
                 self.filter = kind;
@@ -406,7 +435,7 @@ impl std::fmt::Display for LookOption {
 
 fn look_picker<'a>(placed: &widgets::Placed) -> Element<'a, Message> {
     let id = placed.id;
-    let options: Vec<LookOption> = paperloom_skin::for_kind(&placed.kind).map(|skin| LookOption { id: skin.id.clone(), name: skin.name.clone() }).collect();
+    let options: Vec<LookOption> = paperloom_skin::for_kind(&placed.kind).into_iter().map(|skin| LookOption { id: skin.id.clone(), name: skin.name.clone() }).collect();
     let current = widgets_looks::skin_of(placed).map(|skin| LookOption { id: skin.id.clone(), name: skin.name.clone() });
     pick_list(options, current, move |choice: LookOption| Message::SetLook(id, choice.id)).into()
 }
@@ -416,8 +445,24 @@ impl State {
     fn looks<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let selected = self.selected.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id));
         let kinds: Vec<(String, String)> = std::iter::once((String::new(), "All".to_string()))
-            .chain(BUILT_IN.iter().filter(|entry| paperloom_skin::for_kind(entry.kind).next().is_some()).map(|entry| (entry.kind.to_string(), entry.name.to_string())))
+            .chain(BUILT_IN.iter().filter(|entry| !paperloom_skin::for_kind(entry.kind).is_empty()).map(|entry| (entry.kind.to_string(), entry.name.to_string())))
             .collect();
+        let tabs = ui::segmented(
+            vec![
+                ("On this computer".to_string(), self.tab == BrowseTab::Installed, Message::Tab(BrowseTab::Installed)),
+                ("Online library".to_string(), self.tab == BrowseTab::Online, Message::Tab(BrowseTab::Online)),
+            ],
+            t,
+        );
+        if self.tab == BrowseTab::Online {
+            return column![
+                tabs,
+                text("More looks, some with their own fonts and images. They download when you install them and are checked before they are used.").size(13).color(t.muted_foreground),
+                self.online.view(t).map(Message::Online),
+            ]
+            .spacing(14)
+            .into();
+        }
         let filters = ui::segmented(kinds.into_iter().map(|(kind, name)| (name, self.filter == kind, Message::Filter(kind))).collect(), t);
 
         let mut cards = Vec::new();
@@ -433,6 +478,7 @@ impl State {
             row(cards).spacing(14).wrap().vertical_spacing(14).into()
         };
         column![
+            tabs,
             text("Pick a look. What it shows (the time, the processor load…) stays the same, only how it looks changes.").size(13).color(t.muted_foreground),
             filters,
             gallery,

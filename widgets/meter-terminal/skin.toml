@@ -1,0 +1,57 @@
+id = "meter/terminal"
+name = "Terminal"
+author = "Paperloom"
+description = "Green phosphor terminal style, with a text bar."
+kinds = ["cpu", "memory", "disk", "network", "battery", "uptime"]
+fonts = ["fonts/ShareTechMono-Regular.ttf"]
+size = [270, 104]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 270
+h = 104
+radius = 5
+fill = "#030803ee"
+stroke = "#00ff41"
+stroke_width = 1.5
+glow = 1.2
+
+[[element]]
+type = "text"
+text = "> {title}"
+x = 14
+y = 8
+size = 14
+font = "Share Tech Mono"
+color = "#00ff41"
+
+[[element]]
+type = "text"
+text = "{value}"
+x = 14
+y = 26
+size = 34
+font = "Share Tech Mono"
+color = "#7dffa0"
+shadow = "#00ff4144"
+
+[[element]]
+type = "text"
+text = "[{ascii_bar}]"
+x = 14
+y = 68
+size = 13
+font = "Share Tech Mono"
+color = "#00ff41"
+show_if = "ascii_bar"
+
+[[element]]
+type = "text"
+text = "{detail}"
+x = 14
+y = 84
+size = 11
+font = "Share Tech Mono"
+color = "#2fae52"

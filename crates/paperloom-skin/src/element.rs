@@ -13,6 +13,10 @@ pub struct Skin {
     pub author: String,
     /// The widget kinds this look can be used for (`clock`, `cpu`, …).
     pub kinds: Vec<String>,
+    /// Font files the look ships (TTF/OTF), relative to its folder; the text
+    /// elements ask for them by family name.
+    #[serde(default)]
+    pub fonts: Vec<String>,
     /// Natural width and height.
     pub size: [f32; 2],
     #[serde(default)]
@@ -20,6 +24,9 @@ pub struct Skin {
     /// Shows seconds, so it must be redrawn every second (computed on load).
     #[serde(skip)]
     pub uses_seconds: bool,
+    /// The folder an installed look lives in (fonts and images are found there).
+    #[serde(skip)]
+    pub dir: Option<std::path::PathBuf>,
 }
 
 impl Skin {
@@ -56,6 +63,9 @@ pub enum Element {
     Arc(Arc),
     Hand(Hand),
     Ticks(Ticks),
+    Line(Line),
+    Image(Image),
+    Segments(Segments),
 }
 
 impl Element {
@@ -69,6 +79,9 @@ impl Element {
             Element::Arc(e) => e.show_if.as_deref(),
             Element::Hand(e) => e.show_if.as_deref(),
             Element::Ticks(e) => e.show_if.as_deref(),
+            Element::Line(e) => e.show_if.as_deref(),
+            Element::Image(e) => e.show_if.as_deref(),
+            Element::Segments(e) => e.show_if.as_deref(),
         }
     }
 }
@@ -85,6 +98,8 @@ pub struct Rect {
     pub stroke: Option<String>,
     #[serde(default = "one")]
     pub stroke_width: f32,
+    /// A soft halo around the outline, as a multiple of the line width.
+    pub glow: Option<f32>,
     pub show_if: Option<String>,
 }
 
@@ -115,6 +130,10 @@ pub struct TextElement {
     pub serif: bool,
     #[serde(default = "foreground")]
     pub color: String,
+    /// A font family shipped with the look (see `Skin::fonts`).
+    pub font: Option<String>,
+    /// A drop shadow colour (offset a couple of pixels down and right).
+    pub shadow: Option<String>,
     /// `left`, `center` or `right`: which side of `x` the text sits on.
     #[serde(default = "left")]
     pub align: String,
@@ -133,6 +152,7 @@ pub struct Bar {
     pub fill: String,
     #[serde(default = "track")]
     pub track: String,
+    pub glow: Option<f32>,
     pub show_if: Option<String>,
 }
 
@@ -154,6 +174,7 @@ pub struct Arc {
     pub fill: String,
     #[serde(default = "track")]
     pub track: String,
+    pub glow: Option<f32>,
     pub show_if: Option<String>,
 }
 
@@ -178,6 +199,7 @@ pub struct Hand {
     /// How far it reaches behind the centre.
     #[serde(default)]
     pub tail: f32,
+    pub glow: Option<f32>,
     pub show_if: Option<String>,
 }
 
@@ -209,4 +231,70 @@ fn twelve() -> u32 {
 }
 fn two() -> f32 {
     2.0
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Line {
+    pub x1: f32,
+    pub y1: f32,
+    pub x2: f32,
+    pub y2: f32,
+    #[serde(default = "two")]
+    pub width: f32,
+    #[serde(default = "foreground")]
+    pub color: String,
+    pub glow: Option<f32>,
+    pub show_if: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Image {
+    /// A PNG shipped with the look, relative to its folder.
+    pub src: String,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    #[serde(default = "one")]
+    pub opacity: f32,
+    pub show_if: Option<String>,
+}
+
+/// A ring (or a straight bar) of separate segments, lit up to a fraction —
+/// the look of a HUD gauge.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Segments {
+    /// Ring: centre and radius. Bar: leave `r` at 0 and give `x`, `y`, `w`, `h`.
+    #[serde(default)]
+    pub cx: f32,
+    #[serde(default)]
+    pub cy: f32,
+    #[serde(default)]
+    pub r: f32,
+    #[serde(default = "six")]
+    pub width: f32,
+    #[serde(default)]
+    pub start: f32,
+    #[serde(default = "full")]
+    pub sweep: f32,
+    #[serde(default)]
+    pub x: f32,
+    #[serde(default)]
+    pub y: f32,
+    #[serde(default)]
+    pub w: f32,
+    #[serde(default)]
+    pub h: f32,
+    pub count: u32,
+    /// Gap between segments: degrees on a ring, pixels on a bar.
+    #[serde(default = "two")]
+    pub gap: f32,
+    /// The variable (0–1) that lights them.
+    pub value: String,
+    #[serde(default = "accent")]
+    pub fill: String,
+    #[serde(default = "track")]
+    pub track: String,
+    pub glow: Option<f32>,
+    pub show_if: Option<String>,
 }

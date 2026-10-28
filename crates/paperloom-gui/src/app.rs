@@ -141,6 +141,7 @@ impl App {
             replaced: false,
             banner_dismissed: false,
         };
+        paperloom_skin::set_user_dir(&paperloom_common::skins_dir());
         // `--page usage` etc. (from the tray menu).
         let requested_page = if std::env::args().any(|arg| arg == "--dev") {
             Some(Page::Developers)

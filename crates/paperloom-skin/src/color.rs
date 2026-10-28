@@ -2,7 +2,7 @@
 //! (`$card`, `$border`, `$fg`, `$muted`, `$accent`, `$track`), so a skin follows
 //! Paperloom's palette unless it chooses its own.
 
-use tiny_skia::Color;
+use tiny_skia::{Color, GradientStop, LinearGradient, Point, Shader, SpreadMode, Transform};
 
 pub fn parse(spec: &str) -> Color {
     if let Some(token) = spec.strip_prefix('$') {
@@ -35,4 +35,29 @@ pub fn parse(spec: &str) -> Color {
 pub fn rgba8(color: Color) -> [u8; 4] {
     let c = color.to_color_u8();
     [c.red(), c.green(), c.blue(), c.alpha()]
+}
+
+/// A paint source for `spec` over the rectangle (`x`, `y`, `w`, `h`): a plain
+/// colour, or `grad(#from, #to[, angle])` — a linear gradient across the
+/// rectangle (angle 0 = left to right, 90 = top to bottom).
+pub fn shader(spec: &str, (x, y, w, h): (f32, f32, f32, f32)) -> Shader<'static> {
+    let Some(inner) = spec.strip_prefix("grad(").and_then(|rest| rest.strip_suffix(')')) else {
+        return Shader::SolidColor(parse(spec));
+    };
+    let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
+    if parts.len() < 2 {
+        return Shader::SolidColor(Color::TRANSPARENT);
+    }
+    let angle = parts.get(2).and_then(|angle| angle.parse::<f32>().ok()).unwrap_or(0.0).to_radians();
+    let (dx, dy) = (angle.cos(), angle.sin());
+    let half = (w * dx.abs() + h * dy.abs()) / 2.0;
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    LinearGradient::new(
+        Point::from_xy(cx - dx * half, cy - dy * half),
+        Point::from_xy(cx + dx * half, cy + dy * half),
+        vec![GradientStop::new(0.0, parse(parts[0])), GradientStop::new(1.0, parse(parts[1]))],
+        SpreadMode::Pad,
+        Transform::identity(),
+    )
+    .unwrap_or(Shader::SolidColor(parse(parts[0])))
 }

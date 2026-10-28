@@ -1,0 +1,393 @@
+{
+  "format": 1,
+  "packs": [
+    {
+      "id": "clock/bebas",
+      "name": "Stacked",
+      "author": "Paperloom",
+      "description": "Giant stacked hour and minute in Bebas Neue, with an accent stripe.",
+      "kinds": [
+        "clock"
+      ],
+      "folder": "clock-bebas",
+      "files": [
+        {
+          "path": "fonts/BebasNeue-Regular.ttf",
+          "sha256": "08e4623805102d819f58601e46e345648846075e363b2ceb23313c2d1c83ec73",
+          "size": 61400
+        },
+        {
+          "path": "fonts/OFL-bebasneue.txt",
+          "sha256": "72082f6cb4d04be2ecf7cc7d9e1e7d73787f0af8a5a278a47cade70c16b78341",
+          "size": 4337
+        },
+        {
+          "path": "fonts/OFL-sharetechmono.txt",
+          "sha256": "9d96f445b6e9c701428811d0177f894874f8d6f07ecc30d568c506542368f3ff",
+          "size": 4429
+        },
+        {
+          "path": "fonts/ShareTechMono-Regular.ttf",
+          "sha256": "9ceab1f87414829af259c0f537573ae03ef7dd3147c0b27a36a1a0beb6732677",
+          "size": 43272
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "80c8dc1e3697047aa65d0a91da820c78034e4a21ffb425a5e8afc551e3a5ed0f",
+          "size": 751
+        }
+      ]
+    },
+    {
+      "id": "clock/chrono",
+      "name": "Chrono",
+      "author": "Paperloom",
+      "description": "An analog chronograph: metal bezel, Orbitron numerals and glowing hands.",
+      "kinds": [
+        "clock"
+      ],
+      "folder": "clock-chrono",
+      "files": [
+        {
+          "path": "fonts/OFL-orbitron.txt",
+          "sha256": "ab609b0e110d622435ff337cdf233288556e011bbf9bd0550be98846c0630819",
+          "size": 4426
+        },
+        {
+          "path": "fonts/Orbitron[wght].ttf",
+          "sha256": "f42db2dd16e642258e35782916eceb1dcdbea06fb958d77ad71dc5963587e8fd",
+          "size": 38576
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "cec892b45877bb10a05fa52a7b3f878d537f640a58d1732d0ac4aa2e3036520b",
+          "size": 1741
+        }
+      ]
+    },
+    {
+      "id": "clock/glass",
+      "name": "Glass",
+      "author": "Paperloom",
+      "description": "A frosted-glass card with a big Rajdhani time and the date on the side.",
+      "kinds": [
+        "clock"
+      ],
+      "folder": "clock-glass",
+      "files": [
+        {
+          "path": "fonts/OFL-rajdhani.txt",
+          "sha256": "f62ef357d3a1c3d27edd35a6e1ba350e8a8d13499797964eeadefbf0b3b15d1f",
+          "size": 4373
+        },
+        {
+          "path": "fonts/Rajdhani-Bold.ttf",
+          "sha256": "691470dd3286a14e9677940d0bf75796179841ba5215cbda1a2c8910a3226afd",
+          "size": 400680
+        },
+        {
+          "path": "fonts/Rajdhani-Regular.ttf",
+          "sha256": "6e1fc228a8318251a6e569502ec57bac1e4656c582f92f59ccecc4688e039b98",
+          "size": 377860
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "20c2093f047281ec459906674287b294be6e1214779175a2c74f1fbc36f95cbd",
+          "size": 930
+        }
+      ]
+    },
+    {
+      "id": "clock/orbit",
+      "name": "Orbit",
+      "author": "Paperloom",
+      "description": "A glowing HUD clock: a ring of sixty segments for the seconds, rings for the minutes and hours, and Orbitron digits.",
+      "kinds": [
+        "clock"
+      ],
+      "folder": "clock-orbit",
+      "files": [
+        {
+          "path": "fonts/OFL-orbitron.txt",
+          "sha256": "ab609b0e110d622435ff337cdf233288556e011bbf9bd0550be98846c0630819",
+          "size": 4426
+        },
+        {
+          "path": "fonts/OFL-sharetechmono.txt",
+          "sha256": "9d96f445b6e9c701428811d0177f894874f8d6f07ecc30d568c506542368f3ff",
+          "size": 4429
+        },
+        {
+          "path": "fonts/Orbitron[wght].ttf",
+          "sha256": "f42db2dd16e642258e35782916eceb1dcdbea06fb958d77ad71dc5963587e8fd",
+          "size": 38576
+        },
+        {
+          "path": "fonts/ShareTechMono-Regular.ttf",
+          "sha256": "9ceab1f87414829af259c0f537573ae03ef7dd3147c0b27a36a1a0beb6732677",
+          "size": 43272
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "325a9cb4ffddb37f5eae86f78511f0cec7701ac5c4a4f1885b865221d69e887f",
+          "size": 1457
+        }
+      ]
+    },
+    {
+      "id": "date/audiowide",
+      "name": "Wide",
+      "author": "Paperloom",
+      "description": "A bold wide date with an accent bar.",
+      "kinds": [
+        "date"
+      ],
+      "folder": "date-audiowide",
+      "files": [
+        {
+          "path": "fonts/Audiowide-Regular.ttf",
+          "sha256": "c7c0f2b0f6fad8c623e31772ce79f94a4edb9321ffce9fce978ea892d20ae730",
+          "size": 69916
+        },
+        {
+          "path": "fonts/OFL-audiowide.txt",
+          "sha256": "4fe01b13ffb41faa8f030d84843a95dab32792dfeeca7c072abbfd3f4d6896ad",
+          "size": 4430
+        },
+        {
+          "path": "fonts/OFL-sharetechmono.txt",
+          "sha256": "9d96f445b6e9c701428811d0177f894874f8d6f07ecc30d568c506542368f3ff",
+          "size": 4429
+        },
+        {
+          "path": "fonts/ShareTechMono-Regular.ttf",
+          "sha256": "9ceab1f87414829af259c0f537573ae03ef7dd3147c0b27a36a1a0beb6732677",
+          "size": 43272
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "b3c01603dda55c504c31268d4e89416834b32d0e77030829db465769f9f891a8",
+          "size": 695
+        }
+      ]
+    },
+    {
+      "id": "date/flip",
+      "name": "Flip",
+      "author": "Paperloom",
+      "description": "A flip-calendar page: two halves, a split line and a big Bebas Neue day.",
+      "kinds": [
+        "date"
+      ],
+      "folder": "date-flip",
+      "files": [
+        {
+          "path": "fonts/BebasNeue-Regular.ttf",
+          "sha256": "08e4623805102d819f58601e46e345648846075e363b2ceb23313c2d1c83ec73",
+          "size": 61400
+        },
+        {
+          "path": "fonts/OFL-bebasneue.txt",
+          "sha256": "72082f6cb4d04be2ecf7cc7d9e1e7d73787f0af8a5a278a47cade70c16b78341",
+          "size": 4337
+        },
+        {
+          "path": "fonts/OFL-sharetechmono.txt",
+          "sha256": "9d96f445b6e9c701428811d0177f894874f8d6f07ecc30d568c506542368f3ff",
+          "size": 4429
+        },
+        {
+          "path": "fonts/ShareTechMono-Regular.ttf",
+          "sha256": "9ceab1f87414829af259c0f537573ae03ef7dd3147c0b27a36a1a0beb6732677",
+          "size": 43272
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "f4750d48051d7c2df175d9340a885f6c6ab3db10b15e90f8faf058631995f91c",
+          "size": 871
+        }
+      ]
+    },
+    {
+      "id": "meter/hud-bar",
+      "name": "HUD bar",
+      "author": "Paperloom",
+      "description": "A segmented bar for any meter, with a title, a big value and a detail line.",
+      "kinds": [
+        "cpu",
+        "memory",
+        "disk",
+        "network",
+        "battery",
+        "uptime"
+      ],
+      "folder": "meter-hud-bar",
+      "files": [
+        {
+          "path": "fonts/OFL-orbitron.txt",
+          "sha256": "ab609b0e110d622435ff337cdf233288556e011bbf9bd0550be98846c0630819",
+          "size": 4426
+        },
+        {
+          "path": "fonts/OFL-sharetechmono.txt",
+          "sha256": "9d96f445b6e9c701428811d0177f894874f8d6f07ecc30d568c506542368f3ff",
+          "size": 4429
+        },
+        {
+          "path": "fonts/Orbitron[wght].ttf",
+          "sha256": "f42db2dd16e642258e35782916eceb1dcdbea06fb958d77ad71dc5963587e8fd",
+          "size": 38576
+        },
+        {
+          "path": "fonts/ShareTechMono-Regular.ttf",
+          "sha256": "9ceab1f87414829af259c0f537573ae03ef7dd3147c0b27a36a1a0beb6732677",
+          "size": 43272
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "bc28fdc3e079b7140e9d3545f8813eb8af4826f56fe790067ad14e241e8aa006",
+          "size": 1079
+        }
+      ]
+    },
+    {
+      "id": "meter/hud-ring",
+      "name": "HUD ring",
+      "author": "Paperloom",
+      "description": "A segmented HUD gauge with a glowing gradient and Orbitron numbers.",
+      "kinds": [
+        "cpu",
+        "memory",
+        "disk",
+        "battery"
+      ],
+      "folder": "meter-hud-ring",
+      "files": [
+        {
+          "path": "fonts/OFL-orbitron.txt",
+          "sha256": "ab609b0e110d622435ff337cdf233288556e011bbf9bd0550be98846c0630819",
+          "size": 4426
+        },
+        {
+          "path": "fonts/OFL-sharetechmono.txt",
+          "sha256": "9d96f445b6e9c701428811d0177f894874f8d6f07ecc30d568c506542368f3ff",
+          "size": 4429
+        },
+        {
+          "path": "fonts/Orbitron[wght].ttf",
+          "sha256": "f42db2dd16e642258e35782916eceb1dcdbea06fb958d77ad71dc5963587e8fd",
+          "size": 38576
+        },
+        {
+          "path": "fonts/ShareTechMono-Regular.ttf",
+          "sha256": "9ceab1f87414829af259c0f537573ae03ef7dd3147c0b27a36a1a0beb6732677",
+          "size": 43272
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "ae25044b077c3a59e1fc6fba0a2e3cf4c7b4ff4d3373e2bb548f2e9c1a77ea90",
+          "size": 1139
+        }
+      ]
+    },
+    {
+      "id": "meter/radial",
+      "name": "Radial",
+      "author": "Paperloom",
+      "description": "A gauge that shifts from green to red as the load rises.",
+      "kinds": [
+        "cpu",
+        "memory",
+        "disk",
+        "battery"
+      ],
+      "folder": "meter-radial",
+      "files": [
+        {
+          "path": "fonts/OFL-orbitron.txt",
+          "sha256": "ab609b0e110d622435ff337cdf233288556e011bbf9bd0550be98846c0630819",
+          "size": 4426
+        },
+        {
+          "path": "fonts/Orbitron[wght].ttf",
+          "sha256": "f42db2dd16e642258e35782916eceb1dcdbea06fb958d77ad71dc5963587e8fd",
+          "size": 38576
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "da9b6397e27482895bbf4eabfe867e6a9d5e3f89b7599bf22ccd475641bd3928",
+          "size": 937
+        }
+      ]
+    },
+    {
+      "id": "meter/terminal",
+      "name": "Terminal",
+      "author": "Paperloom",
+      "description": "Green phosphor terminal style, with a text bar.",
+      "kinds": [
+        "cpu",
+        "memory",
+        "disk",
+        "network",
+        "battery",
+        "uptime"
+      ],
+      "folder": "meter-terminal",
+      "files": [
+        {
+          "path": "fonts/OFL-sharetechmono.txt",
+          "sha256": "9d96f445b6e9c701428811d0177f894874f8d6f07ecc30d568c506542368f3ff",
+          "size": 4429
+        },
+        {
+          "path": "fonts/ShareTechMono-Regular.ttf",
+          "sha256": "9ceab1f87414829af259c0f537573ae03ef7dd3147c0b27a36a1a0beb6732677",
+          "size": 43272
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "bac648839f41f399977e1feb8f9aba21206658efc47dac1b2585782ce9b4b85e",
+          "size": 882
+        }
+      ]
+    },
+    {
+      "id": "meter/thin",
+      "name": "Thin",
+      "author": "Paperloom",
+      "description": "Large light numerals and a hairline progress bar, no card.",
+      "kinds": [
+        "cpu",
+        "memory",
+        "disk",
+        "network",
+        "battery",
+        "uptime"
+      ],
+      "folder": "meter-thin",
+      "files": [
+        {
+          "path": "fonts/OFL-rajdhani.txt",
+          "sha256": "f62ef357d3a1c3d27edd35a6e1ba350e8a8d13499797964eeadefbf0b3b15d1f",
+          "size": 4373
+        },
+        {
+          "path": "fonts/Rajdhani-Bold.ttf",
+          "sha256": "691470dd3286a14e9677940d0bf75796179841ba5215cbda1a2c8910a3226afd",
+          "size": 400680
+        },
+        {
+          "path": "fonts/Rajdhani-Regular.ttf",
+          "sha256": "6e1fc228a8318251a6e569502ec57bac1e4656c582f92f59ccecc4688e039b98",
+          "size": 377860
+        },
+        {
+          "path": "skin.toml",
+          "sha256": "b7fc6dc0b0d7c3728d612c5598296886ad8140dcb84656f95fd6411fe2952e7e",
+          "size": 668
+        }
+      ]
+    }
+  ]
+}

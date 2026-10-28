@@ -22,8 +22,11 @@ fn main() -> ExitCode {
     let Some(_running) = Running::claim() else { return ExitCode::SUCCESS };
     let mut text = render::Text::new();
     let mut control = control::Control::new();
+    paperloom_skin::set_user_dir(&paperloom_common::skins_dir());
 
     loop {
+        // A look may have been installed (or removed) since the last pass.
+        paperloom_skin::refresh();
         let widgets = Widgets::load();
         if !widgets.enabled || widgets.placed.is_empty() {
             return ExitCode::SUCCESS;

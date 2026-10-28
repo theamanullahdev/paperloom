@@ -6,6 +6,7 @@ name: Apt repository
 #                    API's own answer, saved as a static file, so updates
 #                    don't depend on the API's 60-requests-an-hour limit).
 #   /              — the download page (source: site/ on the default branch).
+#   /widgets       — the online library of widget looks (widgets/ on the default branch).
 #   /apt           — a signed apt repository, so Ubuntu / Mint / Debian
 #                    users get updates through their normal `apt upgrade`.
 #
@@ -27,7 +28,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['site/**']
+    paths: ['site/**', 'widgets/**']
 
 permissions:
   contents: write
@@ -44,7 +45,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: src
-          sparse-checkout: site
+          sparse-checkout: |
+            site
+            widgets
 
       - name: Check for the signing key
         id: key
@@ -137,6 +140,8 @@ jobs:
           # repository and releases.json are built into the same output.
           touch site/.nojekyll
           cp -r src/site/. site/
+          # The online library of widget looks (the app reads the repository first and this copy second).
+          cp -r src/widgets site/widgets
 
       - name: Publish to gh-pages
         working-directory: site

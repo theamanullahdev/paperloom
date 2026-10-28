@@ -43,6 +43,19 @@ pub fn load<M: Send + 'static>(done: impl Fn(Drawn) -> M + Send + 'static) -> Ta
     Task::perform(async move { receiver.await.unwrap_or_default() }, done)
 }
 
+/// Runs `work` on a thread of its own and hands the result to `done` (the
+/// network and the disk never run on the interface's thread).
+pub fn blocking<T: Send + 'static, M: Send + 'static>(work: impl FnOnce() -> T + Send + 'static, done: impl Fn(T) -> M + Send + 'static) -> Task<M> {
+    let (sender, receiver) = iced::futures::channel::oneshot::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(work());
+    });
+    Task::future(receiver).then(move |outcome| match outcome {
+        Ok(value) => Task::done(done(value)),
+        Err(_) => Task::none(),
+    })
+}
+
 pub fn into_previews(drawn: Drawn) -> Previews {
     drawn.into_iter().map(|(id, w, h, rgba)| (id, Preview { handle: image::Handle::from_rgba(w, h, rgba), size: (w, h) })).collect()
 }

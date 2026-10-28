@@ -39,6 +39,11 @@ pub fn usage_history_file() -> PathBuf {
     project_dirs().data_dir().join("engine-usage.txt")
 }
 
+/// Installed widget looks (one folder each, with `skin.toml` and its fonts and images).
+pub fn skins_dir() -> PathBuf {
+    project_dirs().data_dir().join("skins")
+}
+
 /// Placed desktop widgets (see `widgets.rs`).
 pub fn widgets_file() -> PathBuf {
     project_dirs().config_dir().join("widgets.toml")
