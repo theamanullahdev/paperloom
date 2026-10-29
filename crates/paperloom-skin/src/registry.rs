@@ -11,6 +11,10 @@ use crate::element::Skin;
 
 const BUILT_IN: &[&str] = &[
     include_str!("../skins/clock-card.toml"),
+    include_str!("../skins/clock-spaced.toml"),
+    include_str!("../skins/clock-neon-day.toml"),
+    include_str!("../skins/clock-lines.toml"),
+    include_str!("../skins/nowplaying-halo.toml"),
     include_str!("../skins/clock-minimal.toml"),
     include_str!("../skins/clock-analog.toml"),
     include_str!("../skins/clock-neon.toml"),

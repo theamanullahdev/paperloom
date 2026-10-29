@@ -1,0 +1,11 @@
+id = "stack/saturday"
+name = "Saturday"
+author = "Paperloom"
+description = "A big wide-set weekday over the date and the time, straight on the wallpaper."
+size = [560, 130]
+
+[[widget]]
+kind = "clock"
+skin = "clock/spaced"
+dx = 0
+dy = 0

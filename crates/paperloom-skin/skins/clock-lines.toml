@@ -1,0 +1,47 @@
+id = "clock/lines"
+name = "Lines"
+author = "Paperloom"
+description = "A small wide-set weekday with a short rule above it, the date and the time."
+kinds = ["clock"]
+size = [300, 112]
+
+[[element]]
+type = "rect"
+x = 2
+y = 4
+w = 38
+h = 3
+fill = "#ffffff"
+
+[[element]]
+type = "text"
+text = "{weekday}"
+x = 0
+y = 16
+size = 30
+font = "Orbitron"
+spacing = 0.42
+case = "upper"
+color = "#ffffff"
+shadow = "#00000070"
+
+[[element]]
+type = "text"
+text = "{day} {month}, {year}"
+x = 2
+y = 62
+size = 12
+spacing = 0.28
+case = "upper"
+color = "#ffffffd0"
+shadow = "#00000070"
+
+[[element]]
+type = "text"
+text = "{time}"
+x = 2
+y = 84
+size = 12
+spacing = 0.28
+color = "#ffffffa0"
+shadow = "#00000070"

@@ -1,0 +1,22 @@
+id = "stack/quiet-lines"
+name = "Quiet lines"
+author = "Paperloom"
+description = "A small weekday with a rule above it, the weather, and what is playing."
+size = [300, 264]
+
+[[widget]]
+kind = "clock"
+skin = "clock/lines"
+dx = 0
+dy = 0
+
+[[widget]]
+kind = "weather"
+skin = "meter/compact"
+dx = 0
+dy = 128
+[[widget]]
+kind = "nowplaying"
+skin = "meter/compact"
+dx = 0
+dy = 200

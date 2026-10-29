@@ -154,6 +154,11 @@ pub struct TextElement {
     /// `upper` or `lower`: the text's letters, whatever the data says.
     #[serde(default)]
     pub case: String,
+    /// Space after every letter, in ems.
+    #[serde(default)]
+    pub spacing: f32,
+    /// A soft halo in this colour around the letters.
+    pub glow: Option<String>,
     pub show_if: Option<String>,
 }
 

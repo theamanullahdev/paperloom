@@ -14,6 +14,9 @@ use crate::paths;
 use crate::widgets::{entry, Placed, Widgets, MAX_PLACED};
 
 const BUILT_IN: &[&str] = &[
+    include_str!("../stacks/saturday.toml"),
+    include_str!("../stacks/neon-player.toml"),
+    include_str!("../stacks/quiet-lines.toml"),
     include_str!("../stacks/morning.toml"),
     include_str!("../stacks/dashboard.toml"),
     include_str!("../stacks/monitor.toml"),
@@ -208,7 +211,7 @@ mod tests {
     #[test]
     fn built_in_presets_are_valid() {
         let all = presets();
-        assert!(all.len() >= 5, "{} presets parsed", all.len());
+        assert!(all.len() >= 8, "{} presets parsed", all.len());
         for preset in &all {
             for widget in &preset.widget {
                 assert!(entry(&widget.kind).is_some(), "{}: {}", preset.id, widget.kind);

@@ -114,6 +114,10 @@ pub fn preview(kind: &str) -> Vars {
                 .text("weekday_short", now.format("%a").to_string())
                 .text("date", now.format("%A, %-d %B").to_string())
                 .text("date_short", now.format("%-d %b").to_string())
+                .text("day", now.format("%-d").to_string())
+                .text("month", now.format("%B").to_string())
+                .text("month_short", now.format("%b").to_string())
+                .text("year", now.format("%Y").to_string())
         }
         "date" => {
             let now = chrono::Local::now();

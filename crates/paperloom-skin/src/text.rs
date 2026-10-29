@@ -10,6 +10,9 @@ use tiny_skia::Pixmap;
 
 use crate::element::Skin;
 
+/// Audiowide and Orbitron (SIL Open Font License; the licences are beside the files).
+const EMBEDDED_FONTS: [&[u8]; 2] = [include_bytes!("../fonts/Audiowide-Regular.ttf"), include_bytes!("../fonts/Orbitron.ttf")];
+
 pub struct Text {
     fonts: FontSystem,
     cache: SwashCache,
@@ -23,10 +26,10 @@ pub struct Text {
     bases: HashMap<(usize, u32), Pixmap>,
 }
 
-type LayoutKey = (String, u32, bool, bool, bool, Option<String>);
+type LayoutKey = (String, u32, bool, bool, bool, Option<String>, u32);
 
 fn layout_key(text: &str, style: &Style) -> LayoutKey {
-    (text.to_string(), style.size.to_bits(), style.bold, style.mono, style.serif, style.font.clone())
+    (text.to_string(), style.size.to_bits(), style.bold, style.mono, style.serif, style.font.clone(), style.spacing.to_bits())
 }
 
 /// How a piece of text looks.
@@ -38,12 +41,14 @@ pub struct Style {
     pub serif: bool,
     /// A family name from a font the look ships.
     pub font: Option<String>,
+    /// Space added after every letter, in ems (0.3 = wide-set capitals).
+    pub spacing: f32,
     pub color: [u8; 4],
 }
 
 impl Style {
     pub fn plain(size: f32, color: [u8; 4]) -> Self {
-        Self { size, bold: false, mono: false, serif: false, font: None, color }
+        Self { size, bold: false, mono: false, serif: false, font: None, spacing: 0.0, color }
     }
 
     pub fn bold(size: f32, color: [u8; 4]) -> Self {
@@ -53,7 +58,12 @@ impl Style {
 
 impl Text {
     pub fn new() -> Self {
-        Self { fonts: FontSystem::new(), cache: SwashCache::new(), loaded_fonts: HashSet::new(), images: HashMap::new(), layouts: HashMap::new(), bases: HashMap::new() }
+        let mut fonts = FontSystem::new();
+        // Two typefaces ship with every look, so designs that use them look the same everywhere.
+        for font in EMBEDDED_FONTS {
+            fonts.db_mut().load_font_data(font.to_vec());
+        }
+        Self { fonts, cache: SwashCache::new(), loaded_fonts: HashSet::new(), images: HashMap::new(), layouts: HashMap::new(), bases: HashMap::new() }
     }
 
     fn buffer(&mut self, text: &str, style: &Style) -> Buffer {
@@ -68,7 +78,10 @@ impl Text {
         } else {
             Family::SansSerif
         };
-        let attrs = Attrs::new().family(family).weight(if style.bold { Weight::BOLD } else { Weight::NORMAL });
+        let mut attrs = Attrs::new().family(family).weight(if style.bold { Weight::BOLD } else { Weight::NORMAL });
+        if style.spacing > 0.0 {
+            attrs = attrs.letter_spacing(style.spacing);
+        }
         buffer.set_text(&mut self.fonts, text, &attrs, Shaping::Advanced, None);
         buffer.shape_until_scroll(&mut self.fonts, false);
         buffer

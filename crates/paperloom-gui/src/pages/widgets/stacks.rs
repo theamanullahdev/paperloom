@@ -53,7 +53,7 @@ impl State {
             actions.push(button(ui::label("Remove")).style(ui::ghost).on_press(Message::RemovePreset(preset.folder.clone())).into());
         }
         let detail = match count {
-            0 => format!("{} widgets · by {}", preset.widget.len(), preset.author),
+            0 => format!("{} · by {}", if preset.widget.len() == 1 { "1 widget".to_string() } else { format!("{} widgets", preset.widget.len()) }, preset.author),
             1 => "On your desktop".to_string(),
             n => format!("{n} on your desktop"),
         };

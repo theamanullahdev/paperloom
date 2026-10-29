@@ -124,13 +124,26 @@ fn draw_text(pixmap: &mut Pixmap, item: &TextElement, vars: &Vars, s: f32, text:
     if content.is_empty() {
         return;
     }
-    let mut style = Style { size: item.size * s, bold: item.bold, mono: item.mono, serif: item.serif, font: item.font.clone(), color: rgba8(parse(&item.color)) };
+    let mut style = Style { size: item.size * s, bold: item.bold, mono: item.mono, serif: item.serif, font: item.font.clone(), spacing: item.spacing, color: rgba8(parse(&item.color)) };
     let (width, _) = text.measure(&content, &style);
+    // Letter spacing also trails the last letter; centre on the letters themselves.
+    let width = width - item.spacing * item.size * s;
     let x = match item.align.as_str() {
         "center" => item.x * s - width / 2.0,
         "right" => item.x * s - width,
         _ => item.x * s,
     };
+    if let Some(glow) = &item.glow {
+        // A halo: the letters again, a little around themselves, very faint.
+        let [r, g, b, a] = rgba8(parse(glow));
+        for (reach, alpha) in [(4.0_f32, 0.07_f32), (2.5, 0.11), (1.2, 0.16)] {
+            let halo = Style { color: [r, g, b, (f32::from(a) * alpha) as u8], ..style.clone() };
+            for step in 0..12 {
+                let angle = step as f32 * std::f32::consts::TAU / 12.0;
+                text.draw(pixmap, &content, (x + angle.cos() * reach * s, item.y * s + angle.sin() * reach * s), &halo);
+            }
+        }
+    }
     if let Some(shadow) = &item.shadow {
         let offset = (item.size / 24.0).clamp(1.0, 3.0) * s;
         let shadow_style = Style { color: rgba8(parse(shadow)), ..style.clone() };

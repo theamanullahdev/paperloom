@@ -137,7 +137,11 @@ fn data(kind: &str, skin: &Skin, context: &Context) -> Option<(Vars, Duration)> 
                 .text("weekday", now.format("%A").to_string())
                 .text("weekday_short", now.format("%a").to_string())
                 .text("date", now.format("%A, %-d %B").to_string())
-                .text("date_short", now.format("%-d %b").to_string());
+                .text("date_short", now.format("%-d %b").to_string())
+                .text("day", now.format("%-d").to_string())
+                .text("month", now.format("%B").to_string())
+                .text("month_short", now.format("%b").to_string())
+                .text("year", now.format("%Y").to_string());
             // Wall clock, never counted ticks: right after sleep or a clock change.
             let into = |unit: u64| Duration::new(u64::from(now.second()) % unit, now.nanosecond());
             let wait = if skin.uses_seconds { Duration::from_secs(1) - Duration::from_nanos(u64::from(now.nanosecond())) } else { Duration::from_secs(60) - into(60) };
@@ -208,14 +212,16 @@ fn data(kind: &str, skin: &Skin, context: &Context) -> Option<(Vars, Duration)> 
         },
         "nowplaying" => match crate::feeds::media::latest() {
             Some(media) => (
+                with_times(
                 paperloom_skin::meter(if media.playing { "Now playing" } else { "Paused" }, &shorten(&media.title, 16), &shorten(&media.artist, 30), media.fraction)
                     .text("song", media.title.clone())
-                    .text("artist", media.artist.clone())
-                    .text("position", media.position.clone())
-                    .text("length", media.length.clone()),
+                    .text("artist", media.artist.clone()),
+                    &media.position,
+                    &media.length,
+                ),
                 context.meter(1),
             ),
-            None => (paperloom_skin::meter("Now playing", "—", "Nothing playing: start a song in your music player", None), context.meter(2)),
+            None => (paperloom_skin::meter("Now playing", "—", "Nothing playing", None), context.meter(2)),
         },
         "uptime" => {
             let seconds = sysinfo::System::uptime();
@@ -225,6 +231,15 @@ fn data(kind: &str, skin: &Skin, context: &Context) -> Option<(Vars, Duration)> 
         }
         _ => return None,
     })
+}
+
+/// Adds the song's position and length when the player says them.
+fn with_times(vars: Vars, position: &str, length: &str) -> Vars {
+    if length.is_empty() {
+        vars
+    } else {
+        vars.text("position", position).text("length", length)
+    }
 }
 
 /// `text` cut to `max` characters, with an ellipsis when it was longer.

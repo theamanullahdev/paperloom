@@ -1,0 +1,31 @@
+id = "clock/neon-day"
+name = "Neon day"
+author = "Paperloom"
+description = "A glowing cyan weekday with the date underneath."
+kinds = ["clock"]
+size = [440, 116]
+
+[[element]]
+type = "text"
+text = "{weekday}"
+x = 220
+y = 0
+size = 60
+font = "Audiowide"
+spacing = 0.05
+case = "upper"
+align = "center"
+color = "#35f0e0"
+glow = "#35f0e0"
+
+[[element]]
+type = "text"
+text = "{day} {month}, {year}"
+x = 220
+y = 84
+size = 15
+spacing = 0.25
+case = "upper"
+align = "center"
+color = "#ffffff"
+shadow = "#00000080"

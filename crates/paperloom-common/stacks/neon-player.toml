@@ -1,0 +1,17 @@
+id = "stack/neon-player"
+name = "Neon player"
+author = "Paperloom"
+description = "A ring that fills as your song plays, with a glowing weekday and the date beneath."
+size = [440, 416]
+
+[[widget]]
+kind = "nowplaying"
+skin = "nowplaying/halo"
+dx = 60
+dy = 0
+
+[[widget]]
+kind = "clock"
+skin = "clock/neon-day"
+dx = 0
+dy = 300

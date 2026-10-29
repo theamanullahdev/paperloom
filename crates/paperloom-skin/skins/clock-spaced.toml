@@ -1,0 +1,42 @@
+id = "clock/spaced"
+name = "Spaced"
+author = "Paperloom"
+description = "A big wide-set weekday over the date and the time. No box: it sits straight on the wallpaper."
+kinds = ["clock"]
+size = [560, 130]
+
+[[element]]
+type = "text"
+text = "{weekday}"
+x = 280
+y = 0
+size = 58
+font = "Orbitron"
+spacing = 0.32
+case = "upper"
+align = "center"
+color = "#ffffff"
+shadow = "#00000070"
+
+[[element]]
+type = "text"
+text = "{day} {month}, {year}"
+x = 280
+y = 80
+size = 14
+spacing = 0.3
+case = "upper"
+align = "center"
+color = "#ffffffe0"
+shadow = "#00000070"
+
+[[element]]
+type = "text"
+text = "- {time} -"
+x = 280
+y = 108
+size = 13
+spacing = 0.25
+align = "center"
+color = "#ffffffb8"
+shadow = "#00000070"

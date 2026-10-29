@@ -1,0 +1,64 @@
+id = "nowplaying/halo"
+name = "Halo"
+author = "Paperloom"
+description = "A ring that fills as the song plays, with its title, artist and time inside."
+kinds = ["nowplaying"]
+size = [320, 320]
+
+[[element]]
+type = "segments"
+cx = 160
+cy = 160
+r = 148
+width = 13
+start = 0
+sweep = 360
+count = 72
+gap = 1.6
+value = "fraction"
+fill = "#35f0e0"
+track = "#35f0e030"
+glow = 1.0
+
+[[element]]
+type = "text"
+text = "{title}"
+x = 160
+y = 92
+size = 11
+font = "Orbitron"
+spacing = 0.3
+case = "upper"
+align = "center"
+color = "#35f0e0"
+
+[[element]]
+type = "text"
+text = "{value}"
+x = 160
+y = 118
+size = 20
+align = "center"
+color = "#ffffff"
+shadow = "#00000080"
+
+[[element]]
+type = "text"
+text = "{detail}"
+x = 160
+y = 154
+size = 13
+align = "center"
+color = "#ffffffc8"
+shadow = "#00000080"
+
+[[element]]
+type = "text"
+text = "{position}  /  {length}"
+x = 160
+y = 190
+size = 11
+spacing = 0.15
+align = "center"
+color = "#ffffffa0"
+show_if = "length"
