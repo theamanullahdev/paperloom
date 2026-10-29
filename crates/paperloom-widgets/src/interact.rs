@@ -12,10 +12,11 @@ use crate::render::menu::Choice;
 /// making the process reload itself: the window is already where it should be.
 pub fn dropped(id: u32, x: f32, y: f32, control: &mut Control) {
     let mut all = Widgets::load();
-    if let Some(target) = all.placed.iter_mut().find(|placed| placed.id == id) {
-        target.x = x.clamp(0.0, 0.95);
-        target.y = y.clamp(0.0, 0.95);
-        if all.save().is_ok() {
+    if let Some(stacked) = all.placed.iter().find(|placed| placed.id == id).map(|placed| placed.stack != 0) {
+        // A widget in a stack takes its whole stack along.
+        all.move_member(id, x, y, paperloom_common::primary_size().unwrap_or((1920, 1080)));
+        // Alone, its window is already in place; a stack's other windows still have to follow.
+        if all.save().is_ok() && !stacked {
             control.mark_seen();
         }
     }

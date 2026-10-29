@@ -1,0 +1,23 @@
+id = "stack/focus"
+name = "Focus"
+author = "Paperloom"
+description = "The time, how long the computer has been on, and the processor."
+size = [280, 316]
+
+[[widget]]
+kind = "clock"
+skin = "clock/card"
+dx = 0
+dy = 0
+
+[[widget]]
+kind = "uptime"
+skin = "meter/compact"
+dx = 0
+dy = 136
+
+[[widget]]
+kind = "cpu"
+skin = "meter/compact"
+dx = 0
+dy = 210

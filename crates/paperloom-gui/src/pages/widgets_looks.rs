@@ -39,6 +39,8 @@ pub struct Previews {
     bare: HashMap<(String, String), image::Handle>,
     /// The wallpaper itself, for the screen pictures.
     pub wallpaper: Option<image::Handle>,
+    /// Each stack preset on a piece of the wallpaper.
+    stacks: HashMap<String, image::Handle>,
 }
 
 impl Previews {
@@ -50,6 +52,10 @@ impl Previews {
         self.cards.is_empty()
     }
 
+
+    pub fn stack(&self, preset: &str) -> Option<&image::Handle> {
+        self.stacks.get(preset)
+    }
 
     pub fn card(&self, skin: &str, kind: &str) -> Option<&image::Handle> {
         self.cards.get(&(skin.to_string(), kind.to_string()))
@@ -73,6 +79,7 @@ type Rgba = (u32, u32, Vec<u8>);
 pub struct Drawn {
     wallpaper: Option<Rgba>,
     looks: Vec<(String, String, Rgba, Rgba)>,
+    stacks: Vec<(String, Rgba)>,
 }
 
 /// Draws every look on the wallpaper, on a thread of its own.
@@ -115,6 +122,9 @@ impl Previews {
         let handle = |(w, h, rgba): Rgba| image::Handle::from_rgba(w, h, rgba);
         if let Some(wallpaper) = drawn.wallpaper {
             self.wallpaper = Some(handle(wallpaper));
+        }
+        for (id, card) in drawn.stacks {
+            self.stacks.insert(id, handle(card));
         }
         for (skin, kind, card, bare) in drawn.looks {
             self.cards.insert((skin.clone(), kind.clone()), handle(card));
@@ -172,8 +182,24 @@ fn draw(wanted: impl Fn(&str) -> bool, fresh: bool) -> Drawn {
             looks.push((skin.id.clone(), kind.clone(), (CARD.0, CARD.1, card.take()), straight(&bare)));
         }
     }
+    // Stack presets: every widget of the set, drawn where it sits in it.
+    let mut stacks = Vec::new();
+    if wanted("clock") {
+        for preset in paperloom_common::stacks::presets() {
+            let fit = (0.9 * CARD.0 as f32 / preset.size[0]).min(0.85 * CARD.1 as f32 / preset.size[1]).min(1.0);
+            let Some(mut card) = backdrop(wallpaper.as_ref(), screen, fit) else { continue };
+            let origin = ((CARD.0 as f32 - preset.size[0] * fit) / 2.0, (CARD.1 as f32 - preset.size[1] * fit) / 2.0);
+            for member in &preset.widget {
+                let look = paperloom_skin::get(&member.skin).filter(|look| look.kinds.contains(&member.kind)).or_else(|| paperloom_skin::default_for(&member.kind));
+                let Some(look) = look else { continue };
+                let picture = paperloom_skin::render(look, &paperloom_skin::preview(&member.kind), fit, &mut text);
+                card.draw_pixmap((origin.0 + member.dx * fit) as i32, (origin.1 + member.dy * fit) as i32, picture.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+            }
+            stacks.push((preset.id.clone(), (CARD.0, CARD.1, card.take())));
+        }
+    }
     let wallpaper = wallpaper.filter(|_| fresh).map(|pixmap| (pixmap.width(), pixmap.height(), pixmap.take()));
-    Drawn { wallpaper, looks }
+    Drawn { wallpaper, looks, stacks }
 }
 
 /// A `CARD`-sized piece of the middle of the screen, `zoom` times its real size.

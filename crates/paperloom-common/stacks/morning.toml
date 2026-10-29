@@ -1,0 +1,23 @@
+id = "stack/morning"
+name = "Morning"
+author = "Paperloom"
+description = "A big clock, the date underneath, and the battery."
+size = [300, 328]
+
+[[widget]]
+kind = "clock"
+skin = "clock/minimal"
+dx = 0
+dy = 0
+
+[[widget]]
+kind = "date"
+skin = "date/minimal"
+dx = 0
+dy = 146
+
+[[widget]]
+kind = "battery"
+skin = "meter/compact"
+dx = 0
+dy = 258

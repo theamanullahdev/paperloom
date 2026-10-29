@@ -389,5 +389,66 @@
         }
       ]
     }
+  ],
+  "stacks": [
+    {
+      "id": "stack/big-day",
+      "name": "Big day",
+      "author": "Paperloom",
+      "description": "A giant stacked clock, a flip-style date and the battery.",
+      "kinds": [],
+      "needs": [
+        "clock/bebas",
+        "date/flip",
+        "meter/thin"
+      ],
+      "folder": "big-day",
+      "files": [
+        {
+          "path": "stack.toml",
+          "sha256": "0ce533027d4dccc2b5e4d6c6d5d499cace34cc6afaa5371180de64d509524c0b",
+          "size": 341
+        }
+      ]
+    },
+    {
+      "id": "stack/hud-desk",
+      "name": "HUD desk",
+      "author": "Paperloom",
+      "description": "An orbit clock beside two glowing HUD rings and a network bar.",
+      "kinds": [],
+      "needs": [
+        "clock/orbit",
+        "meter/hud-bar",
+        "meter/hud-ring"
+      ],
+      "folder": "hud-desk",
+      "files": [
+        {
+          "path": "stack.toml",
+          "sha256": "18a427aba32766329a593f9468450c27100dc998dcfc658b1ad09cf2961ca4a4",
+          "size": 423
+        }
+      ]
+    },
+    {
+      "id": "stack/terminal-corner",
+      "name": "Terminal corner",
+      "author": "Paperloom",
+      "description": "A glass clock over two terminal-style meters.",
+      "kinds": [],
+      "needs": [
+        "clock/glass",
+        "meter/terminal"
+      ],
+      "folder": "terminal-corner",
+      "files": [
+        {
+          "path": "stack.toml",
+          "sha256": "233e979d76fe975927b41b1eff3bf1eea805eae70d317c4fed558366b1637205",
+          "size": 350
+        }
+      ]
+    }
   ]
 }

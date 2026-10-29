@@ -40,6 +40,8 @@ pub struct Widgets {
     /// Master switch (Settings → Widgets, and the tray menu).
     pub enabled: bool,
     pub placed: Vec<Placed>,
+    /// Stacks of widgets on the desktop (see `stacks.rs`).
+    pub stacks: Vec<crate::stacks::Stack>,
 }
 
 /// One widget on the desktop.
@@ -63,6 +65,11 @@ pub struct Placed {
     pub drag: bool,
     /// Right-clicking the widget opens its menu.
     pub menu: bool,
+    /// The stack it belongs to (0 = none) and its place inside it, in pixels
+    /// at natural size. The widgets process doesn't use these.
+    pub stack: u32,
+    pub dx: f32,
+    pub dy: f32,
 }
 
 impl Placed {
@@ -76,13 +83,13 @@ impl Placed {
 
 impl Default for Placed {
     fn default() -> Self {
-        Self { id: 1, kind: "clock".into(), skin: String::new(), x: 0.76, y: 0.06, scale: 1.0, opacity: 1.0, drag: true, menu: true }
+        Self { id: 1, kind: "clock".into(), skin: String::new(), x: 0.76, y: 0.06, scale: 1.0, opacity: 1.0, drag: true, menu: true, stack: 0, dx: 0.0, dy: 0.0 }
     }
 }
 
 impl Default for Widgets {
     fn default() -> Self {
-        Self { enabled: false, placed: vec![Placed::default()] }
+        Self { enabled: false, placed: vec![Placed::default()], stacks: Vec::new() }
     }
 }
 
@@ -96,6 +103,7 @@ impl Widgets {
             placed.x = placed.x.clamp(0.0, 0.95);
             placed.y = placed.y.clamp(0.0, 0.95);
         }
+        widgets.tidy_stacks();
         widgets
     }
 
@@ -239,7 +247,7 @@ mod tests {
 
     #[test]
     fn adding_respects_the_cap_and_kinds() {
-        let mut widgets = Widgets { enabled: true, placed: Vec::new() };
+        let mut widgets = Widgets { enabled: true, placed: Vec::new(), stacks: Vec::new() };
         assert!(widgets.add("nonsense").is_none());
         for _ in 0..MAX_PLACED {
             assert!(widgets.add("clock").is_some());

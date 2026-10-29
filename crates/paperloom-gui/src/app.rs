@@ -58,6 +58,7 @@ pub(crate) enum Page {
     WidgetsBrowse,
     WidgetsAdd,
     WidgetsLayout,
+    WidgetsStacks,
 }
 
 /// A collapsible group in the sidebar tree.
@@ -331,7 +332,13 @@ impl App {
             Message::Developers(msg) => self.developers_page.update(&self.settings, msg).map(Message::Developers),
             Message::Widgets(widgets::Message::Browse) => self.update(Message::SwitchPage(Page::WidgetsBrowse)),
             Message::Widgets(widgets::Message::AddWidgets) => self.update(Message::SwitchPage(Page::WidgetsAdd)),
+            Message::Widgets(widgets::Message::ShowStacks) => self.update(Message::SwitchPage(Page::WidgetsStacks)),
             // A widget's card on another widgets page opens its page on My widgets.
+            // A stack's card on another widgets page opens its page on My widgets.
+            Message::Widgets(widgets::Message::OpenStack(id)) if self.page != Page::Widgets => {
+                let task = self.widgets_page.update(widgets::Message::OpenStack(id)).map(Message::Widgets);
+                Task::batch([task, self.update(Message::SwitchPage(Page::Widgets))])
+            }
             Message::Widgets(widgets::Message::Open(id)) if self.page != Page::Widgets => {
                 let task = self.widgets_page.update(widgets::Message::Open(id)).map(Message::Widgets);
                 Task::batch([task, self.update(Message::SwitchPage(Page::Widgets))])
@@ -357,11 +364,11 @@ impl App {
                     Page::Library => {
                         self.expanded.insert(Group::Library);
                     }
-                    Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout => {
+                    Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsStacks => {
                         self.expanded.insert(Group::Widgets);
                     }
                 }
-                if matches!(page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout) {
+                if matches!(page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsStacks) {
                     return self.widgets_page.open().map(Message::Widgets);
                 }
                 if page == Page::Usage {
@@ -466,7 +473,7 @@ impl App {
             self.library_page.subscription(self.page == Page::Library).map(Message::Library),
             self.online_page.subscription(self.page == Page::Online).map(Message::Online),
             self.usage_page.subscription(self.page == Page::Usage).map(Message::Usage),
-            self.widgets_page.subscription(matches!(self.page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout)).map(Message::Widgets),
+            self.widgets_page.subscription(matches!(self.page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsStacks)).map(Message::Widgets),
             self.developers_page.subscription(self.page == Page::Developers).map(Message::Developers),
             iced::time::every(crate::telemetry::EVERY).map(|_| Message::Record),
             Subscription::run(|| crate::instance::requests().map(Message::OtherLaunch)),
@@ -591,6 +598,7 @@ impl App {
             Page::Updates => ("Updates", self.updates_page.header().map(Message::Updates), self.updates_page.body(&self.settings, t).map(Message::Updates)),
             Page::Developers => ("Developers", self.developers_page.header().map(Message::Developers), self.developers_page.body(t).map(Message::Developers)),
             Page::Widgets => ("My widgets", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Mine, t).map(Message::Widgets)),
+            Page::WidgetsStacks => ("Stacks", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Stacks, t).map(Message::Widgets)),
             Page::WidgetsLayout => ("Arrange", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Layout, t).map(Message::Widgets)),
             Page::WidgetsAdd => ("Add a widget", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Add, t).map(Message::Widgets)),
             Page::WidgetsBrowse => ("Looks", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Browse, t).map(Message::Widgets)),
@@ -717,7 +725,7 @@ impl App {
                 self.online_page.overlay(t, &in_library).map(|o| o.map(Message::Online))
             }
             Page::Settings => self.settings_page.overlay(&self.settings, t).map(|o| o.map(Message::Settings)),
-            Page::Widgets | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsBrowse => self.widgets_page.overlay(t).map(|o| o.map(Message::Widgets)),
+            Page::Widgets | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsBrowse | Page::WidgetsStacks => self.widgets_page.overlay(t).map(|o| o.map(Message::Widgets)),
             _ => None,
             }
         };
@@ -770,7 +778,7 @@ impl App {
     fn is_active(&self, page: Page) -> bool {
         match page {
             Page::Online => matches!(self.page, Page::Online | Page::Downloads | Page::Sources),
-            Page::Widgets => matches!(self.page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout),
+            Page::Widgets => matches!(self.page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsStacks),
             Page::Settings => matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers),
             other => self.page == other,
         }
@@ -971,13 +979,14 @@ impl App {
             "Widgets",
             Group::Widgets,
             go_page(Page::Widgets),
-            matches!(self.page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout),
+            matches!(self.page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsStacks),
             None,
             t,
         ));
         if self.expanded.contains(&Group::Widgets) {
             let rows = vec![
                 self.tree_row(icons::grid(), "My widgets".into(), 1, self.page == Page::Widgets, None, go_page(Page::Widgets), t),
+                self.tree_row(icons::grid(), "Stacks".into(), 1, self.page == Page::WidgetsStacks, None, go_page(Page::WidgetsStacks), t),
                 self.tree_row(icons::move_to_top(), "Arrange".into(), 1, self.page == Page::WidgetsLayout, None, go_page(Page::WidgetsLayout), t),
                 self.tree_row(icons::grid(), "Add a widget".into(), 1, self.page == Page::WidgetsAdd, None, go_page(Page::WidgetsAdd), t),
                 self.tree_row(icons::compass(), "Looks".into(), 1, self.page == Page::WidgetsBrowse, None, go_page(Page::WidgetsBrowse), t),
@@ -1116,6 +1125,7 @@ fn page_named(name: &str) -> Option<Page> {
         "usage" => Some(Page::Usage),
         "widgets" => Some(Page::Widgets),
         "layout" => Some(Page::WidgetsLayout),
+        "stacks" => Some(Page::WidgetsStacks),
         "looks" => Some(Page::WidgetsBrowse),
         "add-widgets" => Some(Page::WidgetsAdd),
         "developers" if paperloom_common::load().developer_mode => Some(Page::Developers),

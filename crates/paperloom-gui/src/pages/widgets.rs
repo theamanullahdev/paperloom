@@ -20,8 +20,10 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, 
 
 use paperloom_common::widgets::{self, Widgets, BUILT_IN, MAX_PLACED};
 
+mod stacks;
+
 use super::widgets_looks::{self, Previews, CARD};
-use super::widgets_online;
+use super::widgets_online::{self, Catalog};
 use crate::theme;
 use crate::ui;
 
@@ -64,6 +66,20 @@ pub enum Message {
     Expand(&'static str),
     /// A slider was let go: save.
     Commit,
+    /// Go to the Stacks page.
+    ShowStacks,
+    /// Put a stack preset on the desktop (by its id).
+    AddStack(String),
+    RemoveStack(u32),
+    OpenStack(u32),
+    /// Keep a stack's widgets, as separate ones.
+    Ungroup(u32),
+    StackScale(u32, f32),
+    StacksTab(BrowseTab),
+    StackOnline(widgets_online::Message),
+    /// Delete an installed stack preset (its folder).
+    RemovePreset(String),
+    PresetRemoved(Result<(), String>),
     /// Put back what was just removed.
     Undo,
     /// A widget's ⋯ menu: open it, close it.
@@ -132,6 +148,12 @@ pub struct State {
     removed: Vec<widgets::Placed>,
     /// The widget whose ⋯ menu is open.
     menu: Option<u32>,
+    /// The stack whose own page is open, on My widgets.
+    open_stack: Option<u32>,
+    stacks_tab: BrowseTab,
+    stacks_online: widgets_online::State,
+    /// The stacks a removal took off (for Undo), with their widgets in `removed`.
+    removed_stacks: Vec<paperloom_common::stacks::Stack>,
     /// The minute the clock and date previews show.
     minute: u64,
     /// Which wallpaper the previews were drawn on.
@@ -142,6 +164,8 @@ pub struct State {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Mine,
+    /// Ready-made sets of widgets.
+    Stacks,
     /// The looks gallery.
     Browse,
     /// Every kind of widget that can be added.
@@ -153,7 +177,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), menu: None, minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), menu: None, open_stack: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
@@ -220,46 +244,53 @@ impl State {
         self.running = widgets::is_running();
     }
 
+    /// Every couple of seconds while a widgets page is open: the process state,
+    /// the library retrying when it was offline, and previews that went stale
+    /// (a new wallpaper; a new minute for the clocks).
+    fn tick(&mut self) -> Task<Message> {
+        self.running = widgets::is_running();
+        let mut tasks = Vec::new();
+        if self.stacks_tab == BrowseTab::Online {
+            tasks.push(self.stacks_online.retry().map(Message::StackOnline));
+        }
+        if self.tab == BrowseTab::Online {
+            tasks.push(self.online.retry().map(Message::Online));
+        }
+        if self.previews_loading {
+            return Task::batch(tasks);
+        }
+        if self.previews.is_empty() {
+            // Opened straight from the command line: nothing asked for the previews yet.
+            if self.tab == BrowseTab::Online {
+                tasks.push(self.online.opened().map(Message::Online));
+            }
+            if self.stacks_tab == BrowseTab::Online {
+                tasks.push(self.stacks_online.opened().map(Message::StackOnline));
+            }
+            self.previews_loading = true;
+            tasks.push(widgets_looks::load(Message::PreviewsReady));
+            return Task::batch(tasks);
+        }
+        // A new wallpaper: draw everything on it. A new minute: the clocks.
+        let wallpaper = paperloom_common::EngineState::load().current_wallpaper;
+        if wallpaper != self.wallpaper {
+            self.wallpaper = wallpaper;
+            self.previews_loading = true;
+            tasks.push(widgets_looks::load(Message::PreviewsReady));
+        } else {
+            let minute = paperloom_common::log::now_unix() / 60;
+            if minute != self.minute {
+                self.minute = minute;
+                tasks.push(widgets_looks::load_times(Message::TimesReady));
+            }
+        }
+        Task::batch(tasks)
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Tick => {
-                self.running = widgets::is_running();
-                if self.tab == BrowseTab::Online {
-                    let retry = self.online.retry();
-                    if !self.previews.is_empty() {
-                        return retry.map(Message::Online);
-                    }
-                }
-                if !self.previews.is_empty() && !self.previews_loading {
-                    // A new wallpaper: draw everything on it. A new minute: the clocks.
-                    let wallpaper = paperloom_common::EngineState::load().current_wallpaper;
-                    if wallpaper != self.wallpaper {
-                        self.wallpaper = wallpaper;
-                        self.previews_loading = true;
-                        return widgets_looks::load(Message::PreviewsReady);
-                    }
-                    let minute = paperloom_common::log::now_unix() / 60;
-                    if minute != self.minute {
-                        self.minute = minute;
-                        return widgets_looks::load_times(Message::TimesReady);
-                    }
-                }
-                // Opened straight from the command line, nothing asked for the previews yet.
-                if self.tab == BrowseTab::Online {
-                    let online = self.online.opened().map(Message::Online);
-                    if self.previews.is_empty() && !self.previews_loading {
-                        self.previews_loading = true;
-                        return Task::batch([online, widgets_looks::load(Message::PreviewsReady)]);
-                    }
-                    return online;
-                }
-                if self.previews.is_empty() && !self.previews_loading {
-                    self.previews_loading = true;
-                    return widgets_looks::load(Message::PreviewsReady);
-                }
-                return Task::none();
-            }
-            Message::Browse | Message::AddWidgets => return Task::none(),
+            Message::Tick => return self.tick(),
+            Message::Browse | Message::AddWidgets | Message::ShowStacks => return Task::none(),
             Message::TimesReady(drawn) => {
                 self.previews.merge(drawn);
                 return Task::none();
@@ -313,7 +344,90 @@ impl State {
                     target.skin = skin;
                 }
             }
+            Message::AddStack(id) => {
+                self.widgets = Widgets::load();
+                let Some(preset) = paperloom_common::stacks::preset(&id) else { return Task::none() };
+                match self.widgets.add_stack(&preset, self.screen) {
+                    Some(stack) => {
+                        self.widgets.enabled = true;
+                        self.selected = self.widgets.members(stack).next().map(|placed| placed.id);
+                        self.notice = Notice::new(format!("{} is on your desktop. Drag any part of it to move the whole stack.", preset.name), Some(("Open it", Message::OpenStack(stack))));
+                    }
+                    None => {
+                        self.problem = Some(format!("{} has {} widgets and you can place up to {MAX_PLACED}: remove some first.", preset.name, preset.widget.len()));
+                        return Task::none();
+                    }
+                }
+            }
+            Message::RemoveStack(id) => {
+                self.menu = None;
+                if let Some(stack) = self.widgets.stack(id).cloned() {
+                    self.removed = self.widgets.members(id).cloned().collect();
+                    self.removed_stacks = vec![stack.clone()];
+                    self.notice = Notice::new(format!("{} removed from your desktop.", stack.name), Some(("Undo", Message::Undo)));
+                }
+                self.widgets.remove_stack(id);
+                if self.open_stack == Some(id) {
+                    self.open_stack = None;
+                }
+                if self.selected.is_some_and(|id| !self.widgets.placed.iter().any(|placed| placed.id == id)) {
+                    self.selected = self.widgets.placed.first().map(|placed| placed.id);
+                }
+            }
+            Message::OpenStack(id) => {
+                self.menu = None;
+                self.open = None;
+                self.open_stack = Some(id);
+                self.selected = self.widgets.members(id).next().map(|placed| placed.id).or(self.selected);
+                return Task::none();
+            }
+            Message::Ungroup(id) => {
+                let name = self.widgets.stack(id).map(|stack| stack.name.clone()).unwrap_or_default();
+                self.widgets.ungroup(id);
+                self.open_stack = None;
+                self.notice = Notice::new(format!("{name} is now separate widgets. Each one moves on its own."), None);
+            }
+            Message::StackScale(id, value) => {
+                self.widgets.scale_stack(id, value, self.screen);
+                return Task::none();
+            }
+            Message::StacksTab(tab) => {
+                self.stacks_tab = tab;
+                return if tab == BrowseTab::Online { self.stacks_online.opened().map(Message::StackOnline) } else { Task::none() };
+            }
+            Message::StackOnline(widgets_online::Message::AddStack(id)) => return self.update(Message::AddStack(id)),
+            Message::StackOnline(message) => {
+                let installed = match &message {
+                    widgets_online::Message::Done(id, Ok(())) => Some(id.clone()),
+                    _ => None,
+                };
+                let (task, changed) = self.stacks_online.update(message);
+                let mut tasks = vec![task.map(Message::StackOnline)];
+                if let Some(preset) = installed.and_then(|id| paperloom_common::stacks::preset(&id)) {
+                    self.notice = Notice::new(format!("{} is installed.", preset.name), Some(("Add to desktop", Message::AddStack(preset.id.clone()))));
+                }
+                if changed {
+                    paperloom_skin::refresh();
+                    self.previews_loading = true;
+                    tasks.push(widgets_looks::load(Message::PreviewsReady));
+                    self.widgets = Widgets::load();
+                }
+                return Task::batch(tasks);
+            }
+            Message::RemovePreset(folder) => {
+                return widgets_looks::blocking(move || paperloom_fetch::looks::remove_stack(&folder, &paperloom_common::stacks_dir()), Message::PresetRemoved);
+            }
+            Message::PresetRemoved(result) => {
+                self.problem = result.err().map(|err| format!("Couldn't remove that stack: {err}"));
+                self.previews_loading = true;
+                return widgets_looks::load(Message::PreviewsReady);
+            }
             Message::Undo => {
+                for stack in std::mem::take(&mut self.removed_stacks) {
+                    if !self.widgets.stacks.iter().any(|other| other.id == stack.id) {
+                        self.widgets.stacks.push(stack);
+                    }
+                }
                 for placed in std::mem::take(&mut self.removed) {
                     if self.widgets.placed.len() < MAX_PLACED && !self.widgets.placed.iter().any(|other| other.id == placed.id) {
                         self.widgets.placed.push(placed);
@@ -397,8 +511,10 @@ impl State {
                 if let Some(placed) = self.widgets.placed.iter().find(|placed| placed.id == id) {
                     self.notice = Notice::new(format!("{} removed from your desktop.", self.title_of(placed)), Some(("Undo", Message::Undo)));
                     self.removed = vec![placed.clone()];
+                    self.removed_stacks = self.widgets.stack(placed.stack).cloned().into_iter().collect();
                 }
                 self.widgets.remove(id);
+                self.widgets.tidy_stacks();
                 if self.open == Some(id) {
                     self.open = None;
                 }
@@ -412,11 +528,18 @@ impl State {
             }
             Message::Open(id) => {
                 self.menu = None;
+                self.open_stack = None;
                 self.selected = Some(id);
                 self.open = Some(id);
                 return Task::none();
             }
             Message::Back => {
+                // From a widget in a stack, back to that stack.
+                if let Some(stack) = self.open.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id)).map(|placed| placed.stack).filter(|stack| *stack != 0) {
+                    self.open_stack = Some(stack);
+                } else {
+                    self.open_stack = None;
+                }
                 self.open = None;
                 return Task::none();
             }
@@ -462,16 +585,15 @@ impl State {
                 for id in ids {
                     self.widgets.remove(id);
                 }
+                self.widgets.tidy_stacks();
                 if self.selected.is_some_and(|id| !self.widgets.placed.iter().any(|placed| placed.id == id)) {
                     self.selected = self.widgets.placed.first().map(|placed| placed.id);
                 }
                 self.open = self.open.filter(|id| self.widgets.placed.iter().any(|placed| placed.id == *id));
             }
             Message::Moved(id, x, y) => {
-                if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
-                    target.x = x;
-                    target.y = y;
-                }
+                // A widget in a stack takes its whole stack along.
+                self.widgets.move_member(id, x, y, self.screen);
                 return Task::none();
             }
             Message::Dropped => {}
@@ -551,9 +673,13 @@ impl State {
         page = page.push(match mode {
             Mode::Browse => self.looks(t),
             Mode::Add => self.types(t),
-            Mode::Mine => match self.open.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id)) {
-                Some(placed) => self.details(placed, t),
-                None => self.mine(t),
+            Mode::Stacks => self.stacks_page(t),
+            Mode::Mine => match self.open_stack.and_then(|id| self.widgets.stack(id)).filter(|_| self.open.is_none()) {
+                Some(stack) => self.stack_details(stack, t),
+                None => match self.open.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id)) {
+                    Some(placed) => self.details(placed, t),
+                    None => self.mine(t),
+                },
             },
             Mode::Layout => self.layout(t),
         });
@@ -646,13 +772,18 @@ impl State {
                 ]
                 .spacing(4),
                 row(samples).spacing(16).wrap().vertical_spacing(16),
-                button(ui::label("See every widget")).style(ui::ghost).on_press(Message::AddWidgets),
+                row![
+                    button(ui::label("Pick a ready-made stack").color(ui::on_accent())).style(ui::primary).on_press(Message::ShowStacks),
+                    button(ui::label("See every widget")).style(ui::ghost).on_press(Message::AddWidgets),
+                ]
+                .spacing(8),
             ]
             .spacing(16)
             .into();
         }
 
-        let mut cards: Vec<Element<'a, Message>> = self.widgets.placed.iter().map(|placed| self.placed_card(placed, t)).collect();
+        let mut cards: Vec<Element<'a, Message>> = self.widgets.stacks.iter().map(|stack| self.stack_card(stack, t)).collect();
+        cards.extend(self.widgets.placed.iter().filter(|placed| placed.stack == 0).map(|placed| self.placed_card(placed, t)));
         if self.widgets.placed.len() < MAX_PLACED {
             cards.push(add_card(t));
         }

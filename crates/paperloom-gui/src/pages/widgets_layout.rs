@@ -135,6 +135,20 @@ impl canvas::Program<Message> for Layout<'_> {
                 frame.stroke(&card, Stroke::default().with_color(self.t.primary).with_width(2.0));
             }
         }
+        // A widget in a stack: the whole stack is outlined, since it moves as one.
+        if let Some(stack) = self.selected.and_then(|id| self.placed.iter().find(|placed| placed.id == id)).map(|placed| placed.stack).filter(|stack| *stack != 0) {
+            let (mut left, mut top, mut right, mut bottom) = (f32::MAX, f32::MAX, 0.0_f32, 0.0_f32);
+            for placed in self.placed.iter().filter(|placed| placed.stack == stack) {
+                let (w, h) = self.size_of(placed);
+                (left, top) = (left.min(placed.x), top.min(placed.y));
+                (right, bottom) = (right.max(placed.x + w), bottom.max(placed.y + h));
+            }
+            if right > left {
+                let pad = 4.0;
+                let rect = Path::rounded_rectangle(Point::new(left * width - pad, top * height - pad), Size::new((right - left) * width + pad * 2.0, (bottom - top) * height + pad * 2.0), 6.0.into());
+                frame.stroke(&rect, Stroke::default().with_color(self.t.primary).with_width(1.5));
+            }
+        }
         vec![frame.into_geometry()]
     }
 

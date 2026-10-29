@@ -54,6 +54,11 @@ pub fn widgets_lock() -> PathBuf {
     project_dirs().config_dir().join("widgets.lock")
 }
 
+/// Installed stacks of widgets (one folder each, with `stack.toml`).
+pub fn stacks_dir() -> PathBuf {
+    project_dirs().data_dir().join("stacks")
+}
+
 /// What the widgets process is doing right now (see `widgets.rs`); the developer page reads it.
 pub fn widgets_status() -> PathBuf {
     project_dirs().data_dir().join("widgets-status.toml")

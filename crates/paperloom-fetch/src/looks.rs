@@ -28,6 +28,9 @@ pub struct Index {
     pub format: u32,
     #[serde(default)]
     pub packs: Vec<Pack>,
+    /// Stacks of widgets (a `stack.toml` and a preview per folder under `stacks/`).
+    #[serde(default)]
+    pub stacks: Vec<Pack>,
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
@@ -39,7 +42,11 @@ pub struct Pack {
     pub author: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub kinds: Vec<String>,
+    /// For a stack: the looks (ids) it uses, installed along with it.
+    #[serde(default)]
+    pub needs: Vec<String>,
     /// Its folder, both in the catalogue and once installed.
     pub folder: String,
     pub files: Vec<PackFile>,
@@ -75,7 +82,6 @@ pub fn fetch_index() -> Result<(Index, &'static str), String> {
     Err(last)
 }
 
-/// A look's preview picture (`preview.png` in its folder).
 /// Keeps the catalogue and its previews, so the library still shows when the
 /// network is down.
 pub fn save_cache(dir: &Path, base: &str, index: &Index, previews: &[(String, Vec<u8>)]) {
@@ -95,12 +101,18 @@ pub type Cached = (String, Index, Vec<(String, Vec<u8>)>);
 
 pub fn load_cache(dir: &Path) -> Option<Cached> {
     let (base, index): (String, Index) = serde_json::from_str(&std::fs::read_to_string(dir.join("index.json")).ok()?).ok()?;
-    let previews = index.packs.iter().filter_map(|pack| Some((pack.id.clone(), std::fs::read(dir.join(format!("{}.png", pack.id.replace(['/', '\\'], "_")))).ok()?))).collect();
+    let previews = index.packs.iter().chain(&index.stacks).filter_map(|pack| Some((pack.id.clone(), std::fs::read(dir.join(format!("{}.png", pack.id.replace(['/', '\\'], "_")))).ok()?))).collect();
     Some((base, index, previews))
 }
 
+/// A look's preview picture (`preview.png` in its folder).
 pub fn fetch_preview(base: &str, pack: &Pack) -> Result<Vec<u8>, String> {
     http::get_bytes(&format!("{base}{}/preview.png", pack.folder), 2 * 1024 * 1024).map_err(|err| err.to_string())
+}
+
+/// A stack's preview picture.
+pub fn fetch_stack_preview(base: &str, pack: &Pack) -> Result<Vec<u8>, String> {
+    http::get_bytes(&format!("{base}stacks/{}/preview.png", pack.folder), 2 * 1024 * 1024).map_err(|err| err.to_string())
 }
 
 /// A path a look may contain: relative, inside its folder, and a kind of file a
@@ -115,11 +127,21 @@ fn safe_path(path: &str) -> bool {
 /// Downloads `pack` into `skins_dir/<folder>`, replacing an older copy. Nothing
 /// is installed unless every file arrives and matches its checksum.
 pub fn install(base: &str, pack: &Pack, skins_dir: &Path) -> Result<(), String> {
+    install_from(&format!("{base}{}", pack.folder), pack, skins_dir, "skin.toml")
+}
+
+/// Downloads a stack into `stacks_dir/<folder>`.
+pub fn install_stack(base: &str, pack: &Pack, stacks_dir: &Path) -> Result<(), String> {
+    install_from(&format!("{base}stacks/{}", pack.folder), pack, stacks_dir, "stack.toml")
+}
+
+/// The shared part: `url` is the pack's folder in the catalogue, `main` the file it must have.
+fn install_from(url: &str, pack: &Pack, skins_dir: &Path, main: &str) -> Result<(), String> {
     if pack.folder.is_empty() || !pack.folder.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err("this look has an unsafe folder name".into());
     }
-    if !pack.files.iter().any(|file| file.path == "skin.toml") {
-        return Err("this look has no skin.toml".into());
+    if !pack.files.iter().any(|file| file.path == main) {
+        return Err(format!("this has no {main}"));
     }
     if pack.download_size() > MAX_PACK_BYTES {
         return Err("this look is larger than the 12 MB limit".into());
@@ -133,7 +155,7 @@ pub fn install(base: &str, pack: &Pack, skins_dir: &Path) -> Result<(), String> 
     std::fs::create_dir_all(&staging).map_err(|err| err.to_string())?;
     let result = (|| -> Result<(), String> {
         for file in &pack.files {
-            let bytes = http::get_bytes(&format!("{base}{}/{}", pack.folder, file.path), MAX_PACK_BYTES).map_err(|err| format!("{}: {err}", file.path))?;
+            let bytes = http::get_bytes(&format!("{url}/{}", file.path), MAX_PACK_BYTES).map_err(|err| format!("{}: {err}", file.path))?;
             if bytes.len() as u64 != file.size {
                 return Err(format!("{} arrived with the wrong size", file.path));
             }
@@ -155,6 +177,11 @@ pub fn install(base: &str, pack: &Pack, skins_dir: &Path) -> Result<(), String> 
         let _ = std::fs::remove_dir_all(&staging);
     }
     result
+}
+
+/// Removes an installed stack.
+pub fn remove_stack(folder: &str, stacks_dir: &Path) -> Result<(), String> {
+    remove(folder, stacks_dir)
 }
 
 /// Removes an installed look.
@@ -189,6 +216,7 @@ mod tests {
             author: String::new(),
             description: String::new(),
             kinds: vec!["clock".into()],
+            needs: Vec::new(),
             folder: "../escape".into(),
             files: vec![PackFile { path: "skin.toml".into(), sha256: String::new(), size: 1 }],
         };

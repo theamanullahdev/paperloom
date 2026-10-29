@@ -1,0 +1,29 @@
+id = "stack/monitor"
+name = "System rings"
+author = "Paperloom"
+description = "Four rings in a row: processor, memory, disk and battery."
+size = [624, 150]
+
+[[widget]]
+kind = "cpu"
+skin = "meter/ring"
+dx = 0
+dy = 0
+
+[[widget]]
+kind = "memory"
+skin = "meter/ring"
+dx = 158
+dy = 0
+
+[[widget]]
+kind = "disk"
+skin = "meter/ring"
+dx = 316
+dy = 0
+
+[[widget]]
+kind = "battery"
+skin = "meter/ring"
+dx = 474
+dy = 0

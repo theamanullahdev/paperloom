@@ -20,6 +20,8 @@ use crate::ui;
 pub struct Data {
     base: String,
     packs: Vec<Pack>,
+    /// Every look in the catalogue (a stack installs the ones it needs).
+    looks: Vec<Pack>,
     /// Each look's preview, already drawn on the user's wallpaper.
     previews: Vec<(String, image::Handle)>,
     /// The network was down: this is the catalogue as last read.
@@ -38,19 +40,29 @@ pub enum Message {
     Use(String),
     /// Put a new widget of this kind with this look on the desktop (handled by the widgets page).
     Add(String, String),
+    /// Put this installed stack on the desktop (handled by the widgets page).
+    AddStack(String),
+}
+
+/// What the library lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Catalog {
+    Looks,
+    Stacks,
 }
 
 enum Status {
     Idle,
     Loading,
     Failed(String),
-    Ready { base: String, packs: Vec<Pack>, offline: bool },
+    Ready { base: String, packs: Vec<Pack>, looks: Vec<Pack>, offline: bool },
 }
 
 /// For a look's kinds and id: the widget "Use" would change, and whether it already uses it.
 pub type Target<'t> = dyn Fn(&[String], &str) -> Option<(String, bool)> + 't;
 
 pub struct State {
+    catalog: Catalog,
     status: Status,
     previews: HashMap<String, image::Handle>,
     installing: HashSet<String>,
@@ -60,8 +72,8 @@ pub struct State {
 }
 
 impl State {
-    pub fn new() -> Self {
-        Self { status: Status::Idle, previews: HashMap::new(), installing: HashSet::new(), error: None, asked: std::time::Instant::now() }
+    pub fn new(catalog: Catalog) -> Self {
+        Self { catalog, status: Status::Idle, previews: HashMap::new(), installing: HashSet::new(), error: None, asked: std::time::Instant::now() }
     }
 
     /// Reads the catalogue the first time the tab is opened.
@@ -91,20 +103,29 @@ impl State {
                     self.status = Status::Loading;
                 }
                 self.error = None;
+                let catalog = self.catalog;
                 (
                     blocking(
-                        || {
-                            let cache = paperloom_common::online_cache_dir().join("looks");
+                        move || {
+                            let cache = paperloom_common::online_cache_dir().join(if catalog == Catalog::Looks { "looks" } else { "stacks" });
                             let shown = |previews: Vec<(String, Vec<u8>)>| previews.into_iter().filter_map(|(id, bytes)| Some((id, on_wallpaper(&bytes)?))).collect();
+                            let pick = |index: looks::Index| if catalog == Catalog::Looks { (index.packs.clone(), index.packs) } else { (index.stacks, index.packs) };
                             match looks::fetch_index() {
                                 Ok((index, base)) => {
-                                    let raw: Vec<(String, Vec<u8>)> = index.packs.iter().filter_map(|pack| Some((pack.id.clone(), looks::fetch_preview(base, pack).ok()?))).collect();
+                                    let (listed, all) = pick(index.clone());
+                                    let raw: Vec<(String, Vec<u8>)> = listed
+                                        .iter()
+                                        .filter_map(|pack| Some((pack.id.clone(), if catalog == Catalog::Looks { looks::fetch_preview(base, pack) } else { looks::fetch_stack_preview(base, pack) }.ok()?)))
+                                        .collect();
                                     looks::save_cache(&cache, base, &index, &raw);
-                                    Ok(Data { base: base.to_string(), packs: index.packs, previews: shown(raw), offline: false })
+                                    Ok(Data { base: base.to_string(), packs: listed, looks: all, previews: shown(raw), offline: false })
                                 }
                                 // Offline: the library as it was last time.
                                 Err(err) => match looks::load_cache(&cache) {
-                                    Some((base, index, raw)) => Ok(Data { base, packs: index.packs, previews: shown(raw), offline: true }),
+                                    Some((base, index, raw)) => {
+                                        let (listed, all) = pick(index);
+                                        Ok(Data { base, packs: listed, looks: all, previews: shown(raw), offline: true })
+                                    }
                                     None => Err(err),
                                 },
                             }
@@ -116,7 +137,7 @@ impl State {
             }
             Message::Loaded(Ok(data)) => {
                 self.previews = data.previews.into_iter().collect();
-                self.status = Status::Ready { base: data.base, packs: data.packs, offline: data.offline };
+                self.status = Status::Ready { base: data.base, packs: data.packs, looks: data.looks, offline: data.offline };
                 (Task::none(), false)
             }
             Message::Loaded(Err(err)) => {
@@ -127,12 +148,30 @@ impl State {
                 (Task::none(), false)
             }
             Message::Install(id) => {
-                let Status::Ready { base, packs, .. } = &self.status else { return (Task::none(), false) };
+                let Status::Ready { base, packs, looks: all_looks, .. } = &self.status else { return (Task::none(), false) };
                 let Some(pack) = packs.iter().find(|pack| pack.id == id).cloned() else { return (Task::none(), false) };
-                let base = base.clone();
+                let (base, all_looks, catalog) = (base.clone(), all_looks.clone(), self.catalog);
                 self.installing.insert(id.clone());
                 self.error = None;
-                (blocking(move || looks::install(&base, &pack, &paperloom_common::skins_dir()), move |result| Message::Done(id.clone(), result)), false)
+                (
+                    blocking(
+                        move || match catalog {
+                            Catalog::Looks => looks::install(&base, &pack, &paperloom_common::skins_dir()),
+                            Catalog::Stacks => {
+                                // The looks it uses come along (the ones not on this computer yet).
+                                for need in &pack.needs {
+                                    let have = paperloom_skin::get(need).is_some();
+                                    if let (false, Some(look)) = (have, all_looks.iter().find(|look| &look.id == need)) {
+                                        looks::install(&base, look, &paperloom_common::skins_dir())?;
+                                    }
+                                }
+                                looks::install_stack(&base, &pack, &paperloom_common::stacks_dir())
+                            }
+                        },
+                        move |result| Message::Done(id.clone(), result),
+                    ),
+                    false,
+                )
             }
             Message::Done(id, result) => {
                 self.installing.remove(&id);
@@ -147,8 +186,17 @@ impl State {
                     }
                 }
             }
-            Message::Remove(folder) => (blocking(move || looks::remove(&folder, &paperloom_common::skins_dir()), Message::Removed), false),
-            Message::Use(_) | Message::Add(..) => (Task::none(), false),
+            Message::Remove(folder) => {
+                let catalog = self.catalog;
+                (
+                    blocking(
+                        move || if catalog == Catalog::Looks { looks::remove(&folder, &paperloom_common::skins_dir()) } else { looks::remove_stack(&folder, &paperloom_common::stacks_dir()) },
+                        Message::Removed,
+                    ),
+                    false,
+                )
+            }
+            Message::Use(_) | Message::Add(..) | Message::AddStack(_) => (Task::none(), false),
             Message::Removed(result) => {
                 self.error = result.err().map(|err| format!("Couldn't remove it: {err}"));
                 paperloom_skin::refresh();
@@ -195,6 +243,9 @@ impl State {
     }
 
     fn card<'a>(&'a self, pack: &'a Pack, filter: &str, target: &Target, t: theme::Tokens) -> Element<'a, Message> {
+        if self.catalog == Catalog::Stacks {
+            return self.stack_card(pack, t);
+        }
         let installed = paperloom_skin::get(&pack.id).is_some_and(|skin| skin.dir.is_some());
         let kinds = pack.kinds.iter().map(|kind| paperloom_common::widgets::entry(kind).map_or(kind.as_str(), |entry| entry.name)).collect::<Vec<_>>().join(" · ");
         let mut detail = format!("by {} · {kinds}", pack.author);
@@ -214,6 +265,22 @@ impl State {
         } else {
             actions.push(button(ui::label(format!("Install · {}", size(pack.download_size()))).color(ui::on_accent())).style(ui::primary).on_press(Message::Install(pack.id.clone())).into());
         }
+        card(self.previews.get(&pack.id), pack.name.clone(), detail, actions, None, installed, t)
+    }
+
+    /// A stack in the library: install it, then put it on the desktop from the same card.
+    fn stack_card<'a>(&'a self, pack: &'a Pack, t: theme::Tokens) -> Element<'a, Message> {
+        let installed = paperloom_common::stacks::presets().iter().any(|preset| preset.id == pack.id && preset.installed);
+        let mut actions: Vec<Element<'a, Message>> = Vec::new();
+        if self.installing.contains(&pack.id) {
+            actions.push(text("Downloading…").size(13).color(t.primary).into());
+        } else if installed {
+            actions.push(button(ui::label("Add to desktop").color(ui::on_accent())).style(ui::primary).on_press(Message::AddStack(pack.id.clone())).into());
+            actions.push(button(ui::label("Remove")).style(ui::ghost).on_press(Message::Remove(pack.folder.clone())).into());
+        } else {
+            actions.push(button(ui::label(format!("Install · {}", size(pack.download_size()))).color(ui::on_accent())).style(ui::primary).on_press(Message::Install(pack.id.clone())).into());
+        }
+        let detail = format!("by {}", pack.author);
         card(self.previews.get(&pack.id), pack.name.clone(), detail, actions, None, installed, t)
     }
 }

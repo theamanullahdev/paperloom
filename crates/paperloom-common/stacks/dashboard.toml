@@ -1,0 +1,41 @@
+id = "stack/dashboard"
+name = "Desk dashboard"
+author = "Paperloom"
+description = "A neon clock and date with processor, memory, network and disk meters."
+size = [476, 320]
+
+[[widget]]
+kind = "clock"
+skin = "clock/neon"
+dx = 0
+dy = 0
+
+[[widget]]
+kind = "date"
+skin = "date/badge"
+dx = 316
+dy = 0
+
+[[widget]]
+kind = "cpu"
+skin = "meter/neon"
+dx = 0
+dy = 142
+
+[[widget]]
+kind = "memory"
+skin = "meter/neon"
+dx = 246
+dy = 142
+
+[[widget]]
+kind = "network"
+skin = "meter/compact"
+dx = 0
+dy = 262
+
+[[widget]]
+kind = "disk"
+skin = "meter/compact"
+dx = 246
+dy = 262

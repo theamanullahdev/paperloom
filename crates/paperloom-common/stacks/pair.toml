@@ -1,0 +1,17 @@
+id = "stack/pair"
+name = "Clock and date"
+author = "Paperloom"
+description = "An analog clock next to a calendar page."
+size = [346, 170]
+
+[[widget]]
+kind = "clock"
+skin = "clock/analog"
+dx = 0
+dy = 0
+
+[[widget]]
+kind = "date"
+skin = "date/card"
+dx = 176
+dy = 0
