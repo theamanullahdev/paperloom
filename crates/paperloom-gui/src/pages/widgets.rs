@@ -70,6 +70,13 @@ pub enum Message {
     Fahrenheit(bool),
     /// Go to the Stacks page.
     ShowStacks,
+    /// A stack's ⋯ menu, and a preset's ⋯ menu (its id).
+    ShowStackMenu(u32),
+    ShowPresetMenu(String),
+    /// Take every stack of this preset off the desktop.
+    RemovePresetStacks(String),
+    /// Take everything off the desktop (Undo brings it back).
+    RemoveAll,
     /// Put a stack preset on the desktop (by its id).
     AddStack(String),
     RemoveStack(u32),
@@ -152,6 +159,9 @@ pub struct State {
     menu: Option<u32>,
     /// The stack whose own page is open, on My widgets.
     open_stack: Option<u32>,
+    /// The stack / the stack preset whose ⋯ menu is open.
+    menu_stack: Option<u32>,
+    menu_preset: Option<String>,
     stacks_tab: BrowseTab,
     stacks_online: widgets_online::State,
     /// The stacks a removal took off (for Undo), with their widgets in `removed`.
@@ -179,7 +189,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), menu: None, open_stack: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), menu: None, open_stack: None, menu_stack: None, menu_preset: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
@@ -347,6 +357,7 @@ impl State {
                 }
             }
             Message::AddStack(id) => {
+                self.menu_preset = None;
                 self.widgets = Widgets::load();
                 let Some(preset) = paperloom_common::stacks::preset(&id) else { return Task::none() };
                 match self.widgets.add_stack(&preset, self.screen) {
@@ -363,6 +374,8 @@ impl State {
             }
             Message::RemoveStack(id) => {
                 self.menu = None;
+                self.menu_stack = None;
+                self.menu_preset = None;
                 if let Some(stack) = self.widgets.stack(id).cloned() {
                     self.removed = self.widgets.members(id).cloned().collect();
                     self.removed_stacks = vec![stack.clone()];
@@ -378,12 +391,15 @@ impl State {
             }
             Message::OpenStack(id) => {
                 self.menu = None;
+                self.menu_stack = None;
+                self.menu_preset = None;
                 self.open = None;
                 self.open_stack = Some(id);
                 self.selected = self.widgets.members(id).next().map(|placed| placed.id).or(self.selected);
                 return Task::none();
             }
             Message::Ungroup(id) => {
+                self.menu_stack = None;
                 let name = self.widgets.stack(id).map(|stack| stack.name.clone()).unwrap_or_default();
                 self.widgets.ungroup(id);
                 self.open_stack = None;
@@ -438,13 +454,54 @@ impl State {
                 self.notice = None;
             }
             Message::ShowMenu(id) => {
+                self.menu_stack = None;
                 self.menu = Some(id);
                 self.selected = Some(id);
                 return Task::none();
             }
+            Message::ShowStackMenu(id) => {
+                self.menu = None;
+                self.menu_preset = None;
+                self.menu_stack = Some(id);
+                self.selected = self.widgets.members(id).next().map(|placed| placed.id).or(self.selected);
+                return Task::none();
+            }
+            Message::ShowPresetMenu(id) => {
+                self.menu = None;
+                self.menu_stack = None;
+                self.menu_preset = Some(id);
+                return Task::none();
+            }
             Message::CloseMenu => {
                 self.menu = None;
+                self.menu_stack = None;
+                self.menu_preset = None;
                 return Task::none();
+            }
+            Message::RemovePresetStacks(preset) => {
+                self.menu_preset = None;
+                let ids: Vec<u32> = self.widgets.stacks.iter().filter(|stack| stack.preset == preset).map(|stack| stack.id).collect();
+                self.removed = Vec::new();
+                self.removed_stacks = Vec::new();
+                for id in &ids {
+                    self.removed.extend(self.widgets.members(*id).cloned());
+                    self.removed_stacks.extend(self.widgets.stack(*id).cloned());
+                    self.widgets.remove_stack(*id);
+                }
+                let name = paperloom_common::stacks::preset(&preset).map_or(String::new(), |preset| preset.name);
+                self.notice = Notice::new(format!("{name} removed from your desktop."), Some(("Undo", Message::Undo)));
+                self.open_stack = self.open_stack.filter(|id| self.widgets.stack(*id).is_some());
+                self.selected = self.widgets.placed.first().map(|placed| placed.id);
+            }
+            Message::RemoveAll => {
+                self.menu = None;
+                self.menu_stack = None;
+                self.removed = std::mem::take(&mut self.widgets.placed);
+                self.removed_stacks = std::mem::take(&mut self.widgets.stacks);
+                self.open = None;
+                self.open_stack = None;
+                self.selected = None;
+                self.notice = Notice::new("Everything was removed from your desktop.", Some(("Undo", Message::Undo)));
             }
             Message::Dismiss => {
                 self.notice = None;
@@ -721,6 +778,9 @@ impl State {
 
     /// A widget's ⋯ menu, over the whole window: its looks, and what else can be done to it.
     pub fn overlay<'a>(&'a self, t: theme::Tokens) -> Option<Element<'a, Message>> {
+        if let Some(overlay) = self.stack_overlay(t) {
+            return Some(overlay);
+        }
         let placed = self.menu.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id))?;
         let id = placed.id;
         let current = widgets_looks::skin_of(placed).map(|skin| skin.id.clone());
@@ -754,8 +814,9 @@ impl State {
             return self.mine(t);
         }
         column![
-            text("This is your screen. Drag a widget to move it — it snaps to the edges and the middle, and is saved when you let go.").size(13).color(t.muted_foreground),
-            super::widgets_layout::view(&self.widgets.placed, self.selected, self.screen, &self.previews, 560.0, t),
+            text("This is your screen. Drag a widget to move it — it snaps to the edges and the middle, and is saved when you let go. A stack moves as one.").size(13).color(t.muted_foreground),
+            super::widgets_layout::view(&self.widgets.placed, self.selected, self.screen, &self.previews, 520.0, t),
+            self.desktop_list(t),
         ]
         .spacing(12)
         .into()
