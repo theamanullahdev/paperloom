@@ -22,7 +22,7 @@ const FORMAT: u32 = 1;
 /// A look in one install can't be bigger than this (fonts are the heavy part).
 const MAX_PACK_BYTES: u64 = 12 * 1024 * 1024;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct Index {
     #[serde(default)]
     pub format: u32,
@@ -30,7 +30,7 @@ pub struct Index {
     pub packs: Vec<Pack>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct Pack {
     /// The look's id, e.g. `clock/orbit`.
     pub id: String,
@@ -45,7 +45,7 @@ pub struct Pack {
     pub files: Vec<PackFile>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct PackFile {
     pub path: String,
     pub sha256: String,
@@ -76,6 +76,29 @@ pub fn fetch_index() -> Result<(Index, &'static str), String> {
 }
 
 /// A look's preview picture (`preview.png` in its folder).
+/// Keeps the catalogue and its previews, so the library still shows when the
+/// network is down.
+pub fn save_cache(dir: &Path, base: &str, index: &Index, previews: &[(String, Vec<u8>)]) {
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    if let Ok(json) = serde_json::to_string(&(base, index)) {
+        let _ = std::fs::write(dir.join("index.json"), json);
+    }
+    for (id, bytes) in previews {
+        let _ = std::fs::write(dir.join(format!("{}.png", id.replace(['/', '\\'], "_"))), bytes);
+    }
+}
+
+/// The catalogue as last read: its base address, the index, and the previews kept.
+pub type Cached = (String, Index, Vec<(String, Vec<u8>)>);
+
+pub fn load_cache(dir: &Path) -> Option<Cached> {
+    let (base, index): (String, Index) = serde_json::from_str(&std::fs::read_to_string(dir.join("index.json")).ok()?).ok()?;
+    let previews = index.packs.iter().filter_map(|pack| Some((pack.id.clone(), std::fs::read(dir.join(format!("{}.png", pack.id.replace(['/', '\\'], "_")))).ok()?))).collect();
+    Some((base, index, previews))
+}
+
 pub fn fetch_preview(base: &str, pack: &Pack) -> Result<Vec<u8>, String> {
     http::get_bytes(&format!("{base}{}/preview.png", pack.folder), 2 * 1024 * 1024).map_err(|err| err.to_string())
 }

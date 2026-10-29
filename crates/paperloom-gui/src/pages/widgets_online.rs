@@ -22,6 +22,8 @@ pub struct Data {
     packs: Vec<Pack>,
     /// Each look's preview, already drawn on the user's wallpaper.
     previews: Vec<(String, image::Handle)>,
+    /// The network was down: this is the catalogue as last read.
+    offline: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -42,7 +44,7 @@ enum Status {
     Idle,
     Loading,
     Failed(String),
-    Ready { base: String, packs: Vec<Pack> },
+    Ready { base: String, packs: Vec<Pack>, offline: bool },
 }
 
 /// For a look's kinds and id: the widget "Use" would change, and whether it already uses it.
@@ -53,11 +55,13 @@ pub struct State {
     previews: HashMap<String, image::Handle>,
     installing: HashSet<String>,
     error: Option<String>,
+    /// When the catalogue was last asked for (a failed read is tried again).
+    asked: std::time::Instant,
 }
 
 impl State {
     pub fn new() -> Self {
-        Self { status: Status::Idle, previews: HashMap::new(), installing: HashSet::new(), error: None }
+        Self { status: Status::Idle, previews: HashMap::new(), installing: HashSet::new(), error: None, asked: std::time::Instant::now() }
     }
 
     /// Reads the catalogue the first time the tab is opened.
@@ -68,18 +72,42 @@ impl State {
         Task::none()
     }
 
+    /// Tries again on its own every half minute while the network is down.
+    pub fn retry(&mut self) -> Task<Message> {
+        let down = matches!(self.status, Status::Failed(_) | Status::Ready { offline: true, .. });
+        if down && self.asked.elapsed() > std::time::Duration::from_secs(30) {
+            return self.update(Message::Load).0;
+        }
+        Task::none()
+    }
+
     /// Returns what to do next, and whether the installed looks changed.
     pub fn update(&mut self, message: Message) -> (Task<Message>, bool) {
         match message {
             Message::Load => {
-                self.status = Status::Loading;
+                self.asked = std::time::Instant::now();
+                // A retry keeps what is on screen until the answer comes.
+                if !matches!(self.status, Status::Ready { .. }) {
+                    self.status = Status::Loading;
+                }
                 self.error = None;
                 (
                     blocking(
                         || {
-                            let (index, base) = looks::fetch_index()?;
-                            let previews = index.packs.iter().filter_map(|pack| Some((pack.id.clone(), on_wallpaper(&looks::fetch_preview(base, pack).ok()?)?))).collect();
-                            Ok(Data { base: base.to_string(), packs: index.packs, previews })
+                            let cache = paperloom_common::online_cache_dir().join("looks");
+                            let shown = |previews: Vec<(String, Vec<u8>)>| previews.into_iter().filter_map(|(id, bytes)| Some((id, on_wallpaper(&bytes)?))).collect();
+                            match looks::fetch_index() {
+                                Ok((index, base)) => {
+                                    let raw: Vec<(String, Vec<u8>)> = index.packs.iter().filter_map(|pack| Some((pack.id.clone(), looks::fetch_preview(base, pack).ok()?))).collect();
+                                    looks::save_cache(&cache, base, &index, &raw);
+                                    Ok(Data { base: base.to_string(), packs: index.packs, previews: shown(raw), offline: false })
+                                }
+                                // Offline: the library as it was last time.
+                                Err(err) => match looks::load_cache(&cache) {
+                                    Some((base, index, raw)) => Ok(Data { base, packs: index.packs, previews: shown(raw), offline: true }),
+                                    None => Err(err),
+                                },
+                            }
                         },
                         Message::Loaded,
                     ),
@@ -88,15 +116,18 @@ impl State {
             }
             Message::Loaded(Ok(data)) => {
                 self.previews = data.previews.into_iter().collect();
-                self.status = Status::Ready { base: data.base, packs: data.packs };
+                self.status = Status::Ready { base: data.base, packs: data.packs, offline: data.offline };
                 (Task::none(), false)
             }
             Message::Loaded(Err(err)) => {
-                self.status = Status::Failed(err);
+                // Still showing a library: keep it.
+                if !matches!(self.status, Status::Ready { .. }) {
+                    self.status = Status::Failed(friendly(&err));
+                }
                 (Task::none(), false)
             }
             Message::Install(id) => {
-                let Status::Ready { base, packs } = &self.status else { return (Task::none(), false) };
+                let Status::Ready { base, packs, .. } = &self.status else { return (Task::none(), false) };
                 let Some(pack) = packs.iter().find(|pack| pack.id == id).cloned() else { return (Task::none(), false) };
                 let base = base.clone();
                 self.installing.insert(id.clone());
@@ -134,16 +165,27 @@ impl State {
             Status::Failed(err) => column![
                 text("Couldn't reach the online library.").size(14).color(t.foreground),
                 text(err.as_str()).size(12).color(t.muted_foreground),
-                button(ui::label("Try again")).style(ui::secondary).on_press(Message::Load),
+                text("It tries again on its own every half minute.").size(12).color(t.muted_foreground),
+                button(ui::label("Try again now")).style(ui::secondary).on_press(Message::Load),
             ]
             .spacing(8)
             .into(),
-            Status::Ready { packs, .. } => {
+            Status::Ready { packs, offline, .. } => {
                 let mut cards: Vec<Element<'a, Message>> = packs.iter().filter(|pack| filter.is_empty() || pack.kinds.iter().any(|kind| kind == filter)).map(|pack| self.card(pack, filter, target, t)).collect();
                 if cards.is_empty() {
                     cards.push(text("Nothing here yet.").size(13).color(t.muted_foreground).into());
                 }
                 let mut page = column![].spacing(12);
+                if *offline {
+                    page = page.push(
+                        row![
+                            text("This computer is offline, so this is the library as it was last time. Installing needs a connection.").size(13).color(t.muted_foreground),
+                            button(ui::label("Try again")).style(ui::ghost).on_press(Message::Load),
+                        ]
+                        .spacing(10)
+                        .align_y(iced::Alignment::Center),
+                    );
+                }
                 if let Some(err) = &self.error {
                     page = page.push(text(err.as_str()).size(13).color(t.destructive));
                 }
@@ -173,6 +215,18 @@ impl State {
             actions.push(button(ui::label(format!("Install · {}", size(pack.download_size()))).color(ui::on_accent())).style(ui::primary).on_press(Message::Install(pack.id.clone())).into());
         }
         card(self.previews.get(&pack.id), pack.name.clone(), detail, actions, None, installed, t)
+    }
+}
+
+/// The network's own words, in plain ones.
+fn friendly(err: &str) -> String {
+    let lower = err.to_ascii_lowercase();
+    if lower.contains("lookup") || lower.contains("resolve") || lower.contains("dns") || lower.contains("network is unreachable") {
+        "This computer looks offline (the library's address couldn't be found).".into()
+    } else if lower.contains("timed out") || lower.contains("timeout") {
+        "The library took too long to answer.".into()
+    } else {
+        err.to_string()
     }
 }
 
