@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use chrono::format::{Item, StrftimeItems};
+use chrono::Timelike;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -82,15 +83,26 @@ impl Vars {
 /// Plausible values for a widget kind, for the gallery's previews.
 pub fn preview(kind: &str) -> Vars {
     match kind {
-        "clock" => clock(10, 8, 24).text("weekday", "Thursday").text("weekday_short", "Thu").text("date", "Thursday, 29 October").text("date_short", "29 Oct"),
-        "date" => Vars::new()
-            .text("weekday", "Thursday")
-            .text("weekday_short", "Thu")
-            .text("day", "29")
-            .text("month", "October")
-            .text("month_short", "Oct")
-            .text("year", "2026")
-            .text("month_year", "October 2026"),
+        // The real time, so a preview reads like the desktop will.
+        "clock" => {
+            let now = chrono::Local::now();
+            clock(now.hour(), now.minute(), now.second())
+                .text("weekday", now.format("%A").to_string())
+                .text("weekday_short", now.format("%a").to_string())
+                .text("date", now.format("%A, %-d %B").to_string())
+                .text("date_short", now.format("%-d %b").to_string())
+        }
+        "date" => {
+            let now = chrono::Local::now();
+            Vars::new()
+                .text("weekday", now.format("%A").to_string())
+                .text("weekday_short", now.format("%a").to_string())
+                .text("day", now.format("%-d").to_string())
+                .text("month", now.format("%B").to_string())
+                .text("month_short", now.format("%b").to_string())
+                .text("year", now.format("%Y").to_string())
+                .text("month_year", now.format("%B %Y").to_string())
+        }
         "cpu" => meter("Processor", "34%", "of all cores", Some(0.34)),
         "memory" => meter("Memory", "52%", "3.8 GB of 7.3 GB", Some(0.52)).text("used", "3.8 GB"),
         "disk" => meter("Disk", "89%", "20.0 GB free of 181.9 GB", Some(0.89)).text("free", "20.0 GB"),

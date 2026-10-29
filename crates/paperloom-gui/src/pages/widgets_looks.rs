@@ -102,13 +102,29 @@ pub fn blocking<T: Send + 'static, M: Send + 'static>(work: impl FnOnce() -> T +
 }
 
 pub fn into_previews(drawn: Drawn) -> Previews {
-    let handle = |(w, h, rgba): Rgba| image::Handle::from_rgba(w, h, rgba);
-    let mut previews = Previews { wallpaper: drawn.wallpaper.map(handle), ..Previews::default() };
-    for (skin, kind, card, bare) in drawn.looks {
-        previews.cards.insert((skin.clone(), kind.clone()), handle(card));
-        previews.bare.insert((skin, kind), handle(bare));
-    }
+    let mut previews = Previews::default();
+    previews.merge(drawn);
     previews
+}
+
+/// Redraws only the clocks and dates (they show the real time), on the
+/// wallpaper already decoded.
+pub fn load_times<M: Send + 'static>(done: impl Fn(Drawn) -> M + Send + 'static) -> Task<M> {
+    blocking(|| draw(|kind| kind == "clock" || kind == "date", false), done)
+}
+
+impl Previews {
+    /// Takes in newly drawn previews (all of them, or only some).
+    pub fn merge(&mut self, drawn: Drawn) {
+        let handle = |(w, h, rgba): Rgba| image::Handle::from_rgba(w, h, rgba);
+        if let Some(wallpaper) = drawn.wallpaper {
+            self.wallpaper = Some(handle(wallpaper));
+        }
+        for (skin, kind, card, bare) in drawn.looks {
+            self.cards.insert((skin.clone(), kind.clone()), handle(card));
+            self.bare.insert((skin, kind), handle(bare));
+        }
+    }
 }
 
 /// The wallpaper the last previews were drawn on (the online library's
@@ -133,15 +149,21 @@ pub fn on_wallpaper(png: &[u8]) -> Option<image::Handle> {
 }
 
 fn draw_all() -> Drawn {
+    draw(|_| true, true)
+}
+
+/// Draws the looks of the kinds `wanted` picks; `fresh` reads the wallpaper again.
+fn draw(wanted: impl Fn(&str) -> bool, fresh: bool) -> Drawn {
     let screen = paperloom_common::primary_size().unwrap_or((1920, 1080));
-    let wallpaper = wallpaper();
+    let cached = WALLPAPER.lock().ok().and_then(|cached| cached.clone());
+    let wallpaper = if fresh || cached.is_none() { wallpaper() } else { cached };
     if let Ok(mut cached) = WALLPAPER.lock() {
         cached.clone_from(&wallpaper);
     }
     let mut text = paperloom_skin::Text::new();
     let mut looks = Vec::new();
     for skin in paperloom_skin::all() {
-        for kind in &skin.kinds {
+        for kind in skin.kinds.iter().filter(|kind| wanted(kind)) {
             let vars = paperloom_skin::preview(kind);
             let bare = paperloom_skin::render(skin, &vars, 1.0, &mut text);
             // Shrink it (and the wallpaper with it) until it fits the card with room around it.
@@ -154,7 +176,7 @@ fn draw_all() -> Drawn {
             looks.push((skin.id.clone(), kind.clone(), (CARD.0, CARD.1, card.take()), straight(&bare)));
         }
     }
-    let wallpaper = wallpaper.map(|pixmap| (pixmap.width(), pixmap.height(), pixmap.take()));
+    let wallpaper = wallpaper.filter(|_| fresh).map(|pixmap| (pixmap.width(), pixmap.height(), pixmap.take()));
     Drawn { wallpaper, looks }
 }
 

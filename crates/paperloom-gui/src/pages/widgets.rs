@@ -45,6 +45,8 @@ pub enum Message {
     AddWidgets,
     Tick,
     PreviewsReady(widgets_looks::Drawn),
+    /// The clock and date previews, redrawn for a new minute.
+    TimesReady(widgets_looks::Drawn),
     /// Show only the looks for this kind (empty = all).
     Filter(String),
     /// Use this look for the selected widget.
@@ -97,6 +99,10 @@ pub struct State {
     expanded: Option<&'static str>,
     importing: bool,
     imported: Option<Imported>,
+    /// The minute the clock and date previews show.
+    minute: u64,
+    /// Which wallpaper the previews were drawn on.
+    wallpaper: Option<std::path::PathBuf>,
 }
 
 /// Which sub-page the widgets body shows.
@@ -114,7 +120,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(), open: None, expanded: None, importing: false, imported: None }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(), open: None, expanded: None, importing: false, imported: None, minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
@@ -181,6 +187,20 @@ impl State {
         match message {
             Message::Tick => {
                 self.running = widgets::is_running();
+                if !self.previews.is_empty() && !self.previews_loading {
+                    // A new wallpaper: draw everything on it. A new minute: the clocks.
+                    let wallpaper = paperloom_common::EngineState::load().current_wallpaper;
+                    if wallpaper != self.wallpaper {
+                        self.wallpaper = wallpaper;
+                        self.previews_loading = true;
+                        return widgets_looks::load(Message::PreviewsReady);
+                    }
+                    let minute = paperloom_common::log::now_unix() / 60;
+                    if minute != self.minute {
+                        self.minute = minute;
+                        return widgets_looks::load_times(Message::TimesReady);
+                    }
+                }
                 // Opened straight from the command line, nothing asked for the previews yet.
                 if self.tab == BrowseTab::Online {
                     let online = self.online.opened().map(Message::Online);
@@ -197,7 +217,12 @@ impl State {
                 return Task::none();
             }
             Message::Browse | Message::AddWidgets => return Task::none(),
+            Message::TimesReady(drawn) => {
+                self.previews.merge(drawn);
+                return Task::none();
+            }
             Message::PreviewsReady(drawn) => {
+                self.minute = paperloom_common::log::now_unix() / 60;
                 self.previews = widgets_looks::into_previews(drawn);
                 self.previews_loading = false;
                 return Task::none();
