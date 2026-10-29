@@ -11,7 +11,8 @@ use paperloom_common::EngineState;
 use crate::guard::Guard;
 use crate::sample::Sample;
 
-const CHECK_EVERY: Duration = Duration::from_secs(2);
+// A change made in the app shows on the desktop within a second.
+const CHECK_EVERY: Duration = Duration::from_secs(1);
 
 pub struct Control {
     seen: Option<SystemTime>,

@@ -50,10 +50,6 @@ impl Previews {
         self.cards.is_empty()
     }
 
-    pub fn clear(&mut self) {
-        self.cards.clear();
-        self.bare.clear();
-    }
 
     pub fn card(&self, skin: &str, kind: &str) -> Option<&image::Handle> {
         self.cards.get(&(skin.to_string(), kind.to_string()))

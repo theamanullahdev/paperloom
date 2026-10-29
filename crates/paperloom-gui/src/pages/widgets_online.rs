@@ -32,6 +32,10 @@ pub enum Message {
     Done(String, Result<(), String>),
     Remove(String),
     Removed(Result<(), String>),
+    /// Use this installed look on a widget (handled by the widgets page).
+    Use(String),
+    /// Put a new widget of this kind with this look on the desktop (handled by the widgets page).
+    Add(String, String),
 }
 
 enum Status {
@@ -40,6 +44,9 @@ enum Status {
     Failed(String),
     Ready { base: String, packs: Vec<Pack> },
 }
+
+/// For a look's kinds and id: the widget "Use" would change, and whether it already uses it.
+pub type Target<'t> = dyn Fn(&[String], &str) -> Option<(String, bool)> + 't;
 
 pub struct State {
     status: Status,
@@ -110,6 +117,7 @@ impl State {
                 }
             }
             Message::Remove(folder) => (blocking(move || looks::remove(&folder, &paperloom_common::skins_dir()), Message::Removed), false),
+            Message::Use(_) | Message::Add(..) => (Task::none(), false),
             Message::Removed(result) => {
                 self.error = result.err().map(|err| format!("Couldn't remove it: {err}"));
                 paperloom_skin::refresh();
@@ -118,7 +126,9 @@ impl State {
         }
     }
 
-    pub fn view<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+    /// `filter`: a widget kind, or empty for all. `target`: for a look's kinds and
+    /// id, the widget "Use" would change and whether it already uses it.
+    pub fn view<'a>(&'a self, filter: &str, target: &Target, t: theme::Tokens) -> Element<'a, Message> {
         match &self.status {
             Status::Idle | Status::Loading => text("Reading the online library…").size(13).color(t.muted_foreground).into(),
             Status::Failed(err) => column![
@@ -129,7 +139,7 @@ impl State {
             .spacing(8)
             .into(),
             Status::Ready { packs, .. } => {
-                let mut cards: Vec<Element<'a, Message>> = packs.iter().map(|pack| self.card(pack, t)).collect();
+                let mut cards: Vec<Element<'a, Message>> = packs.iter().filter(|pack| filter.is_empty() || pack.kinds.iter().any(|kind| kind == filter)).map(|pack| self.card(pack, filter, target, t)).collect();
                 if cards.is_empty() {
                     cards.push(text("Nothing here yet.").size(13).color(t.muted_foreground).into());
                 }
@@ -142,18 +152,27 @@ impl State {
         }
     }
 
-    fn card<'a>(&'a self, pack: &'a Pack, t: theme::Tokens) -> Element<'a, Message> {
+    fn card<'a>(&'a self, pack: &'a Pack, filter: &str, target: &Target, t: theme::Tokens) -> Element<'a, Message> {
         let installed = paperloom_skin::get(&pack.id).is_some_and(|skin| skin.dir.is_some());
-        let action: Element<'a, Message> = if self.installing.contains(&pack.id) {
-            text("Downloading…").size(13).color(t.primary).into()
-        } else if installed {
-            button(ui::label("Remove")).style(ui::ghost).on_press(Message::Remove(pack.folder.clone())).into()
-        } else {
-            button(ui::label(format!("Install · {}", size(pack.download_size()))).color(ui::on_accent())).style(ui::primary).on_press(Message::Install(pack.id.clone())).into()
-        };
         let kinds = pack.kinds.iter().map(|kind| paperloom_common::widgets::entry(kind).map_or(kind.as_str(), |entry| entry.name)).collect::<Vec<_>>().join(" · ");
-        let detail = if installed { format!("Installed · {kinds}") } else { format!("by {} · {kinds}", pack.author) };
-        card(self.previews.get(&pack.id), pack.name.clone(), detail, vec![action], None, installed, t)
+        let mut detail = format!("by {} · {kinds}", pack.author);
+        let mut actions: Vec<Element<'a, Message>> = Vec::new();
+        if self.installing.contains(&pack.id) {
+            actions.push(text("Downloading…").size(13).color(t.primary).into());
+        } else if installed {
+            // Installed: the next step is right here.
+            match target(&pack.kinds, &pack.id) {
+                Some((title, true)) => detail = format!("In use on your {title}"),
+                Some((title, false)) => actions.push(button(ui::label(format!("Use on {title}")).color(ui::on_accent())).style(ui::primary).on_press(Message::Use(pack.id.clone())).into()),
+                None => {}
+            }
+            let kind = if pack.kinds.iter().any(|kind| kind == filter) { filter.to_string() } else { pack.kinds.first().cloned().unwrap_or_default() };
+            actions.push(button(ui::label("Add")).style(ui::secondary).on_press(Message::Add(kind, pack.id.clone())).into());
+            actions.push(button(ui::label("Remove")).style(ui::ghost).on_press(Message::Remove(pack.folder.clone())).into());
+        } else {
+            actions.push(button(ui::label(format!("Install · {}", size(pack.download_size()))).color(ui::on_accent())).style(ui::primary).on_press(Message::Install(pack.id.clone())).into());
+        }
+        card(self.previews.get(&pack.id), pack.name.clone(), detail, actions, None, installed, t)
     }
 }
 

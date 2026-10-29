@@ -62,6 +62,15 @@ pub enum Message {
     RemoveKind(&'static str),
     /// Show (or hide) the widgets of this kind on Add a widget.
     Expand(&'static str),
+    /// Put back what was just removed.
+    Undo,
+    /// Close the line saying what just happened.
+    Dismiss,
+    /// The online library, showing looks for this kind.
+    MoreLooks(String),
+    /// Delete an installed or imported look (its folder name).
+    RemoveLook(String),
+    LookRemoved(Result<(), String>),
     /// Bring in Rainmeter skins: a package or file (false) or a folder (true).
     ImportRainmeter(bool),
     /// Looks added, parts left out — or why nothing could be.
@@ -73,6 +82,19 @@ pub enum Message {
 
 /// A Rainmeter import: the looks added and the parts left out, or why nothing was.
 pub type Imported = Result<(Vec<String>, Vec<String>), String>;
+
+/// A line at the top of the page: what just happened, and the next step.
+#[derive(Debug, Clone)]
+pub struct Notice {
+    text: String,
+    action: Option<(String, Message)>,
+}
+
+impl Notice {
+    fn new(text: impl Into<String>, action: Option<(&str, Message)>) -> Option<Self> {
+        Some(Self { text: text.into(), action: action.map(|(label, message)| (label.to_string(), message)) })
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowseTab {
@@ -99,6 +121,10 @@ pub struct State {
     expanded: Option<&'static str>,
     importing: bool,
     imported: Option<Imported>,
+    /// What just happened, with the obvious next step.
+    notice: Option<Notice>,
+    /// What the last removal took off the desktop (for Undo).
+    removed: Vec<widgets::Placed>,
     /// The minute the clock and date previews show.
     minute: u64,
     /// Which wallpaper the previews were drawn on.
@@ -120,7 +146,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(), open: None, expanded: None, importing: false, imported: None, minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
@@ -135,6 +161,7 @@ impl State {
 
     /// Re-reads the file (another window, the tray, or a reset may have changed it).
     pub fn open(&mut self) -> Task<Message> {
+        self.notice = None;
         self.widgets = Widgets::load();
         self.running = widgets::is_running();
         if self.selected.is_none_or(|id| !self.widgets.placed.iter().any(|placed| placed.id == id)) {
@@ -231,12 +258,25 @@ impl State {
                 self.tab = tab;
                 return if tab == BrowseTab::Online { self.online.opened().map(Message::Online) } else { Task::none() };
             }
+            Message::Online(widgets_online::Message::Use(skin)) => return self.update(Message::UseLook(skin)),
+            Message::Online(widgets_online::Message::Add(kind, skin)) => return self.update(Message::AddWithLook(kind, skin)),
             Message::Online(message) => {
+                let installed = match &message {
+                    widgets_online::Message::Done(id, Ok(())) => Some(id.clone()),
+                    _ => None,
+                };
                 let (task, changed) = self.online.update(message);
                 let mut tasks = vec![task.map(Message::Online)];
+                // Installed: offer to use it right here, not somewhere else.
+                if let Some(skin) = installed.and_then(|id| paperloom_skin::get(&id)) {
+                    self.notice = match self.target_for(&skin.kinds) {
+                        Some(target) => Notice::new(format!("{} is installed.", skin.name), Some((&format!("Use it on {}", self.title_of(target)), Message::UseLook(skin.id.clone())))),
+                        None => Notice::new(format!("{} is installed.", skin.name), Some(("Add it to the desktop", Message::AddWithLook(skin.kinds.first().cloned().unwrap_or_default(), skin.id.clone())))),
+                    };
+                }
                 if changed {
-                    // A look was installed or removed: draw the previews again.
-                    self.previews.clear();
+                    // A look was installed or removed: draw the previews again
+                    // (the old ones stay up until the new ones are ready).
                     self.previews_loading = true;
                     tasks.push(widgets_looks::load(Message::PreviewsReady));
                     // A widget whose look is gone falls back to its default.
@@ -249,11 +289,41 @@ impl State {
                 return Task::none();
             }
             Message::UseLook(skin) => {
-                if let Some(id) = self.selected {
-                    if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
-                        target.skin = skin;
+                let Some(look) = paperloom_skin::get(&skin) else { return Task::none() };
+                let Some(id) = self.target_for(&look.kinds).map(|target| target.id) else { return Task::none() };
+                let title = self.widgets.placed.iter().find(|placed| placed.id == id).map(|placed| self.title_of(placed)).unwrap_or_default();
+                self.notice = Notice::new(format!("Your {title} now uses {}.", look.name), Some(("Open it", Message::Open(id))));
+                if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
+                    target.skin = skin;
+                }
+            }
+            Message::Undo => {
+                for placed in std::mem::take(&mut self.removed) {
+                    if self.widgets.placed.len() < MAX_PLACED && !self.widgets.placed.iter().any(|other| other.id == placed.id) {
+                        self.widgets.placed.push(placed);
                     }
                 }
+                self.notice = None;
+            }
+            Message::Dismiss => {
+                self.notice = None;
+                return Task::none();
+            }
+            Message::MoreLooks(kind) => {
+                self.tab = BrowseTab::Online;
+                self.filter = kind;
+                return Task::batch([self.online.opened().map(Message::Online), Task::done(Message::Browse)]);
+            }
+            Message::RemoveLook(folder) => {
+                return widgets_looks::blocking(move || paperloom_fetch::looks::remove(&folder, &paperloom_common::skins_dir()), Message::LookRemoved);
+            }
+            Message::LookRemoved(result) => {
+                paperloom_skin::refresh();
+                self.problem = result.err().map(|err| format!("Couldn't remove that look: {err}"));
+                // Widgets that used it are back on their kind's default look.
+                self.widgets = Widgets::load();
+                self.previews_loading = true;
+                return widgets_looks::load(Message::PreviewsReady);
             }
             Message::SetLook(id, skin) => {
                 if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
@@ -265,10 +335,13 @@ impl State {
                 match self.widgets.add(&kind) {
                     Some(id) => {
                         if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
-                            target.skin = skin;
+                            target.skin = skin.clone();
                         }
                         self.selected = Some(id);
                         self.widgets.enabled = true;
+                        let name = widgets::entry(&kind).map_or(kind.as_str(), |entry| entry.name);
+                        let look = paperloom_skin::get(&skin).map_or(String::new(), |look| format!(" with the {} look", look.name));
+                        self.notice = Notice::new(format!("{name}{look} is on your desktop."), Some(("Open it", Message::Open(id))));
                     }
                     None => {
                         self.problem = Some(format!("You can place up to {MAX_PLACED} widgets."));
@@ -286,12 +359,18 @@ impl State {
                     self.selected = Some(id);
                     self.expanded = Some(kind);
                     self.widgets.enabled = true;
+                    let name = widgets::entry(kind).map_or(kind, |entry| entry.name);
+                    self.notice = Notice::new(format!("{name} is on your desktop."), Some(("Change its look", Message::Open(id))));
                 } else {
                     self.problem = Some(format!("You can place up to {MAX_PLACED} widgets."));
                     return Task::none();
                 }
             }
             Message::Remove(id) => {
+                if let Some(placed) = self.widgets.placed.iter().find(|placed| placed.id == id) {
+                    self.notice = Notice::new(format!("{} removed from your desktop.", self.title_of(placed)), Some(("Undo", Message::Undo)));
+                    self.removed = vec![placed.clone()];
+                }
                 self.widgets.remove(id);
                 if self.open == Some(id) {
                     self.open = None;
@@ -335,7 +414,6 @@ impl State {
                 if result.is_ok() {
                     paperloom_skin::refresh();
                     self.filter.clear();
-                    self.previews.clear();
                     self.previews_loading = true;
                     self.imported = Some(result);
                     return widgets_looks::load(Message::PreviewsReady);
@@ -348,7 +426,11 @@ impl State {
                 return Task::none();
             }
             Message::RemoveKind(kind) => {
-                let ids: Vec<u32> = self.widgets.placed.iter().filter(|placed| placed.kind == kind).map(|placed| placed.id).collect();
+                self.removed = self.widgets.placed.iter().filter(|placed| placed.kind == kind).cloned().collect();
+                let name = widgets::entry(kind).map_or(kind, |entry| entry.name);
+                let what = if self.removed.len() == 1 { format!("{name} removed") } else { format!("All {} {name} widgets removed", self.removed.len()) };
+                self.notice = Notice::new(format!("{what} from your desktop."), Some(("Undo", Message::Undo)));
+                let ids: Vec<u32> = self.removed.iter().map(|placed| placed.id).collect();
                 for id in ids {
                     self.widgets.remove(id);
                 }
@@ -403,6 +485,19 @@ impl State {
         let mut page = column![].spacing(16);
         if let Some(problem) = &self.problem {
             page = page.push(text(problem.as_str()).size(13).color(t.destructive));
+        }
+        if let Some(notice) = &self.notice {
+            let mut line = row![text(notice.text.as_str()).size(14).color(t.foreground).width(Length::Fill)].spacing(10).align_y(Alignment::Center);
+            if let Some((label, message)) = &notice.action {
+                line = line.push(button(ui::label(label.as_str()).color(ui::on_accent())).style(ui::primary).on_press(message.clone()));
+            }
+            line = line.push(button(ui::label("✕")).style(ui::ghost).on_press(Message::Dismiss));
+            page = page.push(
+                container(line)
+                    .padding([10, 16])
+                    .width(Length::Fill)
+                    .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.primary, width: 1.0, radius: 8.0.into() }, ..container::Style::default() }),
+            );
         }
         // Placed but switched off: say so where it can't be missed, with the way back.
         if !self.widgets.enabled && !self.widgets.placed.is_empty() {
@@ -527,7 +622,7 @@ impl State {
                 card(self.previews.card(&skin.id, &placed.kind), skin.name.clone(), detail, Vec::new(), (!chosen).then(|| Message::SetLook(id, skin.id.clone())), chosen, t)
             })
             .collect();
-        looks.push(more_looks_card(t));
+        looks.push(more_looks_card(placed.kind.clone(), t));
         let looks = section("Look", "Click a look to use it. What the widget shows stays the same.", row(looks).spacing(16).wrap().vertical_spacing(16).into(), t);
 
         let percent = |value: f32| text(format!("{:.0}%", value * 100.0)).size(13).color(t.muted_foreground).width(Length::Fixed(48.0));
@@ -659,8 +754,8 @@ fn add_card<'a>(t: theme::Tokens) -> Element<'a, Message> {
     big_button("+", "Add a widget", "A clock, the date, a meter…", Message::AddWidgets, t)
 }
 
-fn more_looks_card<'a>(t: theme::Tokens) -> Element<'a, Message> {
-    big_button("✦", "More looks", "Browse the online library", Message::Browse, t)
+fn more_looks_card<'a>(kind: String, t: theme::Tokens) -> Element<'a, Message> {
+    big_button("✦", "More looks", "From the online library", Message::MoreLooks(kind), t)
 }
 
 fn big_button<'a>(mark: &'static str, name: &'static str, detail: &'static str, message: Message, t: theme::Tokens) -> Element<'a, Message> {
@@ -707,7 +802,6 @@ fn panel<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Mes
 impl State {
     /// Looks: the gallery of looks, each drawn on the user's wallpaper.
     fn looks<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let selected = self.selected.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id));
         let kinds: Vec<(String, String)> = std::iter::once((String::new(), "All".to_string()))
             .chain(BUILT_IN.iter().filter(|entry| !paperloom_skin::for_kind(entry.kind).is_empty()).map(|entry| (entry.kind.to_string(), entry.name.to_string())))
             .collect();
@@ -718,28 +812,27 @@ impl State {
             ],
             t,
         );
+        let filters = ui::segmented(kinds.into_iter().map(|(kind, name)| (name, self.filter == kind, Message::Filter(kind))).collect(), t);
         if self.tab == BrowseTab::Online {
+            let target = |kinds: &[String], skin: &str| self.target_for(kinds).map(|placed| (self.title_of(placed), widgets_looks::skin_of(placed).is_some_and(|current| current.id == skin)));
             return column![
                 tabs,
-                text("More looks, some with their own fonts and images. They download when you install them and are checked before they are used.").size(13).color(t.muted_foreground),
-                self.online.view(t).map(Message::Online),
+                text("More looks, some with their own fonts and images. Install one, then use it on a widget you have or add it as a new one.").size(13).color(t.muted_foreground),
+                filters,
+                self.online.view(&self.filter, &target, t).map(Message::Online),
             ]
             .spacing(14)
             .into();
         }
-        let filters = ui::segmented(kinds.into_iter().map(|(kind, name)| (name, self.filter == kind, Message::Filter(kind))).collect(), t);
 
         let mut cards = Vec::new();
         for skin in paperloom_skin::all() {
             if !self.filter.is_empty() && !skin.kinds.contains(&self.filter) {
                 continue;
             }
-            cards.push(self.look_card(skin, selected, t));
+            cards.push(self.look_card(skin, t));
         }
-        let hint = match selected {
-            Some(placed) => format!("Shown on your wallpaper. “Use” changes your {}; “Add” puts a new widget on the desktop.", self.title_of(placed)),
-            None => "Shown on your wallpaper. “Add” puts a new widget with that look on the desktop.".to_string(),
-        };
+        let hint = "Shown on your wallpaper. “Use on…” changes a widget you have; “Add” puts a new one on the desktop.";
         column![tabs, self.import_panel(t), text(hint).size(13).color(t.muted_foreground), filters, row(cards).spacing(16).wrap().vertical_spacing(16)].spacing(14).into()
     }
 
@@ -782,23 +875,35 @@ impl State {
         panel(body.into(), t)
     }
 
-    fn look_card<'a>(&'a self, skin: &'static paperloom_skin::Skin, selected: Option<&widgets::Placed>, t: theme::Tokens) -> Element<'a, Message> {
-        // The kind it is shown as: the filter's, else the chosen widget's, else its first.
+    /// The widget "Use" changes for a look of these kinds: the one picked last
+    /// if it can show it, else the first that can.
+    fn target_for(&self, kinds: &[String]) -> Option<&widgets::Placed> {
+        let selected = self.selected.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id)).filter(|placed| kinds.contains(&placed.kind));
+        selected.or_else(|| self.widgets.placed.iter().find(|placed| kinds.contains(&placed.kind)))
+    }
+
+    fn look_card<'a>(&'a self, skin: &'static paperloom_skin::Skin, t: theme::Tokens) -> Element<'a, Message> {
+        let target = self.target_for(&skin.kinds);
+        // The kind it is shown as: the filter's, else its widget's, else its first.
         let kind = if skin.kinds.contains(&self.filter) {
             self.filter.clone()
         } else {
-            selected.map(|placed| placed.kind.clone()).filter(|kind| skin.kinds.contains(kind)).or_else(|| skin.kinds.first().cloned()).unwrap_or_default()
+            target.map(|placed| placed.kind.clone()).or_else(|| skin.kinds.first().cloned()).unwrap_or_default()
         };
-        let in_use = selected.is_some_and(|placed| widgets_looks::skin_of(placed).is_some_and(|current| current.id == skin.id));
-        let usable = selected.is_some_and(|placed| skin.kinds.contains(&placed.kind));
+        let in_use = target.is_some_and(|placed| widgets_looks::skin_of(placed).is_some_and(|current| current.id == skin.id));
         let mut actions: Vec<Element<'a, Message>> = Vec::new();
-        if usable && !in_use {
-            actions.push(button(ui::label("Use").color(ui::on_accent())).style(ui::primary).on_press(Message::UseLook(skin.id.clone())).into());
+        if let Some(placed) = target.filter(|_| !in_use) {
+            actions.push(button(ui::label(format!("Use on {}", self.title_of(placed))).color(ui::on_accent())).style(ui::primary).on_press(Message::UseLook(skin.id.clone())).into());
         }
-        let kind_name = widgets::entry(&kind).map_or(kind.as_str(), |entry| entry.name).to_string();
-        let add = if skin.kinds.len() == 1 { "Add".to_string() } else { format!("Add as {kind_name}") };
-        actions.push(button(ui::label(add)).style(ui::secondary).on_press(Message::AddWithLook(kind.clone(), skin.id.clone())).into());
-        let detail = if in_use { "In use".to_string() } else { format!("by {}", skin.author) };
+        actions.push(button(ui::label("Add")).style(ui::secondary).on_press(Message::AddWithLook(kind.clone(), skin.id.clone())).into());
+        // Installed and imported looks can be removed again.
+        if let Some(folder) = skin.dir.as_ref().and_then(|dir| dir.file_name()).and_then(|name| name.to_str()) {
+            actions.push(button(ui::label("Remove")).style(ui::ghost).on_press(Message::RemoveLook(folder.to_string())).into());
+        }
+        let detail = match target.filter(|_| in_use) {
+            Some(placed) => format!("In use on your {}", self.title_of(placed)),
+            None => format!("by {}", skin.author),
+        };
         card(self.previews.card(&skin.id, &kind), skin.name.clone(), detail, actions, None, in_use, t)
     }
 }
