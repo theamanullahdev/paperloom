@@ -10,19 +10,19 @@ use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Them
 use paperloom_common::widgets::{entry, Placed};
 
 use super::widgets::Message;
-use super::widgets_looks::size_of as natural_size;
+use super::widgets_looks::{size_of as natural_size, skin_of, Previews};
 use crate::theme;
 
 /// How close (as a fraction of the screen) an edge must be to snap.
 const SNAP: f32 = 0.012;
 
-pub fn view<'a>(placed: &'a [Placed], selected: Option<u32>, screen: (u32, u32), t: theme::Tokens) -> Element<'a, Message> {
+pub fn view<'a>(placed: &'a [Placed], selected: Option<u32>, screen: (u32, u32), previews: &'a Previews, max_height: f32, t: theme::Tokens) -> Element<'a, Message> {
     let ratio = screen.0 as f32 / screen.1.max(1) as f32;
     iced::widget::responsive(move |size| {
         let width = size.width.min(960.0);
-        let height = (width / ratio).min(520.0);
+        let height = (width / ratio).min(max_height);
         let width = height * ratio;
-        iced::widget::container(canvas::Canvas::new(Layout { placed, selected, screen, t }).width(Length::Fixed(width)).height(Length::Fixed(height)))
+        iced::widget::container(canvas::Canvas::new(Layout { placed, selected, screen, previews, t }).width(Length::Fixed(width)).height(Length::Fixed(height)))
             .center_x(Length::Fill)
             .into()
     })
@@ -33,6 +33,7 @@ struct Layout<'a> {
     placed: &'a [Placed],
     selected: Option<u32>,
     screen: (u32, u32),
+    previews: &'a Previews,
     t: theme::Tokens,
 }
 
@@ -97,7 +98,11 @@ impl canvas::Program<Message> for Layout<'_> {
     fn draw(&self, _state: &Drag, renderer: &Renderer, _theme: &Theme, bounds: Rectangle, _cursor: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let (width, height) = (bounds.width, bounds.height);
-        frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color { a: 0.5, ..self.t.muted });
+        // The user's own wallpaper, so the picture reads like their screen.
+        match &self.previews.wallpaper {
+            Some(wallpaper) => frame.draw_image(Rectangle::new(Point::ORIGIN, bounds.size()), wallpaper),
+            None => frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color { a: 0.5, ..self.t.muted }),
+        }
         let faint = Stroke::default().with_color(Color { a: 0.5, ..self.t.border }).with_width(1.0);
         for third in [1.0 / 3.0, 2.0 / 3.0] {
             frame.stroke(&Path::line(Point::new(width * third, 0.0), Point::new(width * third, height)), faint);
@@ -110,17 +115,25 @@ impl canvas::Program<Message> for Layout<'_> {
             let (origin, size) = (Point::new(placed.x * width, placed.y * height), Size::new(w * width, h * height));
             let chosen = self.selected == Some(placed.id);
             let card = Path::rounded_rectangle(origin, size, 4.0.into());
-            frame.fill(&card, Color { a: 0.9, ..self.t.surface });
-            frame.stroke(&card, Stroke::default().with_color(if chosen { self.t.primary } else { self.t.border }).with_width(if chosen { 2.0 } else { 1.0 }));
-            frame.fill_text(Text {
-                content: entry(&placed.kind).map_or(placed.kind.clone(), |entry| entry.name.to_string()),
-                position: Point::new(origin.x + size.width / 2.0, origin.y + size.height / 2.0),
-                color: self.t.foreground,
-                size: 13.0.into(),
-                align_x: iced::alignment::Horizontal::Center.into(),
-                align_y: iced::alignment::Vertical::Center,
-                ..Text::default()
-            });
+            match skin_of(placed).and_then(|skin| self.previews.bare(&skin.id, &placed.kind)) {
+                // The widget as it is drawn on the desktop.
+                Some(preview) => frame.draw_image(Rectangle::new(origin, size), canvas::Image::new(preview.clone()).opacity(placed.opacity)),
+                None => {
+                    frame.fill(&card, Color { a: 0.9, ..self.t.surface });
+                    frame.fill_text(Text {
+                        content: entry(&placed.kind).map_or(placed.kind.clone(), |entry| entry.name.to_string()),
+                        position: Point::new(origin.x + size.width / 2.0, origin.y + size.height / 2.0),
+                        color: self.t.foreground,
+                        size: 13.0.into(),
+                        align_x: iced::alignment::Horizontal::Center.into(),
+                        align_y: iced::alignment::Vertical::Center,
+                        ..Text::default()
+                    });
+                }
+            }
+            if chosen {
+                frame.stroke(&card, Stroke::default().with_color(self.t.primary).with_width(2.0));
+            }
         }
         vec![frame.into_geometry()]
     }

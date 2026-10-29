@@ -1,15 +1,22 @@
-//! Looks in the app: which look a placed widget uses, its size, and the
-//! gallery's previews. Previews are drawn by the same renderer as the desktop
-//! (`paperloom-skin`), once, on a background thread (loading the system fonts
-//! takes a moment), then kept as images.
+//! Looks in the app: which look a placed widget uses, its size, and every
+//! preview. Previews are drawn by the same renderer as the desktop
+//! (`paperloom-skin`) on top of the user's own wallpaper — the live
+//! wallpaper's poster when one is playing, else the system background — so a
+//! card shows what the widget will look like on their screen, at the same
+//! proportions. Drawn once on a background thread (loading the system fonts
+//! and decoding the wallpaper take a moment), then kept as images.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use iced::widget::image;
 use iced::Task;
 use paperloom_common::widgets::Placed;
 use paperloom_skin::Skin;
-use tiny_skia::{Color, Pixmap, PixmapPaint, Transform};
+use tiny_skia::{Color, FilterQuality, IntSize, Pixmap, PixmapPaint, Transform};
+
+/// Every card has this size, whatever the look's own size.
+pub const CARD: (u32, u32) = (300, 170);
 
 /// The look a placed widget uses: the one it picked, else its kind's default.
 pub fn skin_of(placed: &Placed) -> Option<&'static Skin> {
@@ -21,20 +28,57 @@ pub fn size_of(placed: &Placed) -> (u32, u32) {
     skin_of(placed).map_or((230, 104), |skin| (skin.size[0] as u32, skin.size[1] as u32))
 }
 
-/// A look's preview, ready to show.
-#[derive(Clone)]
-pub struct Preview {
-    pub handle: image::Handle,
-    pub size: (u32, u32),
+/// Every preview, keyed by look and kind (a meter look shows the processor
+/// on one card and the memory on another).
+#[derive(Default)]
+pub struct Previews {
+    /// On a piece of the wallpaper, `CARD` sized.
+    cards: HashMap<(String, String), image::Handle>,
+    /// The widget alone, at its natural size (Arrange draws these).
+    bare: HashMap<(String, String), image::Handle>,
+    /// The wallpaper itself, for the screen pictures.
+    pub wallpaper: Option<image::Handle>,
 }
 
-pub type Previews = HashMap<String, Preview>;
+impl Previews {
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-/// A drawn preview before it is turned into an image: id, size, straight-alpha RGBA.
-pub type Drawn = Vec<(String, u32, u32, Vec<u8>)>;
+    pub fn is_empty(&self) -> bool {
+        self.cards.is_empty()
+    }
 
-/// Draws every look on a backdrop (so translucent cards read as they will on a
-/// wallpaper), on a thread of its own.
+    pub fn clear(&mut self) {
+        self.cards.clear();
+        self.bare.clear();
+    }
+
+    pub fn card(&self, skin: &str, kind: &str) -> Option<&image::Handle> {
+        self.cards.get(&(skin.to_string(), kind.to_string()))
+    }
+
+    pub fn bare(&self, skin: &str, kind: &str) -> Option<&image::Handle> {
+        self.bare.get(&(skin.to_string(), kind.to_string()))
+    }
+
+    /// The card for a placed widget.
+    pub fn of(&self, placed: &Placed) -> Option<&image::Handle> {
+        skin_of(placed).and_then(|skin| self.card(&skin.id, &placed.kind))
+    }
+}
+
+/// Straight-alpha RGBA and its size.
+type Rgba = (u32, u32, Vec<u8>);
+
+/// Drawn previews before they are turned into images.
+#[derive(Debug, Clone, Default)]
+pub struct Drawn {
+    wallpaper: Option<Rgba>,
+    looks: Vec<(String, String, Rgba, Rgba)>,
+}
+
+/// Draws every look on the wallpaper, on a thread of its own.
 pub fn load<M: Send + 'static>(done: impl Fn(Drawn) -> M + Send + 'static) -> Task<M> {
     let (sender, receiver) = iced::futures::channel::oneshot::channel();
     std::thread::spawn(move || {
@@ -57,22 +101,113 @@ pub fn blocking<T: Send + 'static, M: Send + 'static>(work: impl FnOnce() -> T +
 }
 
 pub fn into_previews(drawn: Drawn) -> Previews {
-    drawn.into_iter().map(|(id, w, h, rgba)| (id, Preview { handle: image::Handle::from_rgba(w, h, rgba), size: (w, h) })).collect()
+    let handle = |(w, h, rgba): Rgba| image::Handle::from_rgba(w, h, rgba);
+    let mut previews = Previews { wallpaper: drawn.wallpaper.map(handle), ..Previews::default() };
+    for (skin, kind, card, bare) in drawn.looks {
+        previews.cards.insert((skin.clone(), kind.clone()), handle(card));
+        previews.bare.insert((skin, kind), handle(bare));
+    }
+    previews
 }
 
 fn draw_all() -> Drawn {
+    let screen = paperloom_common::primary_size().unwrap_or((1920, 1080));
+    let wallpaper = wallpaper();
     let mut text = paperloom_skin::Text::new();
-    let mut drawn = Vec::new();
+    let mut looks = Vec::new();
     for skin in paperloom_skin::all() {
-        let kind = skin.kinds.first().map_or("", String::as_str);
-        let widget = paperloom_skin::render(skin, &paperloom_skin::preview(kind), 1.0, &mut text);
-        let pad = 18u32;
-        let (w, h) = (widget.width() + pad * 2, widget.height() + pad * 2);
-        let Some(mut backdrop) = Pixmap::new(w, h) else { continue };
-        backdrop.fill(Color::from_rgba8(0x3A, 0x4A, 0x6A, 0xFF));
-        backdrop.draw_pixmap(pad as i32, pad as i32, widget.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
-        // The backdrop is opaque, so premultiplied and straight alpha agree.
-        drawn.push((skin.id.clone(), w, h, backdrop.take()));
+        for kind in &skin.kinds {
+            let vars = paperloom_skin::preview(kind);
+            let bare = paperloom_skin::render(skin, &vars, 1.0, &mut text);
+            // Shrink it (and the wallpaper with it) until it fits the card with room around it.
+            let fit = (0.62 * CARD.0 as f32 / bare.width() as f32).min(0.62 * CARD.1 as f32 / bare.height() as f32).min(1.0);
+            let widget = if fit < 1.0 { paperloom_skin::render(skin, &vars, fit, &mut text) } else { bare.clone() };
+            let Some(mut card) = backdrop(wallpaper.as_ref(), screen, fit) else { continue };
+            let x = (CARD.0 as i32 - widget.width() as i32) / 2;
+            let y = (CARD.1 as i32 - widget.height() as i32) / 2;
+            card.draw_pixmap(x, y, widget.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+            looks.push((skin.id.clone(), kind.clone(), (CARD.0, CARD.1, card.take()), straight(&bare)));
+        }
     }
-    drawn
+    let wallpaper = wallpaper.map(|pixmap| (pixmap.width(), pixmap.height(), pixmap.take()));
+    Drawn { wallpaper, looks }
+}
+
+/// A `CARD`-sized piece of the middle of the screen, `zoom` times its real size.
+fn backdrop(wallpaper: Option<&Pixmap>, screen: (u32, u32), zoom: f32) -> Option<Pixmap> {
+    let mut card = Pixmap::new(CARD.0, CARD.1)?;
+    let Some(wallpaper) = wallpaper else {
+        card.fill(Color::from_rgba8(0x3A, 0x4A, 0x6A, 0xFF));
+        return Some(card);
+    };
+    // The wallpaper fills the screen (cover), then the card looks at its middle.
+    let cover = (screen.0 as f32 / wallpaper.width() as f32).max(screen.1 as f32 / wallpaper.height() as f32);
+    let scale = cover * zoom;
+    let dx = CARD.0 as f32 / 2.0 - wallpaper.width() as f32 * scale / 2.0;
+    let dy = CARD.1 as f32 / 2.0 - wallpaper.height() as f32 * scale / 2.0;
+    let paint = PixmapPaint { quality: FilterQuality::Bilinear, ..PixmapPaint::default() };
+    card.draw_pixmap(0, 0, wallpaper.as_ref(), &paint, Transform::from_row(scale, 0.0, 0.0, scale, dx, dy), None);
+    Some(card)
+}
+
+/// Premultiplied (tiny-skia) to straight alpha (iced).
+fn straight(pixmap: &Pixmap) -> Rgba {
+    let mut rgba = Vec::with_capacity(pixmap.data().len());
+    for pixel in pixmap.pixels() {
+        let color = pixel.demultiply();
+        rgba.extend_from_slice(&[color.red(), color.green(), color.blue(), color.alpha()]);
+    }
+    (pixmap.width(), pixmap.height(), rgba)
+}
+
+/// The wallpaper the user sees right now, at most 1280 pixels wide, opaque.
+fn wallpaper() -> Option<Pixmap> {
+    candidates().into_iter().find_map(|path| {
+        let decoded = ::image::ImageReader::open(&path).ok()?.with_guessed_format().ok()?.decode().ok()?;
+        let rgba = decoded.thumbnail(1280, 1280).to_rgba8();
+        let (w, h) = rgba.dimensions();
+        // Opaque: straight and premultiplied alpha agree.
+        Pixmap::from_vec(rgba.into_raw(), IntSize::from_wh(w, h)?)
+    })
+}
+
+/// Where the current wallpaper's picture might be, best first.
+fn candidates() -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    if let Some(current) = paperloom_common::EngineState::load().current_wallpaper {
+        let library = paperloom_common::Library::load_manifest();
+        if let Some(entry) = library.entries.iter().find(|entry| entry.path == current) {
+            found.extend(entry.thumbnail.clone());
+            found.extend(entry.preview_frames.first().cloned());
+        }
+        // A still picture used as the wallpaper.
+        found.push(current);
+    }
+    found.extend(system_background());
+    found
+}
+
+#[cfg(windows)]
+fn system_background() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("Microsoft\\Windows\\Themes\\TranscodedWallpaper"))
+}
+
+#[cfg(target_os = "macos")]
+fn system_background() -> Option<PathBuf> {
+    let output = std::process::Command::new("osascript").args(["-e", "tell application \"System Events\" to get picture of current desktop"]).output().ok()?;
+    let path = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    (!path.is_empty()).then(|| PathBuf::from(path))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn system_background() -> Option<PathBuf> {
+    for (schema, key) in [("org.cinnamon.desktop.background", "picture-uri"), ("org.gnome.desktop.background", "picture-uri-dark"), ("org.gnome.desktop.background", "picture-uri"), ("org.mate.background", "picture-filename")] {
+        let Ok(output) = std::process::Command::new("gsettings").args(["get", schema, key]).output() else { continue };
+        let value = String::from_utf8_lossy(&output.stdout).trim().trim_matches('\'').to_string();
+        let path = value.strip_prefix("file://").unwrap_or(&value).replace("%20", " ");
+        if !path.is_empty() && std::path::Path::new(&path).is_file() {
+            return Some(PathBuf::from(path));
+        }
+    }
+    None
 }

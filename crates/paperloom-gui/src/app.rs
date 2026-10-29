@@ -331,11 +331,20 @@ impl App {
             Message::Developers(msg) => self.developers_page.update(&self.settings, msg).map(Message::Developers),
             Message::Widgets(widgets::Message::Browse) => self.update(Message::SwitchPage(Page::WidgetsBrowse)),
             Message::Widgets(widgets::Message::AddWidgets) => self.update(Message::SwitchPage(Page::WidgetsAdd)),
+            // A widget's card on another widgets page opens its page on My widgets.
+            Message::Widgets(widgets::Message::Open(id)) if self.page != Page::Widgets => {
+                let task = self.widgets_page.update(widgets::Message::Open(id)).map(Message::Widgets);
+                Task::batch([task, self.update(Message::SwitchPage(Page::Widgets))])
+            }
             Message::Widgets(msg) => self.widgets_page.update(msg).map(Message::Widgets),
             Message::Usage(msg) => self.usage_page.update(msg).map(Message::Usage),
             Message::Settings(settings::Message::OpenUsage) => self.update(Message::SwitchPage(Page::Usage)),
             Message::SwitchPage(page) => {
                 self.search_open = false;
+                // My widgets picked again: back to the list from a widget's page.
+                if page == Page::Widgets && self.page == Page::Widgets {
+                    self.widgets_page.close();
+                }
                 self.page = page;
                 // Opening a page opens its group, so the tree shows where you are.
                 match page {
@@ -581,10 +590,10 @@ impl App {
             Page::Settings => ("Settings", Space::new().into(), self.settings_page.body(&self.settings, self.updates_page.summary(&self.settings), t).map(Message::Settings)),
             Page::Updates => ("Updates", self.updates_page.header().map(Message::Updates), self.updates_page.body(&self.settings, t).map(Message::Updates)),
             Page::Developers => ("Developers", self.developers_page.header().map(Message::Developers), self.developers_page.body(t).map(Message::Developers)),
-            Page::Widgets => ("Widgets", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Mine, t).map(Message::Widgets)),
-            Page::WidgetsLayout => ("Edit layout", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Layout, t).map(Message::Widgets)),
-            Page::WidgetsAdd => ("Add widgets", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Add, t).map(Message::Widgets)),
-            Page::WidgetsBrowse => ("Browse looks", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Browse, t).map(Message::Widgets)),
+            Page::Widgets => ("My widgets", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Mine, t).map(Message::Widgets)),
+            Page::WidgetsLayout => ("Arrange", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Layout, t).map(Message::Widgets)),
+            Page::WidgetsAdd => ("Add a widget", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Add, t).map(Message::Widgets)),
+            Page::WidgetsBrowse => ("Looks", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Browse, t).map(Message::Widgets)),
             Page::Usage => ("Usage", self.usage_page.header().map(Message::Usage), self.usage_page.body(&self.settings, t, &self.recorder.history).map(Message::Usage)),
         };
 
@@ -968,9 +977,9 @@ impl App {
         if self.expanded.contains(&Group::Widgets) {
             let rows = vec![
                 self.tree_row(icons::grid(), "My widgets".into(), 1, self.page == Page::Widgets, None, go_page(Page::Widgets), t),
-                self.tree_row(icons::move_to_top(), "Edit layout".into(), 1, self.page == Page::WidgetsLayout, None, go_page(Page::WidgetsLayout), t),
-                self.tree_row(icons::grid(), "Add widgets".into(), 1, self.page == Page::WidgetsAdd, None, go_page(Page::WidgetsAdd), t),
-                self.tree_row(icons::compass(), "Browse".into(), 1, self.page == Page::WidgetsBrowse, None, go_page(Page::WidgetsBrowse), t),
+                self.tree_row(icons::move_to_top(), "Arrange".into(), 1, self.page == Page::WidgetsLayout, None, go_page(Page::WidgetsLayout), t),
+                self.tree_row(icons::grid(), "Add a widget".into(), 1, self.page == Page::WidgetsAdd, None, go_page(Page::WidgetsAdd), t),
+                self.tree_row(icons::compass(), "Looks".into(), 1, self.page == Page::WidgetsBrowse, None, go_page(Page::WidgetsBrowse), t),
             ];
             tree = tree.push(self.children(rows, 0, t));
         }

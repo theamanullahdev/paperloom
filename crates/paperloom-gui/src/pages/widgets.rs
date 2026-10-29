@@ -1,8 +1,13 @@
 //! Widgets: the desktop clocks and meters drawn by `paperloom-widgets`, a
 //! process of their own (the wallpaper engine never draws them). This page
-//! is where they are switched on, added, removed and set up. My widgets is a
-//! workspace — the placed ones on the left, the chosen one's settings on the
-//! right — and Browse lists everything that can be added.
+//! is where they are switched on, added, removed and set up.
+//!
+//! Every widget is shown the same way everywhere: an equal-size card with the
+//! widget drawn on the user's own wallpaper. My widgets is a grid of those
+//! cards; a card opens the widget's own page (where it sits, its look, its
+//! size, how it behaves). Add a widget lists every kind, with the ones
+//! already placed folded under it. Looks is the gallery; Arrange is the
+//! whole screen.
 //!
 //! Everything is written to `widgets.toml`; the widgets process notices the
 //! change within a couple of seconds, so there is no other channel to keep
@@ -10,12 +15,12 @@
 
 use std::time::Duration;
 
-use iced::widget::{button, column, container, image, pick_list, row, slider, text, toggler, Space};
-use iced::{Alignment, Background, Border, Element, Length, Subscription, Task};
+use iced::widget::{button, column, container, image, row, slider, text, toggler, Space};
+use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, Task};
 
 use paperloom_common::widgets::{self, Widgets, BUILT_IN, MAX_PLACED};
 
-use super::widgets_looks::{self, Previews};
+use super::widgets_looks::{self, Previews, CARD};
 use super::widgets_online;
 use crate::theme;
 use crate::ui;
@@ -32,11 +37,8 @@ pub enum Message {
     Dropped,
     Scale(u32, f32),
     Opacity(u32, f32),
-    X(u32, f32),
-    Y(u32, f32),
     Drag(u32, bool),
     Menu(u32, bool),
-    ResetLayout,
     /// Go to Browse (the looks gallery).
     Browse,
     /// Go to Add widgets.
@@ -50,6 +52,14 @@ pub enum Message {
     /// Put a new widget of this kind on the desktop with this look.
     AddWithLook(String, String),
     SetLook(u32, String),
+    /// Open a widget's own page.
+    Open(u32),
+    /// Back from a widget's page to My widgets.
+    Back,
+    /// Take every widget of this kind off the desktop.
+    RemoveKind(&'static str),
+    /// Show (or hide) the widgets of this kind on Add a widget.
+    Expand(&'static str),
     /// Browse: Installed or Online.
     Tab(BrowseTab),
     Online(widgets_online::Message),
@@ -74,6 +84,10 @@ pub struct State {
     filter: String,
     tab: BrowseTab,
     online: widgets_online::State,
+    /// The widget whose own page is open, on My widgets.
+    open: Option<u32>,
+    /// The kind whose placed widgets are listed on Add a widget.
+    expanded: Option<&'static str>,
 }
 
 /// Which sub-page the widgets body shows.
@@ -91,12 +105,17 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new() }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(), open: None, expanded: None }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
     pub fn show_online(&mut self) {
         self.tab = BrowseTab::Online;
+    }
+
+    /// Back to the list of widgets (My widgets picked again in the sidebar).
+    pub fn close(&mut self) {
+        self.open = None;
     }
 
     /// Re-reads the file (another window, the tray, or a reset may have changed it).
@@ -105,6 +124,9 @@ impl State {
         self.running = widgets::is_running();
         if self.selected.is_none_or(|id| !self.widgets.placed.iter().any(|placed| placed.id == id)) {
             self.selected = self.widgets.placed.first().map(|placed| placed.id);
+        }
+        if self.open.is_some_and(|id| !self.widgets.placed.iter().any(|placed| placed.id == id)) {
+            self.open = None;
         }
         // The gallery's previews are drawn once, on a thread of their own.
         if self.previews.is_empty() && !self.previews_loading {
@@ -228,6 +250,7 @@ impl State {
                 self.widgets = Widgets::load();
                 if let Some(id) = self.widgets.add(kind) {
                     self.selected = Some(id);
+                    self.expanded = Some(kind);
                     self.widgets.enabled = true;
                 } else {
                     self.problem = Some(format!("You can place up to {MAX_PLACED} widgets."));
@@ -236,6 +259,9 @@ impl State {
             }
             Message::Remove(id) => {
                 self.widgets.remove(id);
+                if self.open == Some(id) {
+                    self.open = None;
+                }
                 if self.selected == Some(id) {
                     self.selected = self.widgets.placed.first().map(|placed| placed.id);
                 }
@@ -243,6 +269,29 @@ impl State {
             Message::Select(id) => {
                 self.selected = Some(id);
                 return Task::none();
+            }
+            Message::Open(id) => {
+                self.selected = Some(id);
+                self.open = Some(id);
+                return Task::none();
+            }
+            Message::Back => {
+                self.open = None;
+                return Task::none();
+            }
+            Message::Expand(kind) => {
+                self.expanded = if self.expanded == Some(kind) { None } else { Some(kind) };
+                return Task::none();
+            }
+            Message::RemoveKind(kind) => {
+                let ids: Vec<u32> = self.widgets.placed.iter().filter(|placed| placed.kind == kind).map(|placed| placed.id).collect();
+                for id in ids {
+                    self.widgets.remove(id);
+                }
+                if self.selected.is_some_and(|id| !self.widgets.placed.iter().any(|placed| placed.id == id)) {
+                    self.selected = self.widgets.placed.first().map(|placed| placed.id);
+                }
+                self.open = self.open.filter(|id| self.widgets.placed.iter().any(|placed| placed.id == *id));
             }
             Message::Moved(id, x, y) => {
                 if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
@@ -252,21 +301,11 @@ impl State {
                 return Task::none();
             }
             Message::Dropped => {}
-            Message::ResetLayout => {
-                let kinds: Vec<String> = self.widgets.placed.iter().map(|placed| placed.kind.clone()).collect();
-                self.widgets.placed.clear();
-                for kind in kinds {
-                    self.widgets.add(&kind);
-                }
-                self.selected = self.widgets.placed.first().map(|placed| placed.id);
-            }
-            Message::Scale(id, value) | Message::Opacity(id, value) | Message::X(id, value) | Message::Y(id, value) => {
+            Message::Scale(id, value) | Message::Opacity(id, value) => {
                 if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
                     match message {
                         Message::Scale(..) => target.scale = value.clamp(0.5, 3.0),
-                        Message::Opacity(..) => target.opacity = value.clamp(0.1, 1.0),
-                        Message::X(..) => target.x = value.clamp(0.0, 0.95),
-                        _ => target.y = value.clamp(0.0, 0.95),
+                        _ => target.opacity = value.clamp(0.1, 1.0),
                     }
                 }
             }
@@ -286,7 +325,7 @@ impl State {
     }
 
     pub fn header<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let state = if self.running { "Showing on the desktop" } else if self.widgets.enabled { "Starting…" } else { "Off" };
+        let state = if self.running { "Showing on the desktop" } else if self.widgets.enabled { "Starting…" } else { "Hidden" };
         row![
             text(state).size(13).color(if self.running { t.success } else { t.muted_foreground }),
             toggler(self.widgets.enabled).label("Show widgets").on_toggle(Message::SetEnabled),
@@ -297,43 +336,21 @@ impl State {
     }
 
     pub fn body<'a>(&'a self, mode: Mode, t: theme::Tokens) -> Element<'a, Message> {
-        let mut page = column![].spacing(12);
+        let mut page = column![].spacing(16);
         if let Some(problem) = &self.problem {
             page = page.push(text(problem.as_str()).size(13).color(t.destructive));
         }
-        page = page.push(match mode {
-            Mode::Browse => self.looks(t),
-            Mode::Add => self.types(t),
-            Mode::Mine => self.mine(t),
-            Mode::Layout => self.layout(t),
-        });
-        ui::scroll_page(page).height(Length::Fill).into()
-    }
-
-    fn layout<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        if self.widgets.placed.is_empty() {
-            return self.mine(t);
-        }
-        column![
-            text("Drag a widget to move it. It snaps to the edges and the middle, and is saved when you let go.").size(13).color(t.muted_foreground),
-            super::widgets_layout::view(&self.widgets.placed, self.selected, self.screen, t),
-        ]
-        .spacing(12)
-        .into()
-    }
-
-    /// Every kind of widget that can be added (what it shows, not how it looks).
-    fn types<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let mut cards = column![].spacing(8);
-        for entry in BUILT_IN {
-            let placed = self.widgets.placed.iter().filter(|placed| placed.kind == entry.kind).count();
-            let action: Element<'a, Message> = button(ui::label("Add to desktop")).style(ui::primary).on_press(Message::Add(entry.kind)).into();
-            cards = cards.push(panel(
+        // Placed but switched off: say so where it can't be missed, with the way back.
+        if !self.widgets.enabled && !self.widgets.placed.is_empty() {
+            page = page.push(panel(
                 row![
-                    column![text(entry.name).size(16).color(t.foreground), text(entry.about).size(13).color(t.muted_foreground)].spacing(2),
+                    column![
+                        text("Your widgets are hidden").size(15).color(t.foreground),
+                        text("They keep their places and looks. Show them to put them back on the desktop.").size(13).color(t.muted_foreground),
+                    ]
+                    .spacing(2),
                     Space::new().width(Length::Fill),
-                    text(if placed > 0 { format!("{placed} on your desktop") } else { String::new() }).size(12).color(t.muted_foreground),
-                    action,
+                    button(ui::label("Show widgets").color(ui::on_accent())).style(ui::primary).on_press(Message::SetEnabled(true)),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center)
@@ -341,120 +358,290 @@ impl State {
                 t,
             ));
         }
-        cards.into()
+        page = page.push(match mode {
+            Mode::Browse => self.looks(t),
+            Mode::Add => self.types(t),
+            Mode::Mine => match self.open.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id)) {
+                Some(placed) => self.details(placed, t),
+                None => self.mine(t),
+            },
+            Mode::Layout => self.layout(t),
+        });
+        ui::scroll_page(page).height(Length::Fill).into()
+    }
+
+    /// The name a placed widget goes by: its kind, numbered when there are several.
+    fn title_of(&self, placed: &widgets::Placed) -> String {
+        let name = widgets::entry(&placed.kind).map_or(placed.kind.as_str(), |entry| entry.name);
+        let same: Vec<u32> = self.widgets.placed.iter().filter(|other| other.kind == placed.kind).map(|other| other.id).collect();
+        match same.iter().position(|id| *id == placed.id) {
+            Some(index) if same.len() > 1 => format!("{name} {}", index + 1),
+            _ => name.to_string(),
+        }
+    }
+
+    /// A placed widget's card; it opens the widget's own page.
+    fn placed_card<'a>(&'a self, placed: &'a widgets::Placed, t: theme::Tokens) -> Element<'a, Message> {
+        let look = widgets_looks::skin_of(placed).map_or("", |skin| skin.name.as_str());
+        let detail = format!("{look} look · {}", where_on_screen(placed.x, placed.y));
+        card(self.previews.of(placed), self.title_of(placed), detail, Vec::new(), Some(Message::Open(placed.id)), false, t)
+    }
+
+    fn layout<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        if self.widgets.placed.is_empty() {
+            return self.mine(t);
+        }
+        column![
+            text("This is your screen. Drag a widget to move it — it snaps to the edges and the middle, and is saved when you let go.").size(13).color(t.muted_foreground),
+            super::widgets_layout::view(&self.widgets.placed, self.selected, self.screen, &self.previews, 560.0, t),
+        ]
+        .spacing(12)
+        .into()
     }
 
     fn mine<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         if self.widgets.placed.is_empty() {
-            return panel(
+            // Show what they would get, and the one click that gets it.
+            let samples: Vec<Element<'a, Message>> = ["clock", "cpu", "date"]
+                .into_iter()
+                .filter_map(|kind| {
+                    let entry = widgets::entry(kind)?;
+                    let skin = paperloom_skin::default_for(kind)?;
+                    Some(card(self.previews.card(&skin.id, kind), entry.name.to_string(), entry.about.to_string(), vec![add_button(entry.kind)], None, false, t))
+                })
+                .collect();
+            return column![
                 column![
-                    text("No widgets on your desktop yet").size(16).color(t.foreground),
-                    text("Add a clock or a meter and it appears on the desktop, above the wallpaper.").size(13).color(t.muted_foreground),
-                    button(ui::label("Add a widget")).style(ui::primary).on_press(Message::AddWidgets),
+                    text("Put a clock or a meter on your desktop").size(20).color(t.foreground),
+                    text("Widgets sit on top of your wallpaper — this is how they look on yours. Add one, then click it to change its look, size and place.").size(13).color(t.muted_foreground),
                 ]
-                .spacing(10)
-                .into(),
-                t,
-            );
+                .spacing(4),
+                row(samples).spacing(16).wrap().vertical_spacing(16),
+                button(ui::label("See every widget")).style(ui::ghost).on_press(Message::AddWidgets),
+            ]
+            .spacing(16)
+            .into();
         }
 
-        let mut list = column![].spacing(6);
-        for placed in &self.widgets.placed {
-            let name = widgets::entry(&placed.kind).map_or(placed.kind.as_str(), |entry| entry.name);
-            let chosen = self.selected == Some(placed.id);
-            list = list.push(
-                button(row![ui::label(name).color(if chosen { ui::on_accent() } else { t.foreground })].padding([4, 6]))
-                    .width(Length::Fill)
-                    .style(if chosen { ui::primary } else { ui::secondary })
-                    .on_press(Message::Select(placed.id)),
-            );
+        let mut cards: Vec<Element<'a, Message>> = self.widgets.placed.iter().map(|placed| self.placed_card(placed, t)).collect();
+        if self.widgets.placed.len() < MAX_PLACED {
+            cards.push(add_card(t));
         }
-        let sidebar = column![
-            list,
-            Space::new().height(Length::Fixed(8.0)),
-            button(ui::label("Add another")).style(ui::secondary).width(Length::Fill).on_press(Message::AddWidgets),
-            button(ui::label("Reset layout")).style(ui::ghost).width(Length::Fill).on_press(Message::ResetLayout),
+        column![
+            text("Click a widget to change its look, size and place.").size(13).color(t.muted_foreground),
+            row(cards).spacing(16).wrap().vertical_spacing(16),
         ]
-        .spacing(6)
-        .width(Length::Fixed(220.0));
-
-        let settings: Element<'a, Message> = match self.selected.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id)) {
-            Some(placed) => self.settings_of(placed, t),
-            None => text("Pick a widget on the left.").size(13).color(t.muted_foreground).into(),
-        };
-        row![sidebar, container(settings).width(Length::Fill)].spacing(16).into()
+        .spacing(12)
+        .into()
     }
 
-    fn settings_of<'a>(&'a self, placed: &'a widgets::Placed, t: theme::Tokens) -> Element<'a, Message> {
+    /// A widget's own page: where it is, its look, its size, how it behaves.
+    fn details<'a>(&'a self, placed: &'a widgets::Placed, t: theme::Tokens) -> Element<'a, Message> {
         let id = placed.id;
-        let name = widgets::entry(&placed.kind).map_or(placed.kind.as_str(), |entry| entry.name);
-        let percent = |value: f32| text(format!("{:.0}%", value * 100.0)).size(13).color(t.muted_foreground);
+        let heading = row![
+            button(ui::label("← My widgets")).style(ui::ghost).on_press(Message::Back),
+            text(self.title_of(placed)).size(20).color(t.foreground),
+            Space::new().width(Length::Fill),
+            button(ui::label("Remove from desktop")).style(ui::danger).on_press(Message::Remove(id)),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+
+        let screen = section(
+            "Where it sits",
+            "Your screen, with this widget outlined. Drag it to move it.",
+            super::widgets_layout::view(&self.widgets.placed, Some(id), self.screen, &self.previews, 380.0, t),
+            t,
+        );
+
+        let current = widgets_looks::skin_of(placed).map(|skin| skin.id.clone());
+        let mut looks: Vec<Element<'a, Message>> = paperloom_skin::for_kind(&placed.kind)
+            .into_iter()
+            .map(|skin| {
+                let chosen = current.as_deref() == Some(skin.id.as_str());
+                let detail = if chosen { "In use".to_string() } else { format!("by {}", skin.author) };
+                card(self.previews.card(&skin.id, &placed.kind), skin.name.clone(), detail, Vec::new(), (!chosen).then(|| Message::SetLook(id, skin.id.clone())), chosen, t)
+            })
+            .collect();
+        looks.push(more_looks_card(t));
+        let looks = section("Look", "Click a look to use it. What the widget shows stays the same.", row(looks).spacing(16).wrap().vertical_spacing(16).into(), t);
+
+        let percent = |value: f32| text(format!("{:.0}%", value * 100.0)).size(13).color(t.muted_foreground).width(Length::Fixed(48.0));
         let line = |label: &'static str, control: Element<'a, Message>, value: Element<'a, Message>| -> Element<'a, Message> {
-            row![text(label).size(13).color(t.foreground).width(Length::Fixed(90.0)), control, value].spacing(12).align_y(Alignment::Center).into()
+            row![text(label).size(13).color(t.foreground).width(Length::Fixed(110.0)), control, value].spacing(12).align_y(Alignment::Center).into()
         };
-        panel(
+        let size = section(
+            "Size",
+            "",
             column![
-                text(name).size(16).color(t.foreground),
-                line("Look", look_picker(placed), button(ui::label("Browse looks")).style(ui::ghost).on_press(Message::Browse).into()),
                 line("Size", slider(0.5..=2.0, placed.scale, move |value| Message::Scale(id, value)).step(0.05_f32).into(), percent(placed.scale).into()),
                 line("Opacity", slider(0.1..=1.0, placed.opacity, move |value| Message::Opacity(id, value)).step(0.05_f32).into(), percent(placed.opacity).into()),
-                line("Left", slider(0.0..=0.95, placed.x, move |value| Message::X(id, value)).step(0.01_f32).into(), percent(placed.x).into()),
-                line("Top", slider(0.0..=0.95, placed.y, move |value| Message::Y(id, value)).step(0.01_f32).into(), percent(placed.y).into()),
-                column![
-                    toggler(placed.drag).label("Drag it on the desktop").on_toggle(move |value| Message::Drag(id, value)),
-                    toggler(placed.menu).label("Right-click menu").on_toggle(move |value| Message::Menu(id, value)),
-                    text(if placed.interactive() {
-                        "It sits above your desktop icons so it can be clicked. Turn both off and it sits below them, and every click goes through to the desktop."
-                    } else {
-                        "Clicks go through to the desktop and it sits below your desktop icons. Move it from Edit layout."
-                    })
-                    .size(12)
-                    .color(t.muted_foreground),
-                ]
-                .spacing(8),
-                row![Space::new().width(Length::Fill), button(ui::label("Remove from desktop")).style(ui::danger).on_press(Message::Remove(id))],
             ]
-            .spacing(14)
+            .spacing(10)
             .into(),
             t,
-        )
+        );
+
+        let behaviour = section(
+            "On the desktop",
+            if placed.interactive() {
+                "It sits above your desktop icons so you can grab it. Turn both off and it sits below them, and every click goes through to the desktop."
+            } else {
+                "Clicks go through it to the desktop, and it sits below your desktop icons. Move it here or in Arrange."
+            },
+            column![
+                toggler(placed.drag).label("Move it by dragging on the desktop").on_toggle(move |value| Message::Drag(id, value)),
+                toggler(placed.menu).label("Right-click it for a menu").on_toggle(move |value| Message::Menu(id, value)),
+            ]
+            .spacing(8)
+            .into(),
+            t,
+        );
+
+        column![heading, screen, looks, size, behaviour].spacing(16).into()
     }
+
+    /// Every kind of widget that can be added, with the ones already placed folded under it.
+    fn types<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        let mut list = column![text("Pick what you want on your desktop. You can change how it looks afterwards.").size(13).color(t.muted_foreground)].spacing(12);
+        for entry in BUILT_IN {
+            let placed: Vec<&widgets::Placed> = self.widgets.placed.iter().filter(|placed| placed.kind == entry.kind).collect();
+            let preview = paperloom_skin::default_for(entry.kind).and_then(|skin| self.previews.card(&skin.id, entry.kind));
+            let mut actions = row![add_button(entry.kind)].spacing(8).align_y(Alignment::Center);
+            if !placed.is_empty() {
+                let open = self.expanded == Some(entry.kind);
+                let count = if placed.len() == 1 { "1 on your desktop".to_string() } else { format!("{} on your desktop", placed.len()) };
+                actions = actions.push(button(ui::label(format!("{count} {}", if open { "▴" } else { "▾" }))).style(ui::secondary).on_press(Message::Expand(entry.kind)));
+                actions = actions.push(button(ui::label(if placed.len() == 1 { "Remove it" } else { "Remove all" })).style(ui::ghost).on_press(Message::RemoveKind(entry.kind)));
+            }
+            let mut body = column![
+                row![
+                    picture(preview, t),
+                    column![text(entry.name).size(18).color(t.foreground), text(entry.about).size(13).color(t.muted_foreground), Space::new().height(Length::Fixed(8.0)), actions].spacing(4),
+                ]
+                .spacing(16)
+                .align_y(Alignment::Center),
+            ]
+            .spacing(14);
+            if self.expanded == Some(entry.kind) && !placed.is_empty() {
+                body = body.push(row(placed.into_iter().map(|placed| self.placed_card(placed, t))).spacing(16).wrap().vertical_spacing(16));
+            }
+            list = list.push(panel(body.into(), t));
+        }
+        list.into()
+    }
+}
+
+/// Words for where a widget sits, from its position as fractions of the screen.
+fn where_on_screen(x: f32, y: f32) -> String {
+    let across = if x < 0.33 { "left" } else if x < 0.6 { "middle" } else { "right" };
+    let down = if y < 0.33 { "top" } else if y < 0.6 { "middle" } else { "bottom" };
+    match (down, across) {
+        ("middle", "middle") => "middle of the screen".to_string(),
+        (down, across) => format!("{down} {across}"),
+    }
+}
+
+/// A preview the size of a card, or a quiet placeholder while it is drawn.
+fn picture<'a>(handle: Option<&image::Handle>, t: theme::Tokens) -> Element<'a, Message> {
+    let (w, h) = (CARD.0 as f32, CARD.1 as f32);
+    match handle {
+        Some(handle) => container(image(handle.clone()).width(Length::Fixed(w)).height(Length::Fixed(h)))
+            .style(|_theme| container::Style { border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() })
+            .into(),
+        None => container(text("Drawing…").size(12).color(t.muted_foreground))
+            .center_x(Length::Fixed(w))
+            .center_y(Length::Fixed(h))
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() })
+            .into(),
+    }
+}
+
+/// The one card used everywhere: picture, name, a line of detail, and
+/// optional buttons. Always the same size. Clickable when `on_press` is set.
+fn card<'a>(handle: Option<&image::Handle>, name: String, detail: String, actions: Vec<Element<'a, Message>>, on_press: Option<Message>, chosen: bool, t: theme::Tokens) -> Element<'a, Message> {
+    let mut content = column![
+        picture(handle, t),
+        text(name).size(15).color(t.foreground),
+        text(detail).size(12).color(if chosen { t.success } else { t.muted_foreground }),
+    ]
+    .spacing(4);
+    let has_actions = !actions.is_empty();
+    if has_actions {
+        content = content.push(Space::new().height(Length::Fixed(4.0))).push(row(actions).spacing(8));
+    }
+    // Cards of one kind are all as tall, so a row of them lines up.
+    let height = CARD.1 as f32 + if has_actions { 104.0 } else { 64.0 };
+    let border = if chosen { t.primary } else { t.border };
+    let framed = container(content).padding(10).width(Length::Fixed(CARD.0 as f32 + 22.0)).height(Length::Fixed(height));
+    match on_press {
+        Some(message) => button(framed)
+            .padding(0)
+            .style(move |_theme, status| button::Style {
+                background: Some(Background::Color(if matches!(status, button::Status::Hovered) { t.muted } else { t.surface })),
+                border: Border { color: if matches!(status, button::Status::Hovered) { t.primary } else { border }, width: if chosen { 2.0 } else { 1.0 }, radius: 8.0.into() },
+                ..button::Style::default()
+            })
+            .on_press(message)
+            .into(),
+        None => framed
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: border, width: 1.0, radius: 8.0.into() }, ..container::Style::default() })
+            .into(),
+    }
+}
+
+/// A card-sized button with a big plus: the next step after the last widget.
+fn add_card<'a>(t: theme::Tokens) -> Element<'a, Message> {
+    big_button("+", "Add a widget", "A clock, the date, a meter…", Message::AddWidgets, t)
+}
+
+fn more_looks_card<'a>(t: theme::Tokens) -> Element<'a, Message> {
+    big_button("✦", "More looks", "Browse the online library", Message::Browse, t)
+}
+
+fn big_button<'a>(mark: &'static str, name: &'static str, detail: &'static str, message: Message, t: theme::Tokens) -> Element<'a, Message> {
+    button(
+        container(column![text(mark).size(40).color(t.primary), text(name).size(15).color(t.foreground), text(detail).size(12).color(t.muted_foreground)].spacing(4).align_x(Alignment::Center))
+            .center_x(Length::Fixed(CARD.0 as f32 + 22.0))
+            .center_y(Length::Fixed(CARD.1 as f32 + 64.0)),
+    )
+    .padding(0)
+    .style(move |_theme, status| button::Style {
+        background: Some(Background::Color(if matches!(status, button::Status::Hovered) { t.muted } else { Color::TRANSPARENT })),
+        border: Border { color: if matches!(status, button::Status::Hovered) { t.primary } else { t.border }, width: 1.0, radius: 8.0.into() },
+        ..button::Style::default()
+    })
+    .on_press(message)
+    .into()
+}
+
+fn add_button<'a>(kind: &'static str) -> Element<'a, Message> {
+    button(ui::label("Add to desktop").color(ui::on_accent())).style(ui::primary).on_press(Message::Add(kind)).into()
+}
+
+/// A titled block of the widget page.
+fn section<'a>(title: &'static str, about: &'static str, content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Message> {
+    let mut block = column![text(title).size(16).color(t.foreground)].spacing(6);
+    if !about.is_empty() {
+        block = block.push(text(about).size(13).color(t.muted_foreground));
+    }
+    panel(block.push(Space::new().height(Length::Fixed(4.0))).push(content).into(), t)
 }
 
 fn panel<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Message> {
     container(content)
-        .padding(14)
+        .padding(16)
         .width(Length::Fill)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
             ..container::Style::default()
         })
         .into()
 }
 
-/// One entry in the Look picker.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct LookOption {
-    id: String,
-    name: String,
-}
-
-impl std::fmt::Display for LookOption {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.name)
-    }
-}
-
-fn look_picker<'a>(placed: &widgets::Placed) -> Element<'a, Message> {
-    let id = placed.id;
-    let options: Vec<LookOption> = paperloom_skin::for_kind(&placed.kind).into_iter().map(|skin| LookOption { id: skin.id.clone(), name: skin.name.clone() }).collect();
-    let current = widgets_looks::skin_of(placed).map(|skin| LookOption { id: skin.id.clone(), name: skin.name.clone() });
-    pick_list(options, current, move |choice: LookOption| Message::SetLook(id, choice.id)).into()
-}
-
 impl State {
-    /// Browse: the gallery of looks, each drawn by the same renderer the desktop uses.
+    /// Looks: the gallery of looks, each drawn on the user's wallpaper.
     fn looks<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let selected = self.selected.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id));
         let kinds: Vec<(String, String)> = std::iter::once((String::new(), "All".to_string()))
@@ -485,58 +672,30 @@ impl State {
             }
             cards.push(self.look_card(skin, selected, t));
         }
-        let gallery: Element<'a, Message> = if self.previews.is_empty() {
-            text("Drawing previews…").size(13).color(t.muted_foreground).into()
-        } else {
-            row(cards).spacing(14).wrap().vertical_spacing(14).into()
+        let hint = match selected {
+            Some(placed) => format!("Shown on your wallpaper. “Use” changes your {}; “Add” puts a new widget on the desktop.", self.title_of(placed)),
+            None => "Shown on your wallpaper. “Add” puts a new widget with that look on the desktop.".to_string(),
         };
-        column![
-            tabs,
-            text("Pick a look. What it shows (the time, the processor load…) stays the same, only how it looks changes.").size(13).color(t.muted_foreground),
-            filters,
-            gallery,
-        ]
-        .spacing(14)
-        .into()
+        column![tabs, text(hint).size(13).color(t.muted_foreground), filters, row(cards).spacing(16).wrap().vertical_spacing(16)].spacing(14).into()
     }
 
     fn look_card<'a>(&'a self, skin: &'static paperloom_skin::Skin, selected: Option<&widgets::Placed>, t: theme::Tokens) -> Element<'a, Message> {
-        let preview: Element<'a, Message> = match self.previews.get(&skin.id) {
-            Some(preview) => image(preview.handle.clone()).width(Length::Fixed(preview.size.0 as f32)).height(Length::Fixed(preview.size.1 as f32)).into(),
-            None => Space::new().into(),
+        // The kind it is shown as: the filter's, else the chosen widget's, else its first.
+        let kind = if skin.kinds.contains(&self.filter) {
+            self.filter.clone()
+        } else {
+            selected.map(|placed| placed.kind.clone()).filter(|kind| skin.kinds.contains(kind)).or_else(|| skin.kinds.first().cloned()).unwrap_or_default()
         };
-        // Use it on the chosen widget when that widget is one this look can show.
         let in_use = selected.is_some_and(|placed| widgets_looks::skin_of(placed).is_some_and(|current| current.id == skin.id));
         let usable = selected.is_some_and(|placed| skin.kinds.contains(&placed.kind));
-        let mut actions = row![].spacing(6).align_y(Alignment::Center);
-        if in_use {
-            actions = actions.push(text("In use").size(12).color(t.success));
-        } else if usable {
-            actions = actions.push(button(ui::label("Use on my widget")).style(ui::primary).on_press(Message::UseLook(skin.id.clone())));
+        let mut actions: Vec<Element<'a, Message>> = Vec::new();
+        if usable && !in_use {
+            actions.push(button(ui::label("Use").color(ui::on_accent())).style(ui::primary).on_press(Message::UseLook(skin.id.clone())).into());
         }
-        // Add it as a new widget: one button, or one per kind it can show.
-        let mut adds: Vec<Element<'a, Message>> = Vec::new();
-        for kind in &skin.kinds {
-            let name = widgets::entry(kind).map_or(kind.as_str(), |entry| entry.name);
-            let label = if skin.kinds.len() == 1 { "Add to desktop".to_string() } else { format!("+ {name}") };
-            adds.push(button(ui::label(label)).style(ui::secondary).on_press(Message::AddWithLook(kind.clone(), skin.id.clone())).into());
-        }
-        container(
-            column![
-                preview,
-                row![text(skin.name.as_str()).size(15).color(t.foreground), Space::new().width(Length::Fill), text(skin.author.as_str()).size(12).color(t.muted_foreground)].align_y(Alignment::Center),
-                actions,
-                row(adds).spacing(6).wrap(),
-            ]
-            .spacing(8),
-        )
-        .padding(10)
-        .width(Length::Fixed(self.previews.get(&skin.id).map_or(220.0, |preview| (preview.size.0 as f32).max(200.0)) + 20.0))
-        .style(move |_theme| container::Style {
-            background: Some(Background::Color(t.surface)),
-            border: Border { color: if in_use { t.primary } else { t.border }, width: 1.0, radius: 6.0.into() },
-            ..container::Style::default()
-        })
-        .into()
+        let kind_name = widgets::entry(&kind).map_or(kind.as_str(), |entry| entry.name).to_string();
+        let add = if skin.kinds.len() == 1 { "Add".to_string() } else { format!("Add as {kind_name}") };
+        actions.push(button(ui::label(add)).style(ui::secondary).on_press(Message::AddWithLook(kind.clone(), skin.id.clone())).into());
+        let detail = if in_use { "In use".to_string() } else { format!("by {}", skin.author) };
+        card(self.previews.card(&skin.id, &kind), skin.name.clone(), detail, actions, None, in_use, t)
     }
 }

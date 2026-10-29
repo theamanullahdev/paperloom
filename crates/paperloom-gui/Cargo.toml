@@ -19,6 +19,8 @@ rfd = "0.17"
 paperloom-common = { path = "../paperloom-common" }
 paperloom-skin = { path = "../paperloom-skin" }
 tiny-skia = "0.11"
+# Decodes the wallpaper the widget previews are drawn on.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 paperloom-fetch = { path = "../paperloom-fetch" }
 
 # cargo-deb reads this to build a .deb package containing both binaries —
