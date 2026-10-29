@@ -97,6 +97,10 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
             let paused = control.paused();
             if !paused {
                 control.refresh_sample();
+            } else if INPUT.lock().map(|mut input| input.drag.take().is_some()).unwrap_or(false) {
+                // Never hold the mouse while paused (a fullscreen game, the lock screen).
+                // SAFETY: releases this thread's capture; no arguments.
+                unsafe { ReleaseCapture() };
             }
             let slow = control.slow();
             for window in &mut windows {

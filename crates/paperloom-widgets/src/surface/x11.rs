@@ -26,6 +26,8 @@ use crate::widgets::{self, Context};
 
 /// Closer than this (pixels) and a press-and-release is a click, not a drag.
 const DRAG_SLOP: i16 = 3;
+/// How long the right-click menu stays open untouched.
+const MENU_TIMEOUT: Duration = Duration::from_secs(15);
 
 struct Drag {
     /// Pointer and window positions when the button went down.
@@ -43,6 +45,8 @@ struct Popup {
     widget: u32,
     items: Vec<(Choice, &'static str)>,
     hover: Option<usize>,
+    /// A menu left open closes by itself (it holds the pointer while open).
+    opened: Instant,
 }
 
 /// What opening a menu window needs.
@@ -115,6 +119,13 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
 
     while !control.changed() {
         if control.paused() {
+            // Nothing may hold the pointer while the widgets are paused (a
+            // fullscreen game, the lock screen): close the menu, drop any drag.
+            close_popup(&conn, &mut popup)?;
+            for window in &mut windows {
+                window.drag = None;
+            }
+            conn.flush()?;
             wait(conn.stream(), Duration::from_secs(1));
             while conn.poll_for_event()?.is_some() {}
             continue;
@@ -140,6 +151,9 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
 
         while let Some(event) = conn.poll_for_event()? {
             handle(&conn, event, &mut windows, &mut popup, &shared, text, control)?;
+        }
+        if popup.as_ref().is_some_and(|open| open.opened.elapsed() > MENU_TIMEOUT) {
+            close_popup(&conn, &mut popup)?;
         }
         conn.flush()?;
 
@@ -297,7 +311,7 @@ fn open_popup(conn: &impl Connection, shared: &Shared, widget: u32, drag: bool, 
         x11rb::NONE,
         x11rb::CURRENT_TIME,
     )?;
-    Ok(Popup { id, widget, items, hover: None })
+    Ok(Popup { id, widget, items, hover: None, opened: Instant::now() })
 }
 
 fn close_popup(conn: &impl Connection, popup: &mut Option<Popup>) -> Result<(), Box<dyn Error>> {

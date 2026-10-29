@@ -8,6 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 use paperloom_common::widgets::changed_at;
 use paperloom_common::EngineState;
 
+use crate::guard::Guard;
 use crate::sample::Sample;
 
 const CHECK_EVERY: Duration = Duration::from_secs(2);
@@ -17,12 +18,13 @@ pub struct Control {
     last_check: Instant,
     engine_paused: bool,
     hide_below: Option<u8>,
+    guard: Guard,
     pub sample: Sample,
 }
 
 impl Control {
     pub fn new() -> Self {
-        let mut control = Self { seen: None, last_check: Instant::now(), engine_paused: false, hide_below: None, sample: Sample::new() };
+        let mut control = Self { seen: None, last_check: Instant::now(), engine_paused: false, hide_below: None, guard: Guard::new(), sample: Sample::new() };
         control.mark_seen();
         control
     }
@@ -37,6 +39,7 @@ impl Control {
     /// True once `widgets.toml` differs from what is on screen. Also where the
     /// engine's pause state is refreshed.
     pub fn changed(&mut self) -> bool {
+        self.guard.check();
         if self.last_check.elapsed() < CHECK_EVERY {
             return false;
         }
