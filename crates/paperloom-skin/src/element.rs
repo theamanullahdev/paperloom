@@ -70,6 +70,19 @@ pub enum Element {
 }
 
 impl Element {
+    /// Looks the same whatever the data: drawn once and kept.
+    pub fn is_static(&self) -> bool {
+        if self.show_if().is_some() {
+            return false;
+        }
+        match self {
+            Element::Text(e) => !e.text.contains('{'),
+            Element::Bar(_) | Element::Hand(_) | Element::Segments(_) => false,
+            Element::Arc(e) => e.value.is_none(),
+            _ => true,
+        }
+    }
+
     /// Drawn only when this variable exists (a network widget has no fraction to fill a bar with).
     pub fn show_if(&self) -> Option<&str> {
         match self {

@@ -33,6 +33,8 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         control.mark_seen();
+        widgets::forget();
+        control.sample.set_needs(widgets.placed.iter().map(|placed| placed.kind.as_str()));
         if let Err(err) = surface::run(&widgets, &mut text, &mut control) {
             eprintln!("paperloom-widgets: {err}");
             paperloom_common::log::error(&format!("widgets stopped: {err}"));

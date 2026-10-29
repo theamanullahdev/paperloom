@@ -25,6 +25,16 @@ pub struct Sample {
     pub download: f64,
     pub upload: f64,
     pub battery: Option<Battery>,
+    /// Which readings a placed widget shows; the others are never taken.
+    needs: Needs,
+}
+
+#[derive(Clone, Copy)]
+struct Needs {
+    cpu: bool,
+    memory: bool,
+    network: bool,
+    disk: bool,
 }
 
 impl Sample {
@@ -44,10 +54,18 @@ impl Sample {
             download: 0.0,
             upload: 0.0,
             battery: None,
+            needs: Needs { cpu: true, memory: true, network: true, disk: true },
         };
         sample.system.refresh_cpu_usage(); // the first reading is only a baseline
         sample.refresh();
         sample
+    }
+
+    /// Takes only the readings the placed widgets show (the battery is always
+    /// read: it decides pausing and pace).
+    pub fn set_needs<'a>(&mut self, kinds: impl Iterator<Item = &'a str> + Clone) {
+        let has = |kind: &str| kinds.clone().any(|placed| placed == kind);
+        self.needs = Needs { cpu: has("cpu"), memory: has("memory"), network: has("network"), disk: has("disk") };
     }
 
     pub fn refresh(&mut self) {
@@ -57,12 +75,17 @@ impl Sample {
         }
         self.last = Instant::now();
 
-        self.system.refresh_cpu_usage();
-        self.system.refresh_memory();
-        self.cpu = self.system.global_cpu_usage();
-        self.memory_used = self.system.used_memory();
-        self.memory_total = self.system.total_memory();
+        if self.needs.cpu {
+            self.system.refresh_cpu_usage();
+            self.cpu = self.system.global_cpu_usage();
+        }
+        if self.needs.memory {
+            self.system.refresh_memory();
+            self.memory_used = self.system.used_memory();
+            self.memory_total = self.system.total_memory();
+        }
 
+        if self.needs.network {
         self.networks.refresh(true);
         let (received, sent) = self
             .networks
@@ -72,8 +95,9 @@ impl Sample {
         let seconds = elapsed.as_secs_f64().clamp(0.5, 60.0);
         self.download = received as f64 / seconds;
         self.upload = sent as f64 / seconds;
+        }
 
-        if self.last_disks.elapsed() >= DISK_EVERY {
+        if self.needs.disk && self.last_disks.elapsed() >= DISK_EVERY {
             self.last_disks = Instant::now();
             self.disks.refresh(true);
             // The biggest disk stands for "the disk".

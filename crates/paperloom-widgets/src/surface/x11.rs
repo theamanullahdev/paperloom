@@ -141,11 +141,12 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 window.due = now + Duration::from_secs(3600);
                 continue;
             };
-            if window.drag.is_none() || window.pixmap.is_none() {
-                present(&conn, depth, window.id, gc, &frame.pixmap)?;
-            }
             window.due = now + frame.next_change;
-            window.pixmap = Some(frame.pixmap);
+            let Some(pixmap) = frame.pixmap else { continue };
+            if window.drag.is_none() || window.pixmap.is_none() {
+                present(&conn, depth, window.id, gc, &pixmap)?;
+            }
+            window.pixmap = Some(pixmap);
         }
         conn.flush()?;
 

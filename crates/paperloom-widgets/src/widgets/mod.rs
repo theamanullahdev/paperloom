@@ -2,7 +2,9 @@
 //! through its look (`paperloom-skin`), plus how soon it needs drawing again so
 //! nothing runs more often than it must.
 
-use std::time::Duration;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chrono::{Local, Timelike};
 use paperloom_common::widgets::Placed;
@@ -13,7 +15,8 @@ use crate::render::Text;
 use crate::sample::Sample;
 
 pub struct Frame {
-    pub pixmap: Pixmap,
+    /// `None`: it looks exactly as it did, so nothing needs showing again.
+    pub pixmap: Option<Pixmap>,
     /// How long until what is shown changes.
     pub next_change: Duration,
 }
@@ -26,10 +29,39 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
-    /// How long a meter waits before looking again.
-    fn meter_interval(&self) -> Duration {
-        Duration::from_secs(if self.slow { 5 } else { 2 })
+    /// How long a meter waits before looking again (`times` its usual pace),
+    /// up to a whole second of the wall clock, so every widget wakes together.
+    fn meter(&self, times: u64) -> Duration {
+        let every = if self.slow { 5 } else { 2 } * times;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+        Duration::from_secs(every) - Duration::new(now.as_secs() % every, now.subsec_nanos()) + Duration::from_millis(20)
     }
+}
+
+/// How long a bar, ring or hand takes to glide to a new value.
+const GLIDE: Duration = Duration::from_millis(300);
+/// While gliding: about 30 frames a second.
+const FRAME: Duration = Duration::from_millis(33);
+
+/// What one widget showed last: to skip drawing the same picture twice, and
+/// to glide its numbers from the old value to the new one.
+#[derive(Default)]
+struct Live {
+    look: u64,
+    drawn: Option<u64>,
+    from: Vec<(String, f32)>,
+    shown: Vec<(String, f32)>,
+    target: Vec<(String, f32)>,
+    since: Option<Instant>,
+}
+
+thread_local! {
+    static LIVE: RefCell<HashMap<u32, Live>> = RefCell::new(HashMap::new());
+}
+
+/// New windows: everything is drawn afresh.
+pub fn forget() {
+    LIVE.with(|live| live.borrow_mut().clear());
 }
 
 /// The look a placed widget uses: the one it picked, else its kind's default.
@@ -44,9 +76,55 @@ pub fn size_of(placed: &Placed) -> (u32, u32) {
 
 pub fn render(placed: &Placed, text: &mut Text, context: &Context) -> Option<Frame> {
     let skin = skin_of(placed)?;
-    let (vars, next_change) = data(&placed.kind, skin, context)?;
-    let pixmap = paperloom_skin::render(skin, &vars, placed.scale, text);
-    Some(Frame { pixmap, next_change })
+    let (mut vars, mut next_change) = data(&placed.kind, skin, context)?;
+    let look = (std::ptr::from_ref(skin) as u64) ^ (u64::from(placed.scale.to_bits()) << 1);
+    LIVE.with(|live| {
+        let mut live = live.borrow_mut();
+        let state = live.entry(placed.id).or_default();
+        if state.look != look {
+            *state = Live { look, ..Live::default() };
+        }
+        // Fractions and angles glide; on battery they jump straight there.
+        let target: Vec<(String, f32)> = vars.numbers().into_iter().filter(|(name, _)| name.ends_with("fraction") || name.ends_with("angle")).collect();
+        if context.slow || state.shown.len() != target.len() {
+            state.shown.clone_from(&target);
+            state.since = None;
+        } else if target != state.target {
+            state.from.clone_from(&state.shown);
+            state.since = Some(Instant::now());
+        }
+        state.target.clone_from(&target);
+        if let Some(since) = state.since {
+            let t = since.elapsed().as_secs_f32() / GLIDE.as_secs_f32();
+            if t >= 1.0 {
+                state.shown.clone_from(&target);
+                state.since = None;
+            } else {
+                let eased = 1.0 - (1.0 - t).powi(3);
+                state.shown = state.from.iter().zip(&target).map(|((name, from), (_, to))| (name.clone(), glide(name, *from, *to, eased))).collect();
+                next_change = next_change.min(FRAME);
+            }
+        }
+        for (name, value) in &state.shown {
+            vars = vars.number(name, *value);
+        }
+        let print = vars.fingerprint();
+        if state.drawn == Some(print) {
+            return Some(Frame { pixmap: None, next_change });
+        }
+        state.drawn = Some(print);
+        Some(Frame { pixmap: Some(paperloom_skin::render(skin, &vars, placed.scale, text)), next_change })
+    })
+}
+
+/// Part of the way from `from` to `to`; an angle takes the short way round.
+fn glide(name: &str, from: f32, to: f32, part: f32) -> f32 {
+    if name.ends_with("angle") {
+        let turn = (to - from + 540.0).rem_euclid(360.0) - 180.0;
+        (from + turn * part).rem_euclid(360.0)
+    } else {
+        from + (to - from) * part
+    }
 }
 
 /// The data for one widget kind and when it next changes.
@@ -77,21 +155,21 @@ fn data(kind: &str, skin: &Skin, context: &Context) -> Option<(Vars, Duration)> 
             let seconds_left = 86_400u64.saturating_sub(u64::from(now.num_seconds_from_midnight()));
             (vars, Duration::from_secs(seconds_left) + Duration::from_millis(50))
         }
-        "cpu" => (paperloom_skin::meter("Processor", &format!("{:.0}%", sample.cpu), "of all cores", Some(sample.cpu / 100.0)), context.meter_interval()),
+        "cpu" => (paperloom_skin::meter("Processor", &format!("{:.0}%", sample.cpu), "of all cores", Some(sample.cpu / 100.0)), context.meter(1)),
         "memory" => {
             let fraction = if sample.memory_total > 0 { sample.memory_used as f32 / sample.memory_total as f32 } else { 0.0 };
             let detail = format!("{} of {}", size(sample.memory_used), size(sample.memory_total));
-            (paperloom_skin::meter("Memory", &format!("{:.0}%", fraction * 100.0), &detail, Some(fraction)).text("used", size(sample.memory_used)), context.meter_interval())
+            (paperloom_skin::meter("Memory", &format!("{:.0}%", fraction * 100.0), &detail, Some(fraction)).text("used", size(sample.memory_used)), context.meter(1))
         }
         "disk" => {
             let fraction = if sample.disk_total > 0 { sample.disk_used as f32 / sample.disk_total as f32 } else { 0.0 };
             let detail = format!("{} free of {}", size(sample.disk_total.saturating_sub(sample.disk_used)), size(sample.disk_total));
             // Free space changes slowly.
-            (paperloom_skin::meter("Disk", &format!("{:.0}%", fraction * 100.0), &detail, Some(fraction)).text("free", size(sample.disk_total.saturating_sub(sample.disk_used))), context.meter_interval() * 6)
+            (paperloom_skin::meter("Disk", &format!("{:.0}%", fraction * 100.0), &detail, Some(fraction)).text("free", size(sample.disk_total.saturating_sub(sample.disk_used))), context.meter(6))
         }
         "network" => {
             let (down, up) = (format!("{}/s", size(sample.download as u64)), format!("{}/s", size(sample.upload as u64)));
-            (paperloom_skin::meter("Download", &down, &format!("Upload {up}"), None).text("down", down.clone()).text("up", up), context.meter_interval())
+            (paperloom_skin::meter("Download", &down, &format!("Upload {up}"), None).text("down", down.clone()).text("up", up), context.meter(1))
         }
         "battery" => {
             let vars = match sample.battery {
@@ -104,13 +182,13 @@ fn data(kind: &str, skin: &Skin, context: &Context) -> Option<(Vars, Duration)> 
                 None => paperloom_skin::meter("Battery", "None", "This computer has no battery", None),
             };
             // The sampler reads the battery every 30 s.
-            (vars, context.meter_interval() * 6)
+            (vars, context.meter(6))
         }
         "uptime" => {
             let seconds = sysinfo::System::uptime();
             let (days, hours, minutes) = (seconds / 86_400, seconds / 3_600 % 24, seconds / 60 % 60);
             let value = if days > 0 { format!("{days}d {hours}h") } else if hours > 0 { format!("{hours}h {minutes}m") } else { format!("{minutes}m") };
-            (paperloom_skin::meter("Uptime", &value, "since this computer started", None), context.meter_interval() * 12)
+            (paperloom_skin::meter("Uptime", &value, "since this computer started", None), context.meter(12))
         }
         _ => return None,
     })

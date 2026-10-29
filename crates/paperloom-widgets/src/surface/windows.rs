@@ -118,9 +118,10 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                     window.due = now + Duration::from_secs(3600);
                     continue;
                 };
-                present(window.hwnd, &frame.pixmap, window.placed.opacity);
                 window.due = now + frame.next_change;
-                window.pixmap = Some(frame.pixmap);
+                let Some(pixmap) = frame.pixmap else { continue };
+                present(window.hwnd, &pixmap, window.placed.opacity);
+                window.pixmap = Some(pixmap);
             }
             if now >= next_restack {
                 restack(&layer, &windows);

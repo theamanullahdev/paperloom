@@ -31,6 +31,29 @@ impl Vars {
         self
     }
 
+    /// The numbers it holds (what bars, rings and hands are drawn from).
+    pub fn numbers(&self) -> Vec<(String, f32)> {
+        let mut numbers: Vec<(String, f32)> = self.0.iter().filter_map(|(name, value)| if let Value::Number(number) = value { Some((name.clone(), *number)) } else { None }).collect();
+        numbers.sort_by(|a, b| a.0.cmp(&b.0));
+        numbers
+    }
+
+    /// Equal for equal contents: nothing to redraw when it hasn't changed.
+    pub fn fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut entries: Vec<_> = self.0.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for (name, value) in entries {
+            name.hash(&mut hasher);
+            match value {
+                Value::Text(text) => text.hash(&mut hasher),
+                Value::Number(number) => number.to_bits().hash(&mut hasher),
+            }
+        }
+        hasher.finish()
+    }
+
     pub fn has(&self, name: &str) -> bool {
         self.0.contains_key(name)
     }

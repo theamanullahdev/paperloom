@@ -107,8 +107,10 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 match widgets::render(&window.placed, text, &Context { sample: &control.sample, slow }) {
                     Some(frame) => {
                         window.due = now + frame.next_change;
-                        window.pixmap = Some(frame.pixmap);
-                        window.dirty = true;
+                        if let Some(pixmap) = frame.pixmap {
+                            window.pixmap = Some(pixmap);
+                            window.dirty = true;
+                        }
                     }
                     None => window.due = now + Duration::from_secs(3600),
                 }

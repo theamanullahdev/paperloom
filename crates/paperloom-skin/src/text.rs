@@ -16,6 +16,17 @@ pub struct Text {
     /// Font files already added (each once), and images already decoded.
     loaded_fonts: HashSet<PathBuf>,
     images: HashMap<PathBuf, Option<Pixmap>>,
+    /// Text already laid out, by its words and style (laying out is the
+    /// costly part of drawing a widget; most of its text never changes).
+    layouts: HashMap<LayoutKey, Buffer>,
+    /// Each look's unchanging part, by look and scale.
+    bases: HashMap<(usize, u32), Pixmap>,
+}
+
+type LayoutKey = (String, u32, bool, bool, bool, Option<String>);
+
+fn layout_key(text: &str, style: &Style) -> LayoutKey {
+    (text.to_string(), style.size.to_bits(), style.bold, style.mono, style.serif, style.font.clone())
 }
 
 /// How a piece of text looks.
@@ -42,7 +53,7 @@ impl Style {
 
 impl Text {
     pub fn new() -> Self {
-        Self { fonts: FontSystem::new(), cache: SwashCache::new(), loaded_fonts: HashSet::new(), images: HashMap::new() }
+        Self { fonts: FontSystem::new(), cache: SwashCache::new(), loaded_fonts: HashSet::new(), images: HashMap::new(), layouts: HashMap::new(), bases: HashMap::new() }
     }
 
     fn buffer(&mut self, text: &str, style: &Style) -> Buffer {
@@ -70,8 +81,35 @@ impl Text {
             let path = dir.join(file);
             if self.loaded_fonts.insert(path.clone()) {
                 self.fonts.db_mut().load_font_file(&path).ok();
+                // Text laid out before may have used a stand-in font.
+                self.layouts.clear();
             }
         }
+    }
+
+    /// Lays `text` out once; later calls reuse it.
+    fn layout(&mut self, text: &str, style: &Style) -> LayoutKey {
+        let key = layout_key(text, style);
+        if !self.layouts.contains_key(&key) {
+            if self.layouts.len() >= 512 {
+                self.layouts.clear();
+            }
+            let buffer = self.buffer(text, style);
+            self.layouts.insert(key.clone(), buffer);
+        }
+        key
+    }
+
+    /// A look's unchanging part at `scale`, if it was drawn already.
+    pub(crate) fn base(&self, skin: &Skin, scale: f32) -> Option<&Pixmap> {
+        self.bases.get(&(std::ptr::from_ref(skin) as usize, scale.to_bits()))
+    }
+
+    pub(crate) fn keep_base(&mut self, skin: &Skin, scale: f32, base: Pixmap) {
+        if self.bases.len() >= 64 {
+            self.bases.clear();
+        }
+        self.bases.insert((std::ptr::from_ref(skin) as usize, scale.to_bits()), base);
     }
 
     /// A PNG from a look's folder, decoded once.
@@ -81,19 +119,22 @@ impl Text {
 
     /// Width and height `text` takes in `style`.
     pub fn measure(&mut self, text: &str, style: &Style) -> (f32, f32) {
-        let buffer = self.buffer(text, style);
+        let key = self.layout(text, style);
+        let buffer = &self.layouts[&key];
         let width = buffer.layout_runs().map(|run| run.line_w).fold(0.0, f32::max);
         (width, style.size * 1.2)
     }
 
     /// Draws `text` with its top-left at (`x`, `y`).
     pub fn draw(&mut self, pixmap: &mut Pixmap, text: &str, (x, y): (f32, f32), style: &Style) {
-        let buffer = self.buffer(text, style);
+        let key = self.layout(text, style);
+        let Text { fonts, cache, layouts, .. } = self;
+        let buffer = &layouts[&key];
         let [r, g, b, a] = style.color;
         let (width, height) = (pixmap.width() as i32, pixmap.height() as i32);
         let (x0, y0) = (x.round() as i32, y.round() as i32);
         let data = pixmap.data_mut();
-        buffer.draw(&mut self.fonts, &mut self.cache, Color::rgba(r, g, b, a), |gx, gy, _, _, color| {
+        buffer.draw(fonts, cache, Color::rgba(r, g, b, a), |gx, gy, _, _, color| {
             let (px, py) = (x0 + gx, y0 + gy);
             if px < 0 || py < 0 || px >= width || py >= height {
                 return;

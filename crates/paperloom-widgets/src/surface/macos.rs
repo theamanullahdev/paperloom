@@ -62,7 +62,9 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 window.due = now + Duration::from_secs(3600);
                 continue;
             };
-            show(window, &frame.pixmap);
+            if let Some(pixmap) = &frame.pixmap {
+                show(window, pixmap);
+            }
             window.due = now + frame.next_change;
         }
 

@@ -12,25 +12,40 @@ pub fn render(skin: &Skin, vars: &Vars, scale: f32, text: &mut Text) -> Pixmap {
     text.ensure_fonts(skin);
     let width = ((skin.size[0] * scale) as u32).max(1);
     let height = ((skin.size[1] * scale) as u32).max(1);
-    let mut pixmap = Pixmap::new(width, height).expect("non-empty pixmap");
-    for element in &skin.element {
+    // The part that never changes (backgrounds, labels, pictures up to the
+    // first element that shows data) is drawn once and copied after that.
+    let fixed = skin.element.iter().take_while(|element| element.is_static()).count();
+    let mut pixmap = match text.base(skin, scale) {
+        Some(base) => base.clone(),
+        None => {
+            let mut base = Pixmap::new(width, height).expect("non-empty pixmap");
+            draw_elements(&mut base, &skin.element[..fixed], skin, vars, scale, text);
+            text.keep_base(skin, scale, base.clone());
+            base
+        }
+    };
+    draw_elements(&mut pixmap, &skin.element[fixed..], skin, vars, scale, text);
+    pixmap
+}
+
+fn draw_elements(pixmap: &mut Pixmap, elements: &[Element], skin: &Skin, vars: &Vars, scale: f32, text: &mut Text) {
+    for element in elements {
         if element.show_if().is_some_and(|name| !vars.has(name)) {
             continue;
         }
         match element {
-            Element::Rect(rect) => rectangle(&mut pixmap, rect, scale),
-            Element::Circle(circle) => circle_shape(&mut pixmap, circle, scale),
-            Element::Text(item) => draw_text(&mut pixmap, item, vars, scale, text),
-            Element::Bar(bar) => bar_shape(&mut pixmap, bar, vars, scale),
-            Element::Arc(arc) => arc_shape(&mut pixmap, arc, vars, scale),
-            Element::Hand(hand) => hand_shape(&mut pixmap, hand, vars, scale),
-            Element::Ticks(ticks) => ticks_shape(&mut pixmap, ticks, scale),
-            Element::Line(line) => line_shape(&mut pixmap, line, scale),
-            Element::Image(image) => image_shape(&mut pixmap, image, skin, scale, text),
-            Element::Segments(segments) => segments_shape(&mut pixmap, segments, vars, scale),
+            Element::Rect(rect) => rectangle(pixmap, rect, scale),
+            Element::Circle(circle) => circle_shape(pixmap, circle, scale),
+            Element::Text(item) => draw_text(pixmap, item, vars, scale, text),
+            Element::Bar(bar) => bar_shape(pixmap, bar, vars, scale),
+            Element::Arc(arc) => arc_shape(pixmap, arc, vars, scale),
+            Element::Hand(hand) => hand_shape(pixmap, hand, vars, scale),
+            Element::Ticks(ticks) => ticks_shape(pixmap, ticks, scale),
+            Element::Line(line) => line_shape(pixmap, line, scale),
+            Element::Image(image) => image_shape(pixmap, image, skin, scale, text),
+            Element::Segments(segments) => segments_shape(pixmap, segments, vars, scale),
         }
     }
-    pixmap
 }
 
 type Bounds = (f32, f32, f32, f32);
