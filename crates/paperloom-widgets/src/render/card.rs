@@ -1,3 +1,4 @@
+#![cfg_attr(target_os = "macos", allow(dead_code))] // macOS widgets are click-through: no menu, no drag.
 //! The soft translucent card every widget sits on, so it reads on any wallpaper.
 
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};

@@ -1,3 +1,4 @@
+#![cfg_attr(target_os = "macos", allow(dead_code))] // macOS widgets are click-through: no menu, no drag.
 //! What dragging and the right-click menu do to the settings. Each change is
 //! made on a fresh read of `widgets.toml`, so nothing the app wrote in the
 //! meantime is lost.

@@ -1,3 +1,4 @@
+#![cfg_attr(target_os = "macos", allow(dead_code))] // macOS widgets are click-through: no menu, no drag.
 //! The small menu a widget shows when it is right-clicked: drawn by the widget
 //! itself (inside its own window), so it looks the same on every platform and
 //! needs no toolkit. It closes when a choice is made or a click lands elsewhere.
