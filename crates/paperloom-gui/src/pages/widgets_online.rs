@@ -6,12 +6,13 @@
 
 use std::collections::{HashMap, HashSet};
 
-use iced::widget::{button, column, container, image, row, text, Space};
-use iced::{Alignment, Background, Border, Element, Length, Task};
+use iced::widget::{button, column, image, row, text};
+use iced::{Element, Task};
 
 use paperloom_fetch::looks::{self, Pack};
 
-use super::widgets_looks::blocking;
+use super::widgets::card;
+use super::widgets_looks::{blocking, on_wallpaper};
 use crate::theme;
 use crate::ui;
 
@@ -19,7 +20,8 @@ use crate::ui;
 pub struct Data {
     base: String,
     packs: Vec<Pack>,
-    previews: Vec<(String, Vec<u8>)>,
+    /// Each look's preview, already drawn on the user's wallpaper.
+    previews: Vec<(String, image::Handle)>,
 }
 
 #[derive(Debug, Clone)]
@@ -69,7 +71,7 @@ impl State {
                     blocking(
                         || {
                             let (index, base) = looks::fetch_index()?;
-                            let previews = index.packs.iter().filter_map(|pack| looks::fetch_preview(base, pack).ok().map(|bytes| (pack.id.clone(), bytes))).collect();
+                            let previews = index.packs.iter().filter_map(|pack| Some((pack.id.clone(), on_wallpaper(&looks::fetch_preview(base, pack).ok()?)?))).collect();
                             Ok(Data { base: base.to_string(), packs: index.packs, previews })
                         },
                         Message::Loaded,
@@ -78,7 +80,7 @@ impl State {
                 )
             }
             Message::Loaded(Ok(data)) => {
-                self.previews = data.previews.into_iter().map(|(id, bytes)| (id, image::Handle::from_bytes(bytes))).collect();
+                self.previews = data.previews.into_iter().collect();
                 self.status = Status::Ready { base: data.base, packs: data.packs };
                 (Task::none(), false)
             }
@@ -135,50 +137,23 @@ impl State {
                 if let Some(err) = &self.error {
                     page = page.push(text(err.as_str()).size(13).color(t.destructive));
                 }
-                page.push(row(cards).spacing(14).wrap().vertical_spacing(14)).into()
+                page.push(row(cards).spacing(16).wrap().vertical_spacing(16)).into()
             }
         }
     }
 
     fn card<'a>(&'a self, pack: &'a Pack, t: theme::Tokens) -> Element<'a, Message> {
         let installed = paperloom_skin::get(&pack.id).is_some_and(|skin| skin.dir.is_some());
-        let busy = self.installing.contains(&pack.id);
-        let preview: Element<'a, Message> = match self.previews.get(&pack.id) {
-            Some(handle) => image(handle.clone()).width(Length::Fixed(300.0)).into(),
-            None => container(Space::new()).width(Length::Fixed(300.0)).height(Length::Fixed(140.0)).into(),
-        };
-        let action: Element<'a, Message> = if busy {
+        let action: Element<'a, Message> = if self.installing.contains(&pack.id) {
             text("Downloading…").size(13).color(t.primary).into()
         } else if installed {
-            row![
-                text("Installed").size(13).color(t.success),
-                button(ui::label("Remove")).style(ui::ghost).on_press(Message::Remove(pack.folder.clone())),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center)
-            .into()
+            button(ui::label("Remove")).style(ui::ghost).on_press(Message::Remove(pack.folder.clone())).into()
         } else {
-            button(ui::label(format!("Install · {}", size(pack.download_size())))).style(ui::primary).on_press(Message::Install(pack.id.clone())).into()
+            button(ui::label(format!("Install · {}", size(pack.download_size()))).color(ui::on_accent())).style(ui::primary).on_press(Message::Install(pack.id.clone())).into()
         };
         let kinds = pack.kinds.iter().map(|kind| paperloom_common::widgets::entry(kind).map_or(kind.as_str(), |entry| entry.name)).collect::<Vec<_>>().join(" · ");
-        container(
-            column![
-                preview,
-                row![text(pack.name.as_str()).size(15).color(t.foreground), Space::new().width(Length::Fill), text(pack.author.as_str()).size(12).color(t.muted_foreground)].align_y(Alignment::Center),
-                text(kinds).size(12).color(t.primary),
-                text(pack.description.as_str()).size(12).color(t.muted_foreground),
-                action,
-            ]
-            .spacing(8),
-        )
-        .padding(10)
-        .width(Length::Fixed(320.0))
-        .style(move |_theme| container::Style {
-            background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
-            ..container::Style::default()
-        })
-        .into()
+        let detail = if installed { format!("Installed · {kinds}") } else { format!("by {} · {kinds}", pack.author) };
+        card(self.previews.get(&pack.id), pack.name.clone(), detail, vec![action], None, installed, t)
     }
 }
 

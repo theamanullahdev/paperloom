@@ -2,6 +2,9 @@
 //! drive bars, rings and hands (a fraction 0–1, or an angle in degrees).
 
 use std::collections::HashMap;
+use std::fmt::Write;
+
+use chrono::format::{Item, StrftimeItems};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -48,6 +51,15 @@ impl Vars {
             match rest[start..].find('}') {
                 Some(end) => {
                     let name = &rest[start + 1..start + end];
+                    if name.starts_with('%') {
+                        // A date and time format, as Rainmeter and strftime write it: `{%A, %d %B}`.
+                        let items: Vec<Item> = StrftimeItems::new(name).collect();
+                        if !items.iter().any(|item| matches!(item, Item::Error)) {
+                            let _ = write!(out, "{}", chrono::Local::now().format_with_items(items.into_iter()));
+                        }
+                        rest = &rest[start + end + 1..];
+                        continue;
+                    }
                     match self.0.get(name) {
                         Some(Value::Text(text)) => out.push_str(text),
                         Some(Value::Number(value)) if value.fract() == 0.0 => out.push_str(&format!("{}", *value as i64)),
@@ -80,9 +92,9 @@ pub fn preview(kind: &str) -> Vars {
             .text("year", "2026")
             .text("month_year", "October 2026"),
         "cpu" => meter("Processor", "34%", "of all cores", Some(0.34)),
-        "memory" => meter("Memory", "52%", "3.8 GB of 7.3 GB", Some(0.52)),
-        "disk" => meter("Disk", "89%", "20.0 GB free of 181.9 GB", Some(0.89)),
-        "network" => meter("Download", "1.2 MB/s", "Upload 86 KB/s", None),
+        "memory" => meter("Memory", "52%", "3.8 GB of 7.3 GB", Some(0.52)).text("used", "3.8 GB"),
+        "disk" => meter("Disk", "89%", "20.0 GB free of 181.9 GB", Some(0.89)).text("free", "20.0 GB"),
+        "network" => meter("Download", "1.2 MB/s", "Upload 86 KB/s", None).text("down", "1.2 MB/s").text("up", "86 KB/s"),
         "battery" => meter("Battery", "79%", "On battery", Some(0.79)),
         "uptime" => meter("Uptime", "10h 8m", "since this computer started", None),
         _ => Vars::new(),
@@ -91,7 +103,10 @@ pub fn preview(kind: &str) -> Vars {
 
 /// The variables every meter-style widget offers.
 pub fn meter(title: &str, value: &str, detail: &str, fraction: Option<f32>) -> Vars {
-    let vars = Vars::new().text("title", title).text("value", value).text("detail", detail);
+    let mut vars = Vars::new().text("title", title).text("value", value).text("detail", detail);
+    if let Some(percent) = value.strip_suffix('%') {
+        vars = vars.text("percent", percent);
+    }
     match fraction {
         Some(fraction) => {
             let fraction = fraction.clamp(0.0, 1.0);

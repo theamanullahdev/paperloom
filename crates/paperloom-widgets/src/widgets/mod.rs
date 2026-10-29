@@ -81,17 +81,17 @@ fn data(kind: &str, skin: &Skin, context: &Context) -> Option<(Vars, Duration)> 
         "memory" => {
             let fraction = if sample.memory_total > 0 { sample.memory_used as f32 / sample.memory_total as f32 } else { 0.0 };
             let detail = format!("{} of {}", size(sample.memory_used), size(sample.memory_total));
-            (paperloom_skin::meter("Memory", &format!("{:.0}%", fraction * 100.0), &detail, Some(fraction)), context.meter_interval())
+            (paperloom_skin::meter("Memory", &format!("{:.0}%", fraction * 100.0), &detail, Some(fraction)).text("used", size(sample.memory_used)), context.meter_interval())
         }
         "disk" => {
             let fraction = if sample.disk_total > 0 { sample.disk_used as f32 / sample.disk_total as f32 } else { 0.0 };
             let detail = format!("{} free of {}", size(sample.disk_total.saturating_sub(sample.disk_used)), size(sample.disk_total));
             // Free space changes slowly.
-            (paperloom_skin::meter("Disk", &format!("{:.0}%", fraction * 100.0), &detail, Some(fraction)), context.meter_interval() * 6)
+            (paperloom_skin::meter("Disk", &format!("{:.0}%", fraction * 100.0), &detail, Some(fraction)).text("free", size(sample.disk_total.saturating_sub(sample.disk_used))), context.meter_interval() * 6)
         }
         "network" => {
-            let detail = format!("Upload {}/s", size(sample.upload as u64));
-            (paperloom_skin::meter("Download", &format!("{}/s", size(sample.download as u64)), &detail, None), context.meter_interval())
+            let (down, up) = (format!("{}/s", size(sample.download as u64)), format!("{}/s", size(sample.upload as u64)));
+            (paperloom_skin::meter("Download", &down, &format!("Upload {up}"), None).text("down", down.clone()).text("up", up), context.meter_interval())
         }
         "battery" => {
             let vars = match sample.battery {

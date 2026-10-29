@@ -101,7 +101,11 @@ fn circle_shape(pixmap: &mut Pixmap, circle: &Circle, s: f32) {
 }
 
 fn draw_text(pixmap: &mut Pixmap, item: &TextElement, vars: &Vars, s: f32, text: &mut Text) {
-    let content = vars.fill(&item.text);
+    let content = match item.case.as_str() {
+        "upper" => vars.fill(&item.text).to_uppercase(),
+        "lower" => vars.fill(&item.text).to_lowercase(),
+        _ => vars.fill(&item.text),
+    };
     if content.is_empty() {
         return;
     }

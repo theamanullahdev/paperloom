@@ -32,7 +32,8 @@ pub struct Skin {
 impl Skin {
     pub fn parse(source: &str) -> Result<Self, toml::de::Error> {
         let mut skin: Skin = toml::from_str(source)?;
-        skin.uses_seconds = format!("{:?}", skin.element).contains("second");
+        let elements = format!("{:?}", skin.element);
+        skin.uses_seconds = ["second", "%S", "%T", "%X", "%r"].iter().any(|code| elements.contains(code));
         Ok(skin)
     }
 }
@@ -137,6 +138,9 @@ pub struct TextElement {
     /// `left`, `center` or `right`: which side of `x` the text sits on.
     #[serde(default = "left")]
     pub align: String,
+    /// `upper` or `lower`: the text's letters, whatever the data says.
+    #[serde(default)]
+    pub case: String,
     pub show_if: Option<String>,
 }
 

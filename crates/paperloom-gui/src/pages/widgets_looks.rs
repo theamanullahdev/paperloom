@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use iced::widget::image;
 use iced::Task;
@@ -110,9 +111,33 @@ pub fn into_previews(drawn: Drawn) -> Previews {
     previews
 }
 
+/// The wallpaper the last previews were drawn on (the online library's
+/// previews are drawn on it too).
+static WALLPAPER: Mutex<Option<Pixmap>> = Mutex::new(None);
+
+/// A ready-drawn widget picture (the online library's previews) put on a
+/// card-sized piece of the wallpaper, like every other preview.
+pub fn on_wallpaper(png: &[u8]) -> Option<image::Handle> {
+    let widget = Pixmap::decode_png(png).ok()?;
+    let screen = paperloom_common::primary_size().unwrap_or((1920, 1080));
+    let mut cached = WALLPAPER.lock().ok()?;
+    if cached.is_none() {
+        *cached = wallpaper();
+    }
+    let fit = (0.62 * CARD.0 as f32 / widget.width() as f32).min(0.62 * CARD.1 as f32 / widget.height() as f32).min(1.0);
+    let mut card = backdrop(cached.as_ref(), screen, fit)?;
+    let (w, h) = (widget.width() as f32 * fit, widget.height() as f32 * fit);
+    let at = Transform::from_row(fit, 0.0, 0.0, fit, (CARD.0 as f32 - w) / 2.0, (CARD.1 as f32 - h) / 2.0);
+    card.draw_pixmap(0, 0, widget.as_ref(), &PixmapPaint { quality: FilterQuality::Bilinear, ..PixmapPaint::default() }, at, None);
+    Some(image::Handle::from_rgba(CARD.0, CARD.1, card.take()))
+}
+
 fn draw_all() -> Drawn {
     let screen = paperloom_common::primary_size().unwrap_or((1920, 1080));
     let wallpaper = wallpaper();
+    if let Ok(mut cached) = WALLPAPER.lock() {
+        cached.clone_from(&wallpaper);
+    }
     let mut text = paperloom_skin::Text::new();
     let mut looks = Vec::new();
     for skin in paperloom_skin::all() {

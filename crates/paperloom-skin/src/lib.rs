@@ -13,6 +13,7 @@ mod element;
 mod registry;
 mod text;
 mod vars;
+pub mod rainmeter;
 
 pub use element::Skin;
 pub use registry::{all, default_for, for_kind, get, refresh, set_user_dir};

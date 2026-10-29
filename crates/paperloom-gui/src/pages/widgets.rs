@@ -60,10 +60,17 @@ pub enum Message {
     RemoveKind(&'static str),
     /// Show (or hide) the widgets of this kind on Add a widget.
     Expand(&'static str),
+    /// Bring in Rainmeter skins: a package or file (false) or a folder (true).
+    ImportRainmeter(bool),
+    /// Looks added, parts left out — or why nothing could be.
+    Imported(Imported),
     /// Browse: Installed or Online.
     Tab(BrowseTab),
     Online(widgets_online::Message),
 }
+
+/// A Rainmeter import: the looks added and the parts left out, or why nothing was.
+pub type Imported = Result<(Vec<String>, Vec<String>), String>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowseTab {
@@ -88,6 +95,8 @@ pub struct State {
     open: Option<u32>,
     /// The kind whose placed widgets are listed on Add a widget.
     expanded: Option<&'static str>,
+    importing: bool,
+    imported: Option<Imported>,
 }
 
 /// Which sub-page the widgets body shows.
@@ -105,7 +114,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(), open: None, expanded: None }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(), open: None, expanded: None, importing: false, imported: None }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
@@ -277,6 +286,36 @@ impl State {
             }
             Message::Back => {
                 self.open = None;
+                return Task::none();
+            }
+            Message::ImportRainmeter(folder) => {
+                let dialog = rfd::FileDialog::new().set_title("Import a Rainmeter skin");
+                // Rainmeter keeps its skins in Documents\Rainmeter\Skins.
+                let skins = std::env::var_os("USERPROFILE").map(|home| std::path::PathBuf::from(home).join("Documents").join("Rainmeter").join("Skins")).filter(|path| path.is_dir());
+                let dialog = match skins {
+                    Some(skins) => dialog.set_directory(skins),
+                    None => dialog,
+                };
+                let picked = if folder { dialog.pick_folder() } else { dialog.add_filter("Rainmeter skin", &["rmskin", "zip", "ini"]).pick_file() };
+                let Some(path) = picked else { return Task::none() };
+                self.importing = true;
+                self.imported = None;
+                return widgets_looks::blocking(
+                    move || paperloom_skin::rainmeter::import(&path, &paperloom_common::skins_dir()).map(|report| (report.looks, report.left_out)),
+                    Message::Imported,
+                );
+            }
+            Message::Imported(result) => {
+                self.importing = false;
+                if result.is_ok() {
+                    paperloom_skin::refresh();
+                    self.filter.clear();
+                    self.previews.clear();
+                    self.previews_loading = true;
+                    self.imported = Some(result);
+                    return widgets_looks::load(Message::PreviewsReady);
+                }
+                self.imported = Some(result);
                 return Task::none();
             }
             Message::Expand(kind) => {
@@ -543,7 +582,7 @@ fn where_on_screen(x: f32, y: f32) -> String {
 }
 
 /// A preview the size of a card, or a quiet placeholder while it is drawn.
-fn picture<'a>(handle: Option<&image::Handle>, t: theme::Tokens) -> Element<'a, Message> {
+fn picture<'a, M: 'a>(handle: Option<&image::Handle>, t: theme::Tokens) -> Element<'a, M> {
     let (w, h) = (CARD.0 as f32, CARD.1 as f32);
     match handle {
         Some(handle) => container(image(handle.clone()).width(Length::Fixed(w)).height(Length::Fixed(h)))
@@ -559,7 +598,7 @@ fn picture<'a>(handle: Option<&image::Handle>, t: theme::Tokens) -> Element<'a, 
 
 /// The one card used everywhere: picture, name, a line of detail, and
 /// optional buttons. Always the same size. Clickable when `on_press` is set.
-fn card<'a>(handle: Option<&image::Handle>, name: String, detail: String, actions: Vec<Element<'a, Message>>, on_press: Option<Message>, chosen: bool, t: theme::Tokens) -> Element<'a, Message> {
+pub(super) fn card<'a, M: Clone + 'a>(handle: Option<&image::Handle>, name: String, detail: String, actions: Vec<Element<'a, M>>, on_press: Option<M>, chosen: bool, t: theme::Tokens) -> Element<'a, M> {
     let mut content = column![
         picture(handle, t),
         text(name).size(15).color(t.foreground),
@@ -676,7 +715,46 @@ impl State {
             Some(placed) => format!("Shown on your wallpaper. “Use” changes your {}; “Add” puts a new widget on the desktop.", self.title_of(placed)),
             None => "Shown on your wallpaper. “Add” puts a new widget with that look on the desktop.".to_string(),
         };
-        column![tabs, text(hint).size(13).color(t.muted_foreground), filters, row(cards).spacing(16).wrap().vertical_spacing(16)].spacing(14).into()
+        column![tabs, self.import_panel(t), text(hint).size(13).color(t.muted_foreground), filters, row(cards).spacing(16).wrap().vertical_spacing(16)].spacing(14).into()
+    }
+
+    /// Bringing in Rainmeter skins, and what came of the last import.
+    fn import_panel<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        let mut buttons = row![].spacing(8).align_y(Alignment::Center);
+        if self.importing {
+            buttons = buttons.push(text("Importing…").size(13).color(t.muted_foreground));
+        } else {
+            buttons = buttons
+                .push(button(ui::label("Import .rmskin file…")).style(ui::secondary).on_press(Message::ImportRainmeter(false)))
+                .push(button(ui::label("Import a skin folder…")).style(ui::ghost).on_press(Message::ImportRainmeter(true)));
+        }
+        let mut body = column![
+            row![
+                column![
+                    text("Rainmeter skins").size(15).color(t.foreground),
+                    text("Bring in a Rainmeter skin package or folder. Each skin becomes a look here, with its pictures and fonts.").size(13).color(t.muted_foreground),
+                ]
+                .spacing(2)
+                .width(Length::Fill),
+                buttons,
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(10);
+        match &self.imported {
+            Some(Ok((looks, left_out))) => {
+                body = body.push(text(format!("Added {}: {}. They're in the gallery below.", if looks.len() == 1 { "1 look".to_string() } else { format!("{} looks", looks.len()) }, looks.join(", "))).size(13).color(t.success));
+                if !left_out.is_empty() {
+                    let shown: Vec<String> = left_out.iter().take(8).cloned().collect();
+                    let more = if left_out.len() > 8 { format!("\n…and {} more", left_out.len() - 8) } else { String::new() };
+                    body = body.push(text(format!("Left out, as Paperloom has nothing that matches:\n{}{more}", shown.join("\n"))).size(12).color(t.muted_foreground));
+                }
+            }
+            Some(Err(err)) => body = body.push(text(err.as_str()).size(13).color(t.destructive)),
+            None => {}
+        }
+        panel(body.into(), t)
     }
 
     fn look_card<'a>(&'a self, skin: &'static paperloom_skin::Skin, selected: Option<&widgets::Placed>, t: theme::Tokens) -> Element<'a, Message> {
