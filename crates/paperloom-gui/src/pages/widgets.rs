@@ -64,6 +64,9 @@ pub enum Message {
     Expand(&'static str),
     /// Put back what was just removed.
     Undo,
+    /// A widget's ⋯ menu: open it, close it.
+    ShowMenu(u32),
+    CloseMenu,
     /// Close the line saying what just happened.
     Dismiss,
     /// The online library, showing looks for this kind.
@@ -125,6 +128,8 @@ pub struct State {
     notice: Option<Notice>,
     /// What the last removal took off the desktop (for Undo).
     removed: Vec<widgets::Placed>,
+    /// The widget whose ⋯ menu is open.
+    menu: Option<u32>,
     /// The minute the clock and date previews show.
     minute: u64,
     /// Which wallpaper the previews were drawn on.
@@ -146,7 +151,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), menu: None, minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
@@ -214,6 +219,12 @@ impl State {
         match message {
             Message::Tick => {
                 self.running = widgets::is_running();
+                if self.tab == BrowseTab::Online {
+                    let retry = self.online.retry();
+                    if !self.previews.is_empty() {
+                        return retry.map(Message::Online);
+                    }
+                }
                 if !self.previews.is_empty() && !self.previews_loading {
                     // A new wallpaper: draw everything on it. A new minute: the clocks.
                     let wallpaper = paperloom_common::EngineState::load().current_wallpaper;
@@ -305,11 +316,21 @@ impl State {
                 }
                 self.notice = None;
             }
+            Message::ShowMenu(id) => {
+                self.menu = Some(id);
+                self.selected = Some(id);
+                return Task::none();
+            }
+            Message::CloseMenu => {
+                self.menu = None;
+                return Task::none();
+            }
             Message::Dismiss => {
                 self.notice = None;
                 return Task::none();
             }
             Message::MoreLooks(kind) => {
+                self.menu = None;
                 self.tab = BrowseTab::Online;
                 self.filter = kind;
                 return Task::batch([self.online.opened().map(Message::Online), Task::done(Message::Browse)]);
@@ -367,6 +388,7 @@ impl State {
                 }
             }
             Message::Remove(id) => {
+                self.menu = None;
                 if let Some(placed) = self.widgets.placed.iter().find(|placed| placed.id == id) {
                     self.notice = Notice::new(format!("{} removed from your desktop.", self.title_of(placed)), Some(("Undo", Message::Undo)));
                     self.removed = vec![placed.clone()];
@@ -384,6 +406,7 @@ impl State {
                 return Task::none();
             }
             Message::Open(id) => {
+                self.menu = None;
                 self.selected = Some(id);
                 self.open = Some(id);
                 return Task::none();
@@ -539,11 +562,50 @@ impl State {
         }
     }
 
-    /// A placed widget's card; it opens the widget's own page.
+    /// A placed widget's card: click it for its page; Remove takes only this
+    /// one off; ⋯ has its looks and everything else, without leaving the page.
     fn placed_card<'a>(&'a self, placed: &'a widgets::Placed, t: theme::Tokens) -> Element<'a, Message> {
         let look = widgets_looks::skin_of(placed).map_or("", |skin| skin.name.as_str());
         let detail = format!("{look} look · {}", where_on_screen(placed.x, placed.y));
-        card(self.previews.of(placed), self.title_of(placed), detail, Vec::new(), Some(Message::Open(placed.id)), false, t)
+        let actions: Vec<Element<'a, Message>> = vec![
+            button(ui::label("Remove")).style(ui::secondary).on_press(Message::Remove(placed.id)).into(),
+            button(iced::widget::svg(crate::icons::ellipsis()).width(16).height(16).style(move |_theme, _status| iced::widget::svg::Style { color: Some(t.foreground) }))
+                .padding([6, 10])
+                .style(ui::ghost)
+                .on_press(Message::ShowMenu(placed.id))
+                .into(),
+        ];
+        card(self.previews.of(placed), self.title_of(placed), detail, actions, Some(Message::Open(placed.id)), false, t)
+    }
+
+    /// A widget's ⋯ menu, over the whole window: its looks, and what else can be done to it.
+    pub fn overlay<'a>(&'a self, t: theme::Tokens) -> Option<Element<'a, Message>> {
+        let placed = self.menu.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id))?;
+        let id = placed.id;
+        let current = widgets_looks::skin_of(placed).map(|skin| skin.id.clone());
+        let mut looks: Vec<Element<'a, Message>> = paperloom_skin::for_kind(&placed.kind)
+            .into_iter()
+            .map(|skin| {
+                let chosen = current.as_deref() == Some(skin.id.as_str());
+                let detail = if chosen { "In use".to_string() } else { format!("by {}", skin.author) };
+                card(self.previews.card(&skin.id, &placed.kind), skin.name.clone(), detail, Vec::new(), (!chosen).then(|| Message::SetLook(id, skin.id.clone())), chosen, t)
+            })
+            .collect();
+        looks.push(more_looks_card(placed.kind.clone(), t));
+        let body = column![
+            text("Look").size(16).color(t.foreground),
+            text("Click one to use it. The desktop changes straight away.").size(13).color(t.muted_foreground),
+            row(looks).spacing(16).wrap().vertical_spacing(16),
+            Space::new().height(Length::Fixed(8.0)),
+            row![
+                ui::tile("Size, place and behaviour", "Open this widget's own page", Message::Open(id), false, t),
+                ui::tile("Remove from the desktop", "Only this one; you can undo it", Message::Remove(id), true, t),
+            ]
+            .spacing(12),
+        ]
+        .spacing(12);
+        let look = widgets_looks::skin_of(placed).map_or(String::new(), |skin| format!("{} look", skin.name));
+        Some(ui::screen(self.title_of(placed), Some(format!("{look} · {}", where_on_screen(placed.x, placed.y))), ui::scroll_page(body).into(), Message::CloseMenu, t))
     }
 
     fn layout<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
@@ -751,18 +813,19 @@ pub(super) fn card<'a, M: Clone + 'a>(handle: Option<&image::Handle>, name: Stri
 
 /// A card-sized button with a big plus: the next step after the last widget.
 fn add_card<'a>(t: theme::Tokens) -> Element<'a, Message> {
-    big_button("+", "Add a widget", "A clock, the date, a meter…", Message::AddWidgets, t)
+    big_button("+", "Add a widget", "A clock, the date, a meter…", Message::AddWidgets, true, t)
 }
 
 fn more_looks_card<'a>(kind: String, t: theme::Tokens) -> Element<'a, Message> {
-    big_button("✦", "More looks", "From the online library", Message::MoreLooks(kind), t)
+    big_button("✦", "More looks", "From the online library", Message::MoreLooks(kind), false, t)
 }
 
-fn big_button<'a>(mark: &'static str, name: &'static str, detail: &'static str, message: Message, t: theme::Tokens) -> Element<'a, Message> {
+/// `tall`: as tall as a card with buttons (it sits among them).
+fn big_button<'a>(mark: &'static str, name: &'static str, detail: &'static str, message: Message, tall: bool, t: theme::Tokens) -> Element<'a, Message> {
     button(
         container(column![text(mark).size(40).color(t.primary), text(name).size(15).color(t.foreground), text(detail).size(12).color(t.muted_foreground)].spacing(4).align_x(Alignment::Center))
             .center_x(Length::Fixed(CARD.0 as f32 + 22.0))
-            .center_y(Length::Fixed(CARD.1 as f32 + 64.0)),
+            .center_y(Length::Fixed(CARD.1 as f32 + if tall { 104.0 } else { 64.0 })),
     )
     .padding(0)
     .style(move |_theme, status| button::Style {

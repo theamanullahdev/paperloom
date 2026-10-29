@@ -717,6 +717,7 @@ impl App {
                 self.online_page.overlay(t, &in_library).map(|o| o.map(Message::Online))
             }
             Page::Settings => self.settings_page.overlay(&self.settings, t).map(|o| o.map(Message::Settings)),
+            Page::Widgets | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsBrowse => self.widgets_page.overlay(t).map(|o| o.map(Message::Widgets)),
             _ => None,
             }
         };
