@@ -57,7 +57,9 @@ done
 
 # Rewriting load commands invalidates signatures; re-sign everything ad hoc.
 find "$app/Contents/Frameworks" -name '*.dylib' -exec codesign --force --sign - {} \;
-for exe in "$app/Contents/MacOS/"*; do codesign --force --sign - "$exe"; done
+# Helpers first: signing the main executable checks everything beside it.
+for exe in "$app/Contents/MacOS/"*; do [ "$(basename "$exe")" = paperloom-gui ] || codesign --force --sign - "$exe"; done
+codesign --force --sign - "$app/Contents/MacOS/paperloom-gui"
 codesign --force --sign - "$app"
 
 # Smoke test: the bundled engine must load its libraries without Homebrew,
