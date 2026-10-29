@@ -114,6 +114,15 @@ fn import_ini(path: &Path, root: &Path, skins_dir: &Path, author: Option<String>
     let resources = root.join("@Resources");
     let parsed = ini::Ini::load(path, &resources)?;
     let skin_dir = path.parent().unwrap_or(root);
+    // Settings and options panels are for Rainmeter's own buttons, not widgets.
+    let relative_path = path.strip_prefix(root).unwrap_or(path);
+    let control_panel = relative_path.components().any(|part| {
+        let part = part.as_os_str().to_string_lossy().to_ascii_lowercase();
+        ["settings", "setting", "options", "config", "configure", "preferences"].iter().any(|word| part.trim_end_matches(".ini") == *word)
+    });
+    if control_panel {
+        return Ok(());
+    }
     let converted = convert::convert(&parsed, skin_dir, root);
     if converted.elements.is_empty() {
         return Ok(()); // A settings or variables file, not something drawn.

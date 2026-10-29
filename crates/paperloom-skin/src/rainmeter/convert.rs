@@ -50,6 +50,17 @@ pub fn convert(ini: &Ini, skin_dir: &Path, root: &Path) -> Converted {
             measures.insert(section.name.to_ascii_lowercase(), measure(section, kind));
         }
     }
+    // A Calc that is just another measure (`Formula=[MeasureCPU]`) shows that measure.
+    for section in &ini.sections {
+        if !section.get("measure").is_some_and(|kind| kind.eq_ignore_ascii_case("calc")) {
+            continue;
+        }
+        let formula = section.get("formula").unwrap_or("").trim().trim_matches(|c| c == '(' || c == ')');
+        let alias = formula.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')).map(str::to_ascii_lowercase);
+        if let Some(Ok(target)) = alias.and_then(|name| measures.get(&name).cloned()) {
+            measures.insert(section.name.to_ascii_lowercase(), Ok(target));
+        }
+    }
 
     let mut out = Out { elements: Vec::new(), images: Vec::new(), notes, kinds: BTreeMap::new(), extent: (0.0, 0.0), prev: (0.0, 0.0, 0.0, 0.0), skin_dir, root };
     for section in &ini.sections {
@@ -80,6 +91,25 @@ pub fn convert(ini: &Ini, skin_dir: &Path, root: &Path) -> Converted {
     notes.sort();
     notes.dedup();
     Converted { kind, size: (out.extent.0.max(20.0).ceil(), out.extent.1.max(20.0).ceil()), elements, images: out.images, notes }
+}
+
+/// Removes every `#Name#` still in `text`.
+fn strip_variables(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find('#') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        match after.find('#') {
+            Some(end) if end > 0 && after[..end].chars().all(|c| c.is_alphanumeric() || c == '_' || c == '@' || c == '.') => rest = &after[end + 1..],
+            _ => {
+                out.push('#');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn measure(section: &Section, kind: &str) -> Result<Measure, String> {
@@ -187,6 +217,8 @@ impl Out<'_> {
                 let postfix = section.get("postfix").unwrap_or("");
                 let postfix = if first.is_some_and(|found| found.has_unit) { "" } else { postfix };
                 content = format!("{}{content}{postfix}", section.get("prefix").unwrap_or(""));
+                // A #Variable# nothing defined can't be shown.
+                content = strip_variables(&content);
                 let align = section.get("stringalign").unwrap_or("left").to_ascii_lowercase();
                 let across = if align.starts_with("center") { "center" } else if align.starts_with("right") { "right" } else { "left" };
                 // Vertical alignment: our text is placed by its top.
@@ -217,7 +249,7 @@ impl Out<'_> {
                 if section.get("stringstyle").is_some_and(|style| style.to_ascii_lowercase().contains("bold")) {
                     text.insert("bold".into(), true.into());
                 }
-                if let Some(face) = section.get("fontface") {
+                if let Some(face) = section.get("fontface").filter(|face| !face.contains('#') && !face.is_empty()) {
                     text.insert("font".into(), face.into());
                 }
                 if let Some(case) = section.get("stringcase").map(str::to_ascii_lowercase).filter(|case| case == "upper" || case == "lower") {

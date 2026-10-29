@@ -62,6 +62,8 @@ pub enum Message {
     RemoveKind(&'static str),
     /// Show (or hide) the widgets of this kind on Add a widget.
     Expand(&'static str),
+    /// A slider was let go: save.
+    Commit,
     /// Put back what was just removed.
     Undo,
     /// A widget's ⋯ menu: open it, close it.
@@ -166,7 +168,10 @@ impl State {
 
     /// Re-reads the file (another window, the tray, or a reset may have changed it).
     pub fn open(&mut self) -> Task<Message> {
-        self.notice = None;
+        // A way back stays until it is dismissed; other lines are about the page you left.
+        if !self.notice.as_ref().is_some_and(|notice| matches!(notice.action, Some((_, Message::Undo)))) {
+            self.notice = None;
+        }
         self.widgets = Widgets::load();
         self.running = widgets::is_running();
         if self.selected.is_none_or(|id| !self.widgets.placed.iter().any(|placed| placed.id == id)) {
@@ -477,7 +482,10 @@ impl State {
                         _ => target.opacity = value.clamp(0.1, 1.0),
                     }
                 }
+                // Saved when the slider is let go, not on every step of the drag.
+                return Task::none();
             }
+            Message::Commit => {}
             Message::Drag(id, value) => {
                 if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
                     target.drag = value;
@@ -695,8 +703,8 @@ impl State {
             "Size",
             "",
             column![
-                line("Size", slider(0.5..=2.0, placed.scale, move |value| Message::Scale(id, value)).step(0.05_f32).into(), percent(placed.scale).into()),
-                line("Opacity", slider(0.1..=1.0, placed.opacity, move |value| Message::Opacity(id, value)).step(0.05_f32).into(), percent(placed.opacity).into()),
+                line("Size", slider(0.5..=2.0, placed.scale, move |value| Message::Scale(id, value)).step(0.05_f32).on_release(Message::Commit).into(), percent(placed.scale).into()),
+                line("Opacity", slider(0.1..=1.0, placed.opacity, move |value| Message::Opacity(id, value)).step(0.05_f32).on_release(Message::Commit).into(), percent(placed.opacity).into()),
             ]
             .spacing(10)
             .into(),
