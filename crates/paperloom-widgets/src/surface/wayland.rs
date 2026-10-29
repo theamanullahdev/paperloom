@@ -89,6 +89,10 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
         app.windows.push(Window { layer, placed, configured: false, pixmap: None, due: Instant::now(), dirty: true });
     }
 
+    paperloom_common::widgets::Status::update(|status| {
+        status.backend = "wayland".into();
+        status.windows = app.windows.len() as u32;
+    });
     while !app.exit && !control.changed() {
         queue.dispatch_pending(&mut app)?;
 

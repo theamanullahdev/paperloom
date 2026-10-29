@@ -30,6 +30,7 @@ pub enum Tab {
     Tests,
     Diagnostics,
     Actions,
+    Widgets,
     Logs,
     State,
     Switches,
@@ -39,6 +40,7 @@ pub enum Tab {
 pub enum LogKind {
     App,
     Engine,
+    Widgets,
     Crash,
 }
 
@@ -47,6 +49,7 @@ impl LogKind {
         match self {
             LogKind::App => "gui",
             LogKind::Engine => "engine",
+            LogKind::Widgets => "widgets",
             LogKind::Crash => "crash",
         }
     }
@@ -228,7 +231,7 @@ impl State {
                     return Task::none();
                 }
                 self.busy = true;
-                self.tab = Tab::Actions;
+                self.tab = if action.is_widgets() { Tab::Widgets } else { Tab::Actions };
                 let settings = settings.clone();
                 return Task::perform(crate::pages::online::blocking::<String, String>(move || Ok(actions::run(action, &settings))), |result| Message::Done(result.unwrap_or_default()));
             }
@@ -285,6 +288,7 @@ impl State {
                 (Tab::Tests, "Run all tests"),
                 (Tab::Diagnostics, "Diagnostics"),
                 (Tab::Actions, "Actions"),
+                (Tab::Widgets, "Widgets"),
                 (Tab::Logs, "Logs"),
                 (Tab::State, "State"),
                 (Tab::Switches, "Switches"),
@@ -299,6 +303,7 @@ impl State {
             Tab::Tests => self.tests_tab(t),
             Tab::Diagnostics => self.diagnostics_tab(t),
             Tab::Actions => self.actions_tab(t),
+            Tab::Widgets => self.widgets_tab(t),
             Tab::Logs => self.logs_tab(t),
             Tab::State => self.state_tab(t),
             Tab::Switches => self.switches_tab(t),
@@ -440,9 +445,56 @@ impl State {
         .into()
     }
 
+    /// Widgets: what the desktop widgets process is doing, and buttons to start, stop and test it.
+    fn widgets_tab<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        let go = |label: &'static str, action: Action| button(crate::ui::label(label).size(13)).style(crate::ui::secondary).padding([6, 10]).on_press_maybe((!self.busy).then_some(Message::Run(action)));
+        let status = paperloom_common::widgets::Status::read().unwrap_or_default();
+        let running = paperloom_common::widgets::is_running();
+        let placed = paperloom_common::widgets::Widgets::load();
+        let program = paperloom_common::process::sibling_binary("paperloom-widgets");
+        let ago = |at: u64| if at == 0 { "—".to_string() } else { format!("{} ago", format_duration(log::now_unix().saturating_sub(at))) };
+        let status_card = card(
+            column![
+                heading("Status", t),
+                line("Program", program.map_or("MISSING — reinstall Paperloom".to_string(), |path| path.display().to_string()), t),
+                line("Running", if running { format!("yes (pid {})", status.pid) } else { "no".into() }, t),
+                line("Version", if status.version.is_empty() { "—".into() } else { status.version.clone() }, t),
+                line("Settings", format!("{} placed, widgets {}", placed.placed.len(), if placed.enabled { "on" } else { "off" }), t),
+                line("Draws on", if status.backend.is_empty() { "—".into() } else { status.backend.clone() }, t),
+                line("Windows", status.windows.to_string(), t),
+                line("Hidden because", if status.paused.is_empty() { "not hidden".into() } else { status.paused.clone() }, t),
+                line("Last problem", if status.problem.is_empty() { "none".into() } else { status.problem.clone() }, t),
+                line("Reported", ago(status.updated), t),
+                line("Pause rules", if self.switches.disable_auto_pause { "ignored (Switches → Never pause automatically)".into() } else { "followed".into() }, t),
+            ]
+            .spacing(6)
+            .into(),
+            t,
+        );
+        let buttons = card(
+            column![
+                heading("Run", t),
+                row![go("Start", Action::WidgetsStart), go("Quit", Action::WidgetsQuit), go("Restart", Action::WidgetsRestart)].spacing(8),
+                row![go("Self-test (no desktop)", Action::WidgetsSelfTest), go("Show test widgets (20 s)", Action::WidgetsTest)].spacing(8),
+                text("Self-test draws every look and reads the meters without touching the desktop. Show test widgets puts a clock, the date and two meters on screen for 20 seconds as plain windows, ignoring the pause rules: if they show, drawing works.")
+                    .size(12)
+                    .color(t.muted_foreground),
+            ]
+            .spacing(8)
+            .into(),
+            t,
+        );
+        let results: Element<'a, Message> = if self.results.is_empty() {
+            text("Results appear here.").size(12).color(t.muted_foreground).into()
+        } else {
+            column(self.results.iter().rev().take(12).map(|result| text(result.clone()).size(12).font(Font::MONOSPACE).color(t.foreground).into())).spacing(3).into()
+        };
+        column![status_card, buttons, card(column![heading("Results", t), results].spacing(8).into(), t)].spacing(12).into()
+    }
+
     fn logs_tab<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let kinds = crate::ui::segmented(
-            [(LogKind::App, "App"), (LogKind::Engine, "Engine"), (LogKind::Crash, "Crash")]
+            [(LogKind::App, "App"), (LogKind::Engine, "Engine"), (LogKind::Widgets, "Widgets"), (LogKind::Crash, "Crash")]
                 .into_iter()
                 .map(|(kind, label)| (label.to_string(), self.log_kind == kind, Message::LogKind(kind)))
                 .collect(),

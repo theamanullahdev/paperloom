@@ -25,6 +25,23 @@ mod widget;
 
 /// What the GUI knows that the shared diagnostics report doesn't: how it was
 /// installed, the machine's CPU/memory, the library.
+/// What a bug report needs about the desktop widgets.
+fn widgets_lines() -> Vec<String> {
+    let status = paperloom_common::widgets::Status::read().unwrap_or_default();
+    let placed = paperloom_common::widgets::Widgets::load();
+    let looks = paperloom_skin::all();
+    vec![
+        format!("program: {}", paperloom_common::process::sibling_binary("paperloom-widgets").map_or("MISSING".to_string(), |path| path.display().to_string())),
+        format!("running: {}", paperloom_common::widgets::is_running()),
+        format!("settings: widgets {}, {} placed", if placed.enabled { "on" } else { "off" }, placed.placed.len()),
+        format!("draws on: {}", if status.backend.is_empty() { "—" } else { &status.backend }),
+        format!("windows: {}", status.windows),
+        format!("hidden because: {}", if status.paused.is_empty() { "not hidden" } else { &status.paused }),
+        format!("last problem: {}", if status.problem.is_empty() { "none" } else { &status.problem }),
+        format!("looks: {} ({} installed)", looks.len(), looks.iter().filter(|skin| skin.dir.is_some()).count()),
+    ]
+}
+
 pub fn diagnostics_extra() -> Vec<(String, Vec<String>)> {
     let (kind, reason) = paperloom_fetch::update::InstallKind::detect_with_reason();
     let mut system = sysinfo::System::new();
@@ -41,6 +58,7 @@ pub fn diagnostics_extra() -> Vec<(String, Vec<String>)> {
                 format!("memory: {} MB used of {} MB", system.used_memory() / 1_048_576, system.total_memory() / 1_048_576),
             ],
         ),
+        ("Widgets".into(), widgets_lines()),
         (
             "Library".into(),
             vec![

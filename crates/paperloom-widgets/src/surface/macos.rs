@@ -47,6 +47,10 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
     let screen = NSScreen::mainScreen(mtm).ok_or("no display")?.frame();
     let mut windows: Vec<Window> = widgets.placed.iter().map(|placed| open(mtm, screen, placed)).collect();
 
+    paperloom_common::widgets::Status::update(|status| {
+        status.backend = "macos".into();
+        status.windows = windows.len() as u32;
+    });
     while !control.changed() {
         let now = Instant::now();
         let paused = control.paused();

@@ -187,6 +187,43 @@ fn running_at(path: &std::path::Path) -> bool {
     file.try_lock().is_err()
 }
 
+/// What the widgets process reports about itself, for the developer page and
+/// for anyone asked to send a report: where it attached, how many windows it
+/// has, why it is hidden, and what went wrong.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Status {
+    pub pid: u32,
+    pub version: String,
+    /// `x11`, `wayland`, `macos`, `windows (raised desktop)`, `windows (classic desktop)`, `windows (plain windows)`.
+    pub backend: String,
+    pub windows: u32,
+    /// Why nothing is drawn right now; empty when it is drawing.
+    pub paused: String,
+    /// The last thing that went wrong; empty when nothing did.
+    pub problem: String,
+    pub updated: u64,
+}
+
+impl Status {
+    pub fn read() -> Option<Self> {
+        toml::from_str(&fs::read_to_string(paths::widgets_status()).ok()?).ok()
+    }
+
+    /// Changes the stored status with `change` and writes it back.
+    pub fn update(change: impl FnOnce(&mut Status)) {
+        let mut status = Self::read().filter(|status| status.pid == std::process::id()).unwrap_or_else(|| Status { pid: std::process::id(), version: env!("CARGO_PKG_VERSION").into(), ..Status::default() });
+        change(&mut status);
+        status.updated = crate::log::now_unix();
+        if let Some(parent) = paths::widgets_status().parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if let Ok(text) = toml::to_string_pretty(&status) {
+            let _ = fs::write(paths::widgets_status(), text);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

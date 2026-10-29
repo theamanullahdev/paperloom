@@ -94,6 +94,32 @@ pub fn run(settings: &Settings, progress: Progress) -> String {
             });
         }
     }
+    report.step("the desktop widgets program is next to the app", || {
+        paperloom_common::process::sibling_binary("paperloom-widgets").map(|path| path.display().to_string()).ok_or_else(|| "paperloom-widgets was not found beside paperloom-gui — reinstall Paperloom".to_string())
+    });
+    report.step("widgets self-test (draws every look, reads the meters)", || {
+        let output = super::actions::widgets_selftest()?;
+        let failed = output.lines().filter(|line| line.starts_with("[FAIL]")).count();
+        if failed == 0 {
+            Ok(format!("{} checks passed", output.lines().filter(|line| line.starts_with("[PASS]")).count()))
+        } else {
+            Err(output.lines().filter(|line| line.starts_with("[FAIL]")).collect::<Vec<_>>().join(" | "))
+        }
+    });
+    report.step("widgets status", || {
+        let running = paperloom_common::widgets::is_running();
+        let status = paperloom_common::widgets::Status::read().unwrap_or_default();
+        let widgets = paperloom_common::widgets::Widgets::load();
+        let line = format!(
+            "{} · {} placed, widgets {} · draws on: {} · {}",
+            if running { "running" } else { "not running" },
+            widgets.placed.len(),
+            if widgets.enabled { "on" } else { "off" },
+            if status.backend.is_empty() { "—" } else { &status.backend },
+            if status.paused.is_empty() { "not hidden".to_string() } else { format!("hidden: {}", status.paused) }
+        );
+        if status.problem.is_empty() { Ok(line) } else { Err(format!("{line} · problem: {}", status.problem)) }
+    });
     report.step("ffmpeg runs", || {
         let output = paperloom_common::process::command("ffmpeg").arg("-version").output().map_err(|err| format!("could not start ffmpeg: {err}"))?;
         String::from_utf8_lossy(&output.stdout).lines().next().map(str::to_string).ok_or_else(|| "ffmpeg printed nothing".to_string())

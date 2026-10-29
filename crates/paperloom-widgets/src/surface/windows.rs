@@ -74,11 +74,28 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
     let owner = menu_owner()?;
 
     loop {
-        let (layer, mut windows) = match build(widgets) {
+        // Test mode shows plain windows on top, to prove drawing works even where
+        // attaching to the desktop doesn't; otherwise the desktop first, and
+        // plain windows beneath everything else if the desktop refuses us.
+        let first = if control.testing() { Mode::PlainTop } else { Mode::Desktop };
+        let built = build(widgets, first).or_else(|err| {
+            paperloom_common::log::warn(&format!("widgets: couldn't attach to the desktop ({err}); using plain windows instead"));
+            paperloom_common::widgets::Status::update(|status| status.problem = format!("couldn't attach to the desktop: {err}"));
+            if first == Mode::Desktop {
+                build(widgets, Mode::PlainBottom)
+            } else {
+                Err(err)
+            }
+        });
+        let (layer, mut windows) = match built {
             Ok(built) => built,
             Err(err) => {
                 paperloom_common::log::warn(&format!("widgets: {err}; trying again"));
+                paperloom_common::widgets::Status::update(|status| status.problem = err.to_string());
                 std::thread::sleep(Duration::from_secs(3));
+                if control.changed() {
+                    return Ok(());
+                }
                 continue;
             }
         };
@@ -373,7 +390,25 @@ fn find_legacy_workerw() -> Option<HWND> {
     (!found.is_null()).then_some(found)
 }
 
-fn build(widgets: &Widgets) -> Result<(Layer, Vec<Window>), Box<dyn Error>> {
+/// Where the widgets go.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Child windows of the desktop layer, between the wallpaper and the icons.
+    Desktop,
+    /// Ordinary windows kept beneath every other window.
+    PlainBottom,
+    /// Ordinary windows above everything (the developer test).
+    PlainTop,
+}
+
+fn last_error(what: &str) -> String {
+    // SAFETY: reads this thread's last error code.
+    let code = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+    format!("{what}: {} (code {code})", std::io::Error::from_raw_os_error(code as i32))
+}
+
+/// The desktop layer widgets hang from, and whether it is the "raised" one.
+fn find_layer() -> Result<(HWND, bool), Box<dyn Error>> {
     // SAFETY: Win32 calls on handles we just looked up; pointers are null or live NUL-terminated strings.
     unsafe {
         let progman = FindWindowW(wide("Progman").as_ptr(), std::ptr::null());
@@ -392,57 +427,116 @@ fn build(widgets: &Widgets) -> Result<(Layer, Vec<Window>), Box<dyn Error>> {
         }
         let raised = !FindWindowExW(progman, std::ptr::null_mut(), wide("WorkerW").as_ptr(), std::ptr::null()).is_null();
         let parent = if raised { progman } else { find_legacy_workerw().ok_or("no desktop layer (WorkerW) to attach to")? };
-        let icons = raised
-            .then(|| FindWindowExW(progman, std::ptr::null_mut(), wide("SHELLDLL_DefView").as_ptr(), std::ptr::null()))
-            .filter(|icons| !icons.is_null());
-        let layer = Layer { parent, icons };
+        Ok((parent, raised))
+    }
+}
 
-        // The desktop layer spans the virtual screen; widget positions are
-        // fractions of the primary monitor.
-        let (origin_x, origin_y) = (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN));
-        let (screen_w, screen_h) = (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
-
-        let mut windows = Vec::new();
-        for placed in &widgets.placed {
-            let (w, h) = widgets::size_of(placed);
-            let (w, h) = ((w as f32 * placed.scale) as i32, (h as f32 * placed.scale) as i32);
-            let x = (placed.x * screen_w as f32) as i32 - origin_x;
-            let y = (placed.y * screen_h as f32) as i32 - origin_y;
-            // In the classic layout the icons' window sits above the desktop layer and
-            // would swallow every click, so there widgets stay click-through.
-            let takes_input = placed.interactive() && raised;
-            let mut style = WS_EX_LAYERED | WS_EX_NOACTIVATE;
-            if !takes_input {
-                style |= WS_EX_TRANSPARENT;
-            }
-            let hwnd = CreateWindowExW(
-                style,
-                wide(CLASS_NAME).as_ptr(),
-                wide("Paperloom widget").as_ptr(),
-                WS_CHILD | WS_CLIPCHILDREN,
-                x,
-                y,
-                w,
-                h,
-                parent,
-                std::ptr::null_mut(),
-                GetModuleHandleW(std::ptr::null()),
-                std::ptr::null(),
-            );
+/// One widget window. Tried as a child of the desktop layer first, then (as the
+/// wallpaper engine does when that is refused) as a pop-up moved in with `SetParent`.
+fn make_window(mode: Mode, parent: HWND, style: u32, (x, y, w, h): (i32, i32, i32, i32)) -> Result<HWND, String> {
+    use windows_sys::Win32::Foundation::SetLastError;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetParent, GWL_STYLE, HWND_BOTTOM, HWND_TOPMOST, SWP_FRAMECHANGED};
+    // SAFETY: Win32 window creation with live NUL-terminated strings and handles we hold.
+    unsafe {
+        let module = GetModuleHandleW(std::ptr::null());
+        let class = wide(CLASS_NAME);
+        let title = wide("Paperloom widget");
+        SetLastError(0);
+        if mode != Mode::Desktop {
+            let top = if mode == Mode::PlainTop { windows_sys::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST } else { 0 };
+            let hwnd = CreateWindowExW(style | WS_EX_TOOLWINDOW | top, class.as_ptr(), title.as_ptr(), WS_POPUP, x, y, w, h, std::ptr::null_mut(), std::ptr::null_mut(), module, std::ptr::null());
             if hwnd.is_null() {
-                return Err("couldn't create a widget window".into());
+                return Err(last_error("CreateWindowExW (plain window)"));
             }
+            SetWindowPos(hwnd, if mode == Mode::PlainTop { HWND_TOPMOST } else { HWND_BOTTOM }, x, y, w, h, SWP_NOACTIVATE);
+            return Ok(hwnd);
+        }
+        let hwnd = CreateWindowExW(style, class.as_ptr(), title.as_ptr(), WS_CHILD | WS_CLIPCHILDREN, x, y, w, h, parent, std::ptr::null_mut(), module, std::ptr::null());
+        if !hwnd.is_null() {
+            return Ok(hwnd);
+        }
+        let first = last_error("CreateWindowExW (child)");
+        SetLastError(0);
+        let hwnd = CreateWindowExW(style, class.as_ptr(), title.as_ptr(), WS_POPUP, x, y, w, h, std::ptr::null_mut(), std::ptr::null_mut(), module, std::ptr::null());
+        if hwnd.is_null() {
+            return Err(format!("{first}; then {}", last_error("CreateWindowExW (pop-up)")));
+        }
+        SetLastError(0);
+        if SetParent(hwnd, parent).is_null() {
+            let second = last_error("SetParent");
+            DestroyWindow(hwnd);
+            return Err(format!("{first}; then {second}"));
+        }
+        SetWindowLongPtrW(hwnd, GWL_STYLE, (WS_CHILD | WS_CLIPCHILDREN) as isize);
+        SetWindowPos(hwnd, std::ptr::null_mut(), x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        Ok(hwnd)
+    }
+}
+
+fn build(widgets: &Widgets, mode: Mode) -> Result<(Layer, Vec<Window>), Box<dyn Error>> {
+    let (parent, raised) = if mode == Mode::Desktop { find_layer()? } else { (std::ptr::null_mut(), false) };
+    // SAFETY: Win32 calls on handles we just looked up.
+    let icons = unsafe {
+        raised
+            .then(|| FindWindowExW(parent, std::ptr::null_mut(), wide("SHELLDLL_DefView").as_ptr(), std::ptr::null()))
+            .filter(|icons| !icons.is_null())
+    };
+    let layer = Layer { parent, icons };
+
+    // The desktop layer spans the virtual screen; widget positions are
+    // fractions of the primary monitor.
+    // SAFETY: plain metric queries.
+    let ((origin_x, origin_y), (screen_w, screen_h)) = unsafe {
+        let origin = if mode == Mode::Desktop { (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN)) } else { (0, 0) };
+        (origin, (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)))
+    };
+
+    let mut windows: Vec<Window> = Vec::new();
+    for placed in &widgets.placed {
+        let (w, h) = widgets::size_of(placed);
+        let (w, h) = ((w as f32 * placed.scale) as i32, (h as f32 * placed.scale) as i32);
+        let x = (placed.x * screen_w as f32) as i32 - origin_x;
+        let y = (placed.y * screen_h as f32) as i32 - origin_y;
+        // In the classic layout the icons' window sits above the desktop layer and
+        // would swallow every click, so there widgets stay click-through.
+        let takes_input = placed.interactive() && (raised || mode != Mode::Desktop);
+        let mut style = WS_EX_LAYERED | WS_EX_NOACTIVATE;
+        if !takes_input {
+            style |= WS_EX_TRANSPARENT;
+        }
+        let hwnd = match make_window(mode, parent, style, (x, y, w, h)) {
+            Ok(hwnd) => hwnd,
+            Err(err) => {
+                for window in &windows {
+                    // SAFETY: our own windows.
+                    unsafe { DestroyWindow(window.hwnd) };
+                }
+                return Err(err.into());
+            }
+        };
+        // SAFETY: our own window.
+        unsafe {
             if takes_input {
                 let flags = if placed.drag { CAN_DRAG } else { 0 } | if placed.menu { CAN_MENU } else { 0 };
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, flags);
             }
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            windows.push(Window { hwnd, placed: placed.clone(), pixmap: None, due: Instant::now() });
         }
-        restack(&layer, &windows);
-        paperloom_common::log::info(&format!("widgets attached ({} layout)", if raised { "raised" } else { "classic" }));
-        Ok((layer, windows))
+        windows.push(Window { hwnd, placed: placed.clone(), pixmap: None, due: Instant::now() });
     }
+    restack(&layer, &windows);
+    let backend = match (mode, raised) {
+        (Mode::Desktop, true) => "windows (raised desktop)",
+        (Mode::Desktop, false) => "windows (classic desktop)",
+        (Mode::PlainBottom, _) => "windows (plain windows, beneath everything)",
+        (Mode::PlainTop, _) => "windows (plain windows, on top: test)",
+    };
+    paperloom_common::log::info(&format!("widgets attached: {backend}, {} window(s)", windows.len()));
+    paperloom_common::widgets::Status::update(|status| {
+        status.backend = backend.into();
+        status.windows = windows.len() as u32;
+    });
+    Ok((layer, windows))
 }
 
 /// Orders the widgets. Ones that take mouse input go on top of the desktop layer
@@ -451,6 +545,10 @@ fn build(widgets: &Widgets) -> Result<(Layer, Vec<Window>), Box<dyn Error>> {
 /// wallpaper inside the same `WorkerW` (classic layout). The order is touched
 /// only when it has drifted.
 fn restack(layer: &Layer, windows: &[Window]) {
+    // Plain windows have no desktop layer to keep an order in.
+    if layer.parent.is_null() {
+        return;
+    }
     // SAFETY: z-order queries and changes on windows we own or just found.
     unsafe {
         let interactive = |window: &&Window| window.placed.interactive() && layer.icons.is_some();

@@ -54,6 +54,11 @@ pub fn widgets_lock() -> PathBuf {
     project_dirs().config_dir().join("widgets.lock")
 }
 
+/// What the widgets process is doing right now (see `widgets.rs`); the developer page reads it.
+pub fn widgets_status() -> PathBuf {
+    project_dirs().data_dir().join("widgets-status.toml")
+}
+
 /// Rotation and schedule (see `rotation.rs`).
 pub fn rotation_file() -> PathBuf {
     project_dirs().config_dir().join("rotation.toml")

@@ -114,6 +114,10 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
     if let Some(first) = windows.first() {
         conn.create_gc(gc, first.id, &Default::default())?;
     }
+    paperloom_common::widgets::Status::update(|status| {
+        status.backend = "x11".into();
+        status.windows = windows.len() as u32;
+    });
     let shared = Shared { root: screen.root, depth, visual, colormap, gc, screen: (screen_w, screen_h) };
     let mut popup: Option<Popup> = None;
 

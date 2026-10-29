@@ -33,3 +33,17 @@ pub mod macos;
 
 #[cfg(target_os = "macos")]
 pub use macos::run;
+
+/// What `--test` shows: a clock, the date and two meters, whatever the user has placed.
+pub fn test_widgets() -> paperloom_common::widgets::Widgets {
+    let mut widgets = paperloom_common::widgets::Widgets { enabled: true, placed: Vec::new() };
+    for (kind, x, y) in [("clock", 0.08, 0.12), ("date", 0.08, 0.5), ("cpu", 0.42, 0.12), ("memory", 0.42, 0.5)] {
+        if let Some(id) = widgets.add(kind) {
+            if let Some(placed) = widgets.placed.iter_mut().find(|placed| placed.id == id) {
+                placed.x = x;
+                placed.y = y;
+            }
+        }
+    }
+    widgets
+}

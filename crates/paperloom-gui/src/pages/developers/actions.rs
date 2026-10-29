@@ -50,6 +50,32 @@ pub enum Action {
     ConnectionCheck,
     Benchmark,
     ResetSettings,
+    WidgetsStart,
+    WidgetsQuit,
+    WidgetsRestart,
+    WidgetsSelfTest,
+    WidgetsTest,
+}
+
+impl Action {
+    /// Belongs on the Widgets tab.
+    pub fn is_widgets(self) -> bool {
+        matches!(self, Action::WidgetsStart | Action::WidgetsQuit | Action::WidgetsRestart | Action::WidgetsSelfTest | Action::WidgetsTest)
+    }
+}
+
+/// Runs `paperloom-widgets --selftest` and returns what it printed.
+pub fn widgets_selftest() -> Result<String, String> {
+    let program = paperloom_common::process::sibling_binary("paperloom-widgets").ok_or("paperloom-widgets was not found beside paperloom-gui")?;
+    let mut command = std::process::Command::new(program);
+    paperloom_common::process::hide_console(&mut command);
+    let output = command.arg("--selftest").stdin(std::process::Stdio::null()).output().map_err(|err| format!("couldn't start it: {err}"))?;
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        Err(format!("it printed nothing (exit {:?}) — see Logs → Widgets and Logs → Crash", output.status.code()))
+    } else {
+        Ok(text)
+    }
 }
 
 /// Runs one action and says what happened.
@@ -120,6 +146,32 @@ pub fn run(action: Action, settings: &Settings) -> String {
             text
         }
         Action::Benchmark => benchmark(Duration::from_secs(20)),
+        Action::WidgetsStart => match paperloom_common::widgets::start() {
+            Ok(()) => "Started the widgets process; look at Status in a few seconds".into(),
+            Err(err) => format!("Couldn't start it: {err}"),
+        },
+        Action::WidgetsQuit => {
+            crate::engine_client::end_widgets();
+            "Ended the widgets process".into()
+        }
+        Action::WidgetsRestart => {
+            crate::engine_client::end_widgets();
+            match paperloom_common::widgets::start() {
+                Ok(()) => "Restarted the widgets process".into(),
+                Err(err) => format!("Ended it, but couldn't start it again: {err}"),
+            }
+        }
+        Action::WidgetsSelfTest => widgets_selftest().unwrap_or_else(|err| format!("Self-test failed to run: {err}")),
+        Action::WidgetsTest => {
+            crate::engine_client::end_widgets();
+            let Some(program) = paperloom_common::process::sibling_binary("paperloom-widgets") else { return "paperloom-widgets was not found beside paperloom-gui".into() };
+            let mut command = std::process::Command::new(program);
+            paperloom_common::process::hide_console(&mut command);
+            match command.args(["--test", "20"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).spawn() {
+                Ok(_) => "Showing a test clock, date, processor and memory widget for 20 seconds, ignoring the pause rules. If you see them, drawing works; if not, read Status → problem. Your own widgets come back afterwards.".into(),
+                Err(err) => format!("Couldn't start the test: {err}"),
+            }
+        }
         Action::ResetSettings => {
             let _ = paperloom_common::save(&Settings::default());
             "Settings reset to defaults (restart the app to see every page refresh)".into()
