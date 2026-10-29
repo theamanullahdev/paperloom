@@ -2,7 +2,7 @@ id = "meter/thin"
 name = "Thin"
 author = "Paperloom"
 description = "Large light numerals and a hairline progress bar, no card."
-kinds = ["cpu", "memory", "disk", "network", "battery", "uptime"]
+kinds = ["cpu", "memory", "disk", "network", "battery", "uptime", "weather", "nowplaying"]
 fonts = ["fonts/Rajdhani-Bold.ttf", "fonts/Rajdhani-Regular.ttf"]
 size = [230, 96]
 

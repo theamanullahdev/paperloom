@@ -220,7 +220,7 @@ mod tests {
     fn a_stack_moves_as_one() {
         let screen = (1920, 1080);
         let preset = preset("stack/pair").unwrap();
-        let mut widgets = Widgets { enabled: true, placed: Vec::new(), stacks: Vec::new() };
+        let mut widgets = Widgets { enabled: true, placed: Vec::new(), ..Widgets::default() };
         let id = widgets.add_stack(&preset, screen).unwrap();
         assert_eq!(widgets.members(id).count(), 2);
         let first = widgets.placed[0].id;
@@ -238,7 +238,7 @@ mod tests {
     fn a_stack_stays_on_the_screen() {
         let screen = (1920, 1080);
         let preset = preset("stack/dashboard").unwrap();
-        let mut widgets = Widgets { enabled: true, placed: Vec::new(), stacks: Vec::new() };
+        let mut widgets = Widgets { enabled: true, placed: Vec::new(), ..Widgets::default() };
         let id = widgets.add_stack(&preset, screen).unwrap();
         widgets.move_member(widgets.placed[0].id, 5.0, 5.0, screen);
         let stack = widgets.stack(id).unwrap();
@@ -249,7 +249,7 @@ mod tests {
     fn the_cap_is_kept() {
         let screen = (1920, 1080);
         let preset = preset("stack/dashboard").unwrap();
-        let mut widgets = Widgets { enabled: true, placed: Vec::new(), stacks: Vec::new() };
+        let mut widgets = Widgets { enabled: true, placed: Vec::new(), ..Widgets::default() };
         let mut added = 0;
         while widgets.add_stack(&preset, screen).is_some() {
             added += 1;

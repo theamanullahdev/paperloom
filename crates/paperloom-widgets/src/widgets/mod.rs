@@ -184,6 +184,39 @@ fn data(kind: &str, skin: &Skin, context: &Context) -> Option<(Vars, Duration)> 
             // The sampler reads the battery every 30 s.
             (vars, context.meter(6))
         }
+        "weather" => match crate::feeds::weather::latest() {
+            Some(weather) => {
+                let unit = if paperloom_common::widgets::Widgets::load().fahrenheit { "°F" } else { "°C" };
+                (
+                    paperloom_skin::meter("Weather", &format!("{}°", weather.temp), &format!("{} · {}", weather.condition, weather.city), None)
+                        .text("temp", weather.temp.to_string())
+                        .text("unit", unit)
+                        .text("condition", weather.condition.clone())
+                        .text("city", weather.city.clone())
+                        .text("feels", weather.feels.to_string())
+                        .text("high", weather.high.to_string())
+                        .text("low", weather.low.to_string())
+                        .text("humidity", weather.humidity.to_string()),
+                    context.meter(10),
+                )
+            }
+            None => {
+                let note = crate::feeds::weather::note();
+                let detail = if note.is_empty() { "Looking up the weather…".to_string() } else { note };
+                (paperloom_skin::meter("Weather", "—", &detail, None), context.meter(3))
+            }
+        },
+        "nowplaying" => match crate::feeds::media::latest() {
+            Some(media) => (
+                paperloom_skin::meter(if media.playing { "Now playing" } else { "Paused" }, &shorten(&media.title, 16), &shorten(&media.artist, 30), media.fraction)
+                    .text("song", media.title.clone())
+                    .text("artist", media.artist.clone())
+                    .text("position", media.position.clone())
+                    .text("length", media.length.clone()),
+                context.meter(1),
+            ),
+            None => (paperloom_skin::meter("Now playing", "—", "Nothing playing: start a song in your music player", None), context.meter(2)),
+        },
         "uptime" => {
             let seconds = sysinfo::System::uptime();
             let (days, hours, minutes) = (seconds / 86_400, seconds / 3_600 % 24, seconds / 60 % 60);
@@ -192,6 +225,15 @@ fn data(kind: &str, skin: &Skin, context: &Context) -> Option<(Vars, Duration)> 
         }
         _ => return None,
     })
+}
+
+/// `text` cut to `max` characters, with an ellipsis when it was longer.
+fn shorten(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_string()
+    } else {
+        format!("{}…", text.chars().take(max.saturating_sub(1)).collect::<String>().trim_end())
+    }
 }
 
 /// 1536 → "1.5 KB", 5 MiB → "5 MB".

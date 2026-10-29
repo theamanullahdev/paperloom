@@ -28,6 +28,8 @@ pub const BUILT_IN: &[Entry] = &[
     Entry { kind: "network", name: "Network", about: "Download and upload speed right now." },
     Entry { kind: "battery", name: "Battery", about: "Charge level, and whether you are plugged in." },
     Entry { kind: "uptime", name: "Uptime", about: "How long this computer has been running." },
+    Entry { kind: "weather", name: "Weather", about: "The temperature and conditions in your city." },
+    Entry { kind: "nowplaying", name: "Now playing", about: "The song and artist from your music player, with its progress." },
 ];
 
 pub fn entry(kind: &str) -> Option<&'static Entry> {
@@ -42,6 +44,10 @@ pub struct Widgets {
     pub placed: Vec<Placed>,
     /// Stacks of widgets on the desktop (see `stacks.rs`).
     pub stacks: Vec<crate::stacks::Stack>,
+    /// The city the weather widget shows; empty = the one this computer's time zone names.
+    pub weather_city: String,
+    /// Degrees Fahrenheit instead of Celsius.
+    pub fahrenheit: bool,
 }
 
 /// One widget on the desktop.
@@ -89,7 +95,7 @@ impl Default for Placed {
 
 impl Default for Widgets {
     fn default() -> Self {
-        Self { enabled: false, placed: vec![Placed::default()], stacks: Vec::new() }
+        Self { enabled: false, placed: vec![Placed::default()], stacks: Vec::new(), weather_city: String::new(), fahrenheit: false }
     }
 }
 
@@ -247,7 +253,7 @@ mod tests {
 
     #[test]
     fn adding_respects_the_cap_and_kinds() {
-        let mut widgets = Widgets { enabled: true, placed: Vec::new(), stacks: Vec::new() };
+        let mut widgets = Widgets { enabled: true, placed: Vec::new(), ..Widgets::default() };
         assert!(widgets.add("nonsense").is_none());
         for _ in 0..MAX_PLACED {
             assert!(widgets.add("clock").is_some());

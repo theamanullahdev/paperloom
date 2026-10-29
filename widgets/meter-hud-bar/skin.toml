@@ -2,7 +2,7 @@ id = "meter/hud-bar"
 name = "HUD bar"
 author = "Paperloom"
 description = "A segmented bar for any meter, with a title, a big value and a detail line."
-kinds = ["cpu", "memory", "disk", "network", "battery", "uptime"]
+kinds = ["cpu", "memory", "disk", "network", "battery", "uptime", "weather", "nowplaying"]
 fonts = ["fonts/Orbitron[wght].ttf", "fonts/ShareTechMono-Regular.ttf"]
 size = [270, 78]
 

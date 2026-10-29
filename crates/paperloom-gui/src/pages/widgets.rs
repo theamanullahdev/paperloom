@@ -64,8 +64,10 @@ pub enum Message {
     RemoveKind(&'static str),
     /// Show (or hide) the widgets of this kind on Add a widget.
     Expand(&'static str),
-    /// A slider was let go: save.
+    /// A slider was let go (or a field submitted): save.
     Commit,
+    WeatherCity(String),
+    Fahrenheit(bool),
     /// Go to the Stacks page.
     ShowStacks,
     /// Put a stack preset on the desktop (by its id).
@@ -608,6 +610,11 @@ impl State {
                 return Task::none();
             }
             Message::Commit => {}
+            Message::WeatherCity(city) => {
+                self.widgets.weather_city = city;
+                return Task::none();
+            }
+            Message::Fahrenheit(on) => self.widgets.fahrenheit = on,
             Message::Drag(id, value) => {
                 if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
                     target.drag = value;
@@ -858,7 +865,27 @@ impl State {
             t,
         );
 
-        column![heading, screen, looks, size, behaviour].spacing(16).into()
+        let mut page = column![heading, screen, looks].spacing(16);
+        // The weather needs to know where you are.
+        if placed.kind == "weather" {
+            page = page.push(section(
+                "Location",
+                "The city the weather is for. Leave it empty to use the city of this computer's time zone.",
+                column![
+                    row![
+                        iced::widget::text_input("Your city, for example Karachi", &self.widgets.weather_city).on_input(Message::WeatherCity).on_submit(Message::Commit).width(Length::Fixed(280.0)),
+                        button(ui::label("Set").color(ui::on_accent())).style(ui::primary).on_press(Message::Commit),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                    toggler(self.widgets.fahrenheit).label("Show degrees Fahrenheit").on_toggle(Message::Fahrenheit),
+                ]
+                .spacing(10)
+                .into(),
+                t,
+            ));
+        }
+        page.push(size).push(behaviour).into()
     }
 
     /// Every kind of widget that can be added, with the ones already placed folded under it.

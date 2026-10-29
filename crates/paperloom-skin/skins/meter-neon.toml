@@ -1,7 +1,7 @@
 id = "meter/neon"
 name = "Neon"
 author = "Paperloom"
-kinds = ["cpu", "memory", "disk", "network", "battery", "uptime"]
+kinds = ["cpu", "memory", "disk", "network", "battery", "uptime", "weather", "nowplaying"]
 size = [230, 104]
 
 [[element]]

@@ -2,7 +2,7 @@ id = "meter/terminal"
 name = "Terminal"
 author = "Paperloom"
 description = "Green phosphor terminal style, with a text bar."
-kinds = ["cpu", "memory", "disk", "network", "battery", "uptime"]
+kinds = ["cpu", "memory", "disk", "network", "battery", "uptime", "weather", "nowplaying"]
 fonts = ["fonts/ShareTechMono-Regular.ttf"]
 size = [270, 104]
 

@@ -132,6 +132,8 @@ pub fn preview(kind: &str) -> Vars {
         "network" => meter("Download", "1.2 MB/s", "Upload 86 KB/s", None).text("down", "1.2 MB/s").text("up", "86 KB/s"),
         "battery" => meter("Battery", "79%", "On battery", Some(0.79)),
         "uptime" => meter("Uptime", "10h 8m", "since this computer started", None),
+        "weather" => meter("Weather", "24°", "Clear sky · Karachi", None).text("temp", "24").text("condition", "Clear sky").text("city", "Karachi").text("feels", "26").text("high", "29").text("low", "19").text("humidity", "48"),
+        "nowplaying" => meter("Now playing", "Blue in Green", "Miles Davis", Some(0.42)).text("song", "Blue in Green").text("artist", "Miles Davis").text("position", "1:52").text("length", "5:37"),
         _ => Vars::new(),
     }
 }

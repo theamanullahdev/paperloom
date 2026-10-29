@@ -9,6 +9,7 @@
 //! removing the last one) ends the process.
 
 mod control;
+mod feeds;
 mod guard;
 mod interact;
 mod render;
@@ -66,6 +67,8 @@ fn main() -> ExitCode {
         control.mark_seen();
         widgets::forget();
         control.sample.set_needs(widgets.placed.iter().map(|placed| placed.kind.as_str()));
+        let has = |kind: &str| widgets.placed.iter().any(|placed| placed.kind == kind);
+        feeds::set_needs(has("weather"), has("nowplaying"));
         if let Err(err) = surface::run(&widgets, &mut text, &mut control) {
             eprintln!("paperloom-widgets: {err}");
             paperloom_common::log::error(&format!("widgets stopped: {err}"));

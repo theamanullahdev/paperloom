@@ -12,6 +12,8 @@ paperloom-skin = { path = "../paperloom-skin" }
 tiny-skia = "0.11"
 sysinfo = { version = "0.39", default-features = false, features = ["system", "disk", "network"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# The weather feed reads Open-Meteo's answers.
+serde_json = "1"
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 x11rb = { version = "0.14", features = ["shape", "randr"] }
@@ -22,6 +24,8 @@ smithay-client-toolkit = { version = "0.21", default-features = false }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
+# What the system's media session is playing (Now playing).
+windows = { version = "0.61", features = ["Foundation", "Media_Control", "Win32_System_WinRT"] }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",

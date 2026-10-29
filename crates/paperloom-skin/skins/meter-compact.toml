@@ -1,7 +1,7 @@
 id = "meter/compact"
 name = "Compact"
 author = "Paperloom"
-kinds = ["cpu", "memory", "disk", "network", "battery", "uptime"]
+kinds = ["cpu", "memory", "disk", "network", "battery", "uptime", "weather", "nowplaying"]
 size = [220, 58]
 
 [[element]]
