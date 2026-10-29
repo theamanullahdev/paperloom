@@ -62,7 +62,7 @@ pub fn convert(ini: &Ini, skin_dir: &Path, root: &Path) -> Converted {
         }
     }
 
-    let mut out = Out { elements: Vec::new(), images: Vec::new(), notes, kinds: BTreeMap::new(), extent: (0.0, 0.0), prev: (0.0, 0.0, 0.0, 0.0), skin_dir, root };
+    let mut out = Out { elements: Vec::new(), images: Vec::new(), notes, kinds: BTreeMap::new(), extent: (0.0, 0.0), prev: (0.0, 0.0, 0.0, 0.0), flow: 0.0, skin_dir, root };
     for section in &ini.sections {
         let Some(meter) = section.get("meter") else { continue };
         if section.get("hidden").and_then(number).is_some_and(|hidden| hidden != 0.0) {
@@ -163,6 +163,8 @@ struct Out<'a> {
     extent: (f32, f32),
     /// The previous meter's x, y, width and height (for `r` and `R` positions).
     prev: (f32, f32, f32, f32),
+    /// Where the next meter whose place is unknown goes.
+    flow: f32,
     skin_dir: &'a Path,
     root: &'a Path,
 }
@@ -188,8 +190,13 @@ impl Out<'_> {
         }
         let first = used.first().copied().flatten();
 
-        let x = position(section.get("x"), self.prev.0, self.prev.2);
-        let y = position(section.get("y"), self.prev.1, self.prev.3);
+        let x = position(section.get("x"), self.prev.0, self.prev.2).unwrap_or(0.0);
+        // A place a script decides can't be known here: such meters stack top to bottom instead of piling up.
+        let flowed = position(section.get("y"), self.prev.1, self.prev.3).is_none();
+        let y = position(section.get("y"), self.prev.1, self.prev.3).unwrap_or(self.flow);
+        if flowed {
+            self.notes.push(format!("{}: its place comes from a script, so it is stacked instead", section.name));
+        }
         let mut w = section.get("w").and_then(number).unwrap_or(0.0);
         let mut h = section.get("h").and_then(number).unwrap_or(0.0);
 
@@ -375,6 +382,9 @@ impl Out<'_> {
             other => self.notes.push(format!("{}: {other} meters", section.name)),
         }
         self.prev = (x, y, w, h);
+        if flowed {
+            self.flow = y + h.max(8.0) + 6.0;
+        }
     }
 
     fn push(&mut self, element: Table) {
@@ -414,14 +424,15 @@ impl Out<'_> {
 }
 
 /// `10`, `10r` (from the previous meter's position) or `10R` (from its far edge).
-fn position(value: Option<&str>, prev: f32, prev_size: f32) -> f32 {
-    let Some(value) = value.map(str::trim) else { return 0.0 };
+/// `None` when it is written but can't be worked out (a variable a script sets).
+fn position(value: Option<&str>, prev: f32, prev_size: f32) -> Option<f32> {
+    let Some(value) = value.map(str::trim) else { return Some(0.0) };
     if let Some(offset) = value.strip_suffix('r') {
-        prev + number(offset).unwrap_or(0.0)
+        number(offset).map(|offset| prev + offset)
     } else if let Some(offset) = value.strip_suffix('R') {
-        prev + prev_size + number(offset).unwrap_or(0.0)
+        number(offset).map(|offset| prev + prev_size + offset)
     } else {
-        number(value).unwrap_or(0.0)
+        number(value)
     }
 }
 
@@ -525,8 +536,10 @@ mod tests {
 
     #[test]
     fn positions() {
-        assert_eq!(position(Some("10r"), 5.0, 20.0), 15.0);
-        assert_eq!(position(Some("10R"), 5.0, 20.0), 35.0);
-        assert_eq!(position(Some("(4*2)"), 5.0, 20.0), 8.0);
+        assert_eq!(position(Some("10r"), 5.0, 20.0), Some(15.0));
+        assert_eq!(position(Some("10R"), 5.0, 20.0), Some(35.0));
+        assert_eq!(position(Some("(4*2)"), 5.0, 20.0), Some(8.0));
+        assert_eq!(position(Some("#xpos_now#"), 5.0, 20.0), None);
+        assert_eq!(position(None, 5.0, 20.0), Some(0.0));
     }
 }
