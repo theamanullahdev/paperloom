@@ -207,6 +207,26 @@ jobs:
         run: Copy-Item dist-signed\* dist\ -Force
         env:
           SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      # Small updates: the files of this install, each packed under its checksum,
+      # and a list of them. A file unchanged since the last release keeps pointing
+      # at the earlier release's copy, so only what changed is uploaded.
+      - name: Files for small updates
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.v.outputs.version }}"
+          $previous = $null
+          $tag = gh release list --limit 5 --json tagName --jq "[.[].tagName | select(. != ""v$version"")][0]"
+          if ($tag -and $tag -ne "null") {
+            gh release download $tag --pattern "*-windows-x86_64-manifest.json" --dir prev --clobber 2>$null
+            $found = Get-ChildItem prev -Filter *manifest.json -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $previous = $found.FullName }
+          }
+          $arguments = @("scripts/make-update-manifest.py", "C:\stage", $version, "dist", "https://github.com/${{ github.repository }}/releases/download/v$version")
+          if ($previous) { $arguments += @("--previous", $previous) }
+          python @arguments
+          Get-ChildItem dist
       - uses: actions/upload-artifact@v4
         with:
           name: packages-windows

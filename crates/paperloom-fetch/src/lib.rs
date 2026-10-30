@@ -6,6 +6,7 @@
 mod aggregate;
 mod cache;
 mod download;
+pub mod delta;
 mod generic;
 mod http;
 pub mod keywords;

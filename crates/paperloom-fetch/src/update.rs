@@ -170,7 +170,7 @@ impl Release {
     pub fn platform_assets(&self) -> Vec<&Asset> {
         let os = os_token();
         let arch = std::env::consts::ARCH;
-        self.assets.iter().filter(|asset| asset.name.contains(&format!("-{os}-{arch}"))).collect()
+        self.assets.iter().filter(|asset| asset.name.contains(&format!("-{os}-{arch}")) && !asset.name.ends_with(crate::delta::MANIFEST_SUFFIX)).collect()
     }
 
     pub fn checksums_url(&self) -> Option<String> {
@@ -473,7 +473,7 @@ pub struct UpdateDownload {
     cancel: Arc<AtomicBool>,
 }
 
-const MAX_ATTEMPTS: u32 = 6;
+pub(crate) const MAX_ATTEMPTS: u32 = 6;
 
 impl UpdateDownload {
     pub fn start(release: &Release, asset: &Asset) -> Self {
@@ -501,6 +501,45 @@ impl UpdateDownload {
         {
             let (state, cancel) = (state.clone(), cancel.clone());
             std::thread::spawn(move || run_download(&state, &cancel, checksums_url));
+        }
+        Self { state, cancel }
+    }
+
+    /// A small update: only the files that changed since the installed version
+    /// (see `delta`). Shows up like any other download; installing it puts the
+    /// files in place instead of starting an installer.
+    pub fn start_quick(release: &Release) -> Self {
+        let dir = paperloom_common::updates_dir();
+        let name = format!("paperloom-{}-windows-x86_64-update{}", release.version, crate::delta::MARKER_SUFFIX);
+        let manifest = crate::delta::manifest_asset(release);
+        let state = DownloadState {
+            asset: Asset {
+                name: name.clone(),
+                size: 0,
+                url: manifest.map(|asset| asset.url.clone()).unwrap_or_default(),
+                content_type: String::new(),
+                download_count: 0,
+                sha256: None,
+            },
+            version: release.version.clone(),
+            part_path: dir.join(format!("{name}.part")),
+            path: dir.join(&name),
+            phase: Phase::Downloading,
+            bytes_done: 0,
+            bytes_total: None,
+            attempts: 1,
+            checksum_source: Some("each file's SHA-256 from the update list"),
+            expected_sha256: None,
+            actual_sha256: None,
+            message: Some("Checking what changed…".into()),
+            started: Instant::now(),
+            finished: None,
+        };
+        let state = Arc::new(Mutex::new(state));
+        let cancel = Arc::new(AtomicBool::new(false));
+        {
+            let (state, cancel, release) = (state.clone(), cancel.clone(), release.clone());
+            std::thread::spawn(move || run_quick(&state, &cancel, &release));
         }
         Self { state, cancel }
     }
@@ -607,6 +646,35 @@ fn run_download(state: &Mutex<DownloadState>, cancel: &AtomicBool, checksums_url
     prune_downloads(&path);
 }
 
+fn run_quick(state: &Mutex<DownloadState>, cancel: &AtomicBool, release: &Release) {
+    let update = |f: &dyn Fn(&mut DownloadState)| f(&mut state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+    let result = crate::delta::download(release, cancel, |done, total, what| {
+        update(&|s| {
+            s.bytes_done = done;
+            if total > 0 {
+                s.bytes_total = Some(total);
+            }
+            s.message = Some(if what.contains('.') { format!("Downloading {what}") } else { what.to_string() });
+        })
+    });
+    match result {
+        Ok((path, total, full)) => update(&|s| {
+            s.path = path.clone();
+            s.bytes_done = total;
+            s.bytes_total = Some(total);
+            s.phase = Phase::Ready;
+            s.message = Some(format!("Verified every file: {} MB instead of the {} MB installer", total.div_ceil(1_048_576), full.div_ceil(1_048_576)));
+            s.finished = Some(Instant::now());
+        }),
+        Err(_) if cancel.load(Ordering::Relaxed) => update(&|s| {
+            s.phase = Phase::Cancelled;
+            s.message = Some("Cancelled".into());
+            s.finished = Some(Instant::now());
+        }),
+        Err(message) => fail(state, message),
+    }
+}
+
 /// Keeps the updates folder small: the installer just downloaded (`keep`)
 /// and the newest one older than it (to go back to), nothing else.
 /// Leftover partial downloads go too. Files that aren't Paperloom
@@ -639,7 +707,7 @@ fn fail(state: &Mutex<DownloadState>, message: String) {
 }
 
 /// One resumable attempt into `part` (continues it with `Range` if it exists).
-fn attempt(url: &str, part: &Path, cancel: &AtomicBool, mut progress: impl FnMut(u64, Option<u64>)) -> Result<(), FetchError> {
+pub(crate) fn attempt(url: &str, part: &Path, cancel: &AtomicBool, mut progress: impl FnMut(u64, Option<u64>)) -> Result<(), FetchError> {
     let io = |err: std::io::Error| FetchError::Transient(format!("disk error: {err}"));
     if let Some(parent) = part.parent() {
         fs::create_dir_all(parent).map_err(io)?;
@@ -686,7 +754,7 @@ fn attempt(url: &str, part: &Path, cancel: &AtomicBool, mut progress: impl FnMut
     }
 }
 
-fn sha256_file(path: &Path) -> std::io::Result<String> {
+pub(crate) fn sha256_file(path: &Path) -> std::io::Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 256 * 1024];
@@ -723,6 +791,8 @@ pub enum AfterLaunch {
     /// Linux: the package is installed (after the system password prompt);
     /// restarting Paperloom switches to it.
     Installed,
+    /// A small update was put in place: restart Paperloom (and its helpers) to use it.
+    Updated,
 }
 
 /// Installs the downloaded update. On Linux that's the system's own
@@ -735,6 +805,9 @@ pub fn launch_installer(path: &Path) -> Result<AfterLaunch, String> {
     let spawn = |program: &str, args: &[&std::ffi::OsStr]| {
         std::process::Command::new(program).args(args).spawn().map(|_| ()).map_err(|err| format!("couldn't start {program}: {err}"))
     };
+    if name.ends_with(crate::delta::MARKER_SUFFIX) {
+        return crate::delta::apply(path).map(|()| AfterLaunch::Updated);
+    }
     match InstallKind::of_asset(&name) {
         Some(InstallKind::WindowsSetup) => {
             std::process::Command::new(path).spawn().map_err(|err| format!("couldn't start the installer: {err}"))?;

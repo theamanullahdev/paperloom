@@ -72,6 +72,8 @@ pub fn diagnostics_extra() -> Vec<(String, Vec<String>)> {
 
 pub fn main() -> iced::Result {
     paperloom_common::log::init("gui");
+    // Files an earlier small update moved aside are deleted now (they were in use then).
+    std::thread::spawn(paperloom_fetch::delta::cleanup);
     let args: Vec<String> = std::env::args().collect();
     let value_of = |flag: &str| args.iter().position(|arg| arg == flag).and_then(|at| args.get(at + 1)).cloned();
 

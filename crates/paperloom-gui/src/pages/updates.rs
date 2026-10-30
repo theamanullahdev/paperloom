@@ -61,6 +61,8 @@ pub enum Message {
     Restart,
     CheckNow,
     Select(String),
+    /// Download only what changed since this installed version.
+    QuickDownload(String),
     VersionTapped,
     Tab(DetailTab),
     Checked(Result<Box<CheckReport>, String>),
@@ -177,6 +179,16 @@ impl State {
                 self.note(format!("Check failed: {error}"));
                 self.check = Check::Failed(error);
             }
+            Message::QuickDownload(version) => {
+                let Check::Done(report) = &self.check else { return Task::none() };
+                let Some(release) = report.releases.iter().find(|r| r.version.to_string() == version) else { return Task::none() };
+                if let Some(old) = self.download.take() {
+                    old.cancel();
+                }
+                self.download = Some(UpdateDownload::start_quick(release));
+                self.speed = None;
+                self.note(format!("Small update to {version}: downloading only the files that changed"));
+            }
             Message::Download { version, asset } => {
                 let Check::Done(report) = &self.check else { return Task::none() };
                 let release = report.releases.iter().find(|r| r.version.to_string() == version);
@@ -220,6 +232,11 @@ impl State {
                         // The installer replaces both executables: let it.
                         crate::engine_client::quit();
                         std::process::exit(0);
+                    }
+                    Ok(AfterLaunch::Updated) => {
+                        // The new files are in place: start the new version (and its helpers) and leave.
+                        self.note("Update put in place: restarting Paperloom");
+                        crate::engine_client::restart_app();
                     }
                     Ok(AfterLaunch::KeepRunning) => self.note("Installer opened — finish there, then restart Paperloom"),
                     Ok(AfterLaunch::Installed) => {
@@ -521,6 +538,27 @@ impl State {
             if release.version < report.current {
                 body = body.push(text("An older version: installing it replaces the one you have now. Your library and settings are kept.").size(12).color(t.muted_foreground));
             }
+            // Only what changed: usually a fraction of the installer.
+            if release.version != report.current && paperloom_fetch::delta::offered(release) {
+                body = body.push(
+                    container(
+                        row![
+                            column![
+                                text("Small update").size(14).color(t.foreground),
+                                text("Downloads only the files that changed since your version, usually a small part of the installer. Everything is checked before it is used.").size(12).color(t.muted_foreground),
+                            ]
+                            .spacing(2)
+                            .width(Length::Fill),
+                            button(crate::ui::label("Download").size(12)).padding([4, 10]).on_press_maybe((!self.is_downloading()).then(|| Message::QuickDownload(version.clone()))),
+                        ]
+                        .spacing(12)
+                        .align_y(Alignment::Center),
+                    )
+                    .padding(10)
+                    .width(Length::Fill)
+                    .style(move |_theme| container::Style { border: Border { color: t.primary, width: 1.0, radius: 4.0.into() }, ..container::Style::default() }),
+                );
+            }
             body = body.push(text("Installers for this computer").size(13).color(t.muted_foreground));
             let assets = release.platform_assets();
             if assets.is_empty() {
@@ -617,7 +655,11 @@ impl State {
             Phase::Failed | Phase::Cancelled => {
                 actions = actions.push(small(
                     "Try again",
-                    Message::Download { version: s.version.to_string(), asset: s.asset.name.clone() },
+                    if s.asset.name.ends_with(paperloom_fetch::delta::MARKER_SUFFIX) {
+                        Message::QuickDownload(s.version.to_string())
+                    } else {
+                        Message::Download { version: s.version.to_string(), asset: s.asset.name.clone() }
+                    },
                 ));
             }
         }
