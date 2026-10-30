@@ -106,19 +106,33 @@ pub fn run(settings: &Settings, progress: Progress) -> String {
             Err(output.lines().filter(|line| line.starts_with("[FAIL]")).collect::<Vec<_>>().join(" | "))
         }
     });
+    report.step("widgets can be seen on the desktop (a test patch is looked for on the screen)", || {
+        let output = super::actions::widgets_probe()?;
+        if output.lines().any(|line| line.starts_with("[FAIL] widgets can NOT")) {
+            return Err(output.lines().filter(|line| line.starts_with("[FAIL]")).collect::<Vec<_>>().join(" | "));
+        }
+        Ok(output.lines().find(|line| line.starts_with("[PASS] widgets can be seen")).map(|line| line.trim_start_matches("[PASS] ").to_string()).unwrap_or_else(|| output.lines().next().unwrap_or_default().trim_start_matches("[INFO] ").to_string()))
+    });
     report.step("widgets status", || {
         let running = paperloom_common::widgets::is_running();
         let status = paperloom_common::widgets::Status::read().unwrap_or_default();
         let widgets = paperloom_common::widgets::Widgets::load();
         let line = format!(
-            "{} · {} placed, widgets {} · draws on: {} · {}",
+            "{} · {} placed, widgets {} · draws on: {} · seen on screen: {} · {}",
             if running { "running" } else { "not running" },
             widgets.placed.len(),
             if widgets.enabled { "on" } else { "off" },
             if status.backend.is_empty() { "—" } else { &status.backend },
+            if status.verified { "yes" } else { "no" },
             if status.paused.is_empty() { "not hidden".to_string() } else { format!("hidden: {}", status.paused) }
         );
-        if status.problem.is_empty() { Ok(line) } else { Err(format!("{line} · problem: {}", status.problem)) }
+        // Running, switched on and not hidden on purpose, yet nothing was seen: that is a failure.
+        let should_show = running && widgets.enabled && status.paused.is_empty();
+        if !status.problem.is_empty() || (should_show && !status.verified && cfg!(windows)) {
+            Err(format!("{line} · problem: {}", if status.problem.is_empty() { "widgets are on but nothing was seen on the screen yet" } else { &status.problem }))
+        } else {
+            Ok(line)
+        }
     });
     report.step("ffmpeg runs", || {
         let output = paperloom_common::process::command("ffmpeg").arg("-version").output().map_err(|err| format!("could not start ffmpeg: {err}"))?;

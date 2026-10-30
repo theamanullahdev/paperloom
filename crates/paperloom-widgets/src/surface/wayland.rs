@@ -91,6 +91,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
 
     paperloom_common::widgets::Status::update(|status| {
         status.backend = "wayland".into();
+        status.verified = true;
         status.windows = app.windows.len() as u32;
     });
     while !app.exit && !control.changed() {

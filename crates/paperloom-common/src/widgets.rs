@@ -212,6 +212,9 @@ pub struct Status {
     /// `x11`, `wayland`, `macos`, `windows (raised desktop)`, `windows (classic desktop)`, `windows (plain windows)`.
     pub backend: String,
     pub windows: u32,
+    /// The windows were put on screen and, where it can be checked (Windows), a test patch
+    /// drawn in one of them was seen on the screen. Never true on a guess.
+    pub verified: bool,
     /// Why nothing is drawn right now; empty when it is drawing.
     pub paused: String,
     /// The last thing that went wrong; empty when nothing did.

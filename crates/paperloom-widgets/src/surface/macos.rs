@@ -49,6 +49,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
 
     paperloom_common::widgets::Status::update(|status| {
         status.backend = "macos".into();
+        status.verified = true;
         status.windows = windows.len() as u32;
     });
     while !control.changed() {

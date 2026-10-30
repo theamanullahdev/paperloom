@@ -75,6 +75,7 @@ pub fn run() -> ExitCode {
     });
     step("the process is running", &mut || Ok(if widgets::is_running() { "yes".to_string() } else { "no (that is fine for a self-test)".to_string() }));
 
+    println!("[INFO] this check only draws the pictures in memory: it puts nothing on the screen, so it can pass while no widget is visible. Use the desktop test for that.");
     println!("{}", if failures == 0 { "All checks passed." } else { "Some checks failed." });
     if failures == 0 {
         ExitCode::SUCCESS

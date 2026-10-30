@@ -477,8 +477,9 @@ impl State {
             column![
                 heading("Run", t),
                 row![go("Start", Action::WidgetsStart), go("Quit", Action::WidgetsQuit), go("Restart", Action::WidgetsRestart)].spacing(8),
-                row![go("Self-test (no desktop)", Action::WidgetsSelfTest), go("Show test widgets (20 s)", Action::WidgetsTest)].spacing(8),
-                text("Self-test draws every look and reads the meters without touching the desktop. Show test widgets puts a clock, the date and two meters on screen for 20 seconds as plain windows, ignoring the pause rules: if they show, drawing works.")
+                row![go("Test on the real desktop", Action::WidgetsProbe), go("Show test widgets (20 s)", Action::WidgetsTest)].spacing(8),
+                row![go("Drawing self-test (no screen)", Action::WidgetsSelfTest)].spacing(8),
+                text("Test on the real desktop tries every way of showing widgets here and looks for a test patch on the screen itself: it fails when nothing can be seen. Show test widgets puts a clock, the date and two meters where widgets really sit, ignoring the pause rules. The drawing self-test only draws the pictures in memory and puts nothing on screen: it can pass while no widget is visible.")
                     .size(12)
                     .color(t.muted_foreground),
             ]

@@ -64,7 +64,7 @@ impl Control {
             return false;
         }
         self.last_check = Instant::now();
-        self.engine_paused = EngineState::load().auto_paused;
+        self.engine_paused = engine_is_pausing();
         // Say why nothing shows (or that it does), where the developer page can read it.
         let why = self.pause_reason().unwrap_or_default();
         if why != self.reported {
@@ -103,4 +103,19 @@ impl Control {
     pub fn refresh_sample(&mut self) {
         self.sample.refresh();
     }
+}
+
+/// The wallpaper engine says it paused itself (a fullscreen app, the lock screen, battery…)
+/// — but only if it is still running with a wallpaper. The flag stays in the state file
+/// when the engine quits or crashes while paused, and must not hide widgets for good.
+fn engine_is_pausing() -> bool {
+    let state = EngineState::load();
+    if !state.auto_paused || state.current_wallpaper.is_none() || state.engine.pid == 0 {
+        return false;
+    }
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+    let pid = Pid::from_u32(state.engine.pid);
+    let mut system = System::new();
+    system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), true, ProcessRefreshKind::nothing());
+    system.process(pid).is_some_and(|process| process.name().to_string_lossy().to_lowercase().starts_with("paperloom"))
 }

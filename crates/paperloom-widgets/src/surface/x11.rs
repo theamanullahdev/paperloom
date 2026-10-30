@@ -116,6 +116,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
     }
     paperloom_common::widgets::Status::update(|status| {
         status.backend = "x11".into();
+        status.verified = true;
         status.windows = windows.len() as u32;
     });
     let shared = Shared { root: screen.root, depth, visual, colormap, gc, screen: (screen_w, screen_h) };

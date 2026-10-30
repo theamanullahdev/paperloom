@@ -55,12 +55,28 @@ pub enum Action {
     WidgetsRestart,
     WidgetsSelfTest,
     WidgetsTest,
+    WidgetsProbe,
 }
 
 impl Action {
     /// Belongs on the Widgets tab.
     pub fn is_widgets(self) -> bool {
-        matches!(self, Action::WidgetsStart | Action::WidgetsQuit | Action::WidgetsRestart | Action::WidgetsSelfTest | Action::WidgetsTest)
+        matches!(self, Action::WidgetsStart | Action::WidgetsQuit | Action::WidgetsRestart | Action::WidgetsSelfTest | Action::WidgetsTest | Action::WidgetsProbe)
+    }
+}
+
+/// Runs `paperloom-widgets --probe`: every way of showing widgets on this desktop, with a test
+/// patch looked for on the screen itself. The text it printed; `Err` when it could not run.
+pub fn widgets_probe() -> Result<String, String> {
+    let program = paperloom_common::process::sibling_binary("paperloom-widgets").ok_or("paperloom-widgets was not found beside paperloom-gui")?;
+    let mut command = std::process::Command::new(program);
+    paperloom_common::process::hide_console(&mut command);
+    let output = command.arg("--probe").stdin(std::process::Stdio::null()).output().map_err(|err| format!("couldn't start it: {err}"))?;
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        Err(format!("it printed nothing (exit {:?}) — see Logs → Widgets and Logs → Crash", output.status.code()))
+    } else {
+        Ok(text)
     }
 }
 
@@ -162,13 +178,14 @@ pub fn run(action: Action, settings: &Settings) -> String {
             }
         }
         Action::WidgetsSelfTest => widgets_selftest().unwrap_or_else(|err| format!("Self-test failed to run: {err}")),
+        Action::WidgetsProbe => widgets_probe().unwrap_or_else(|err| format!("[FAIL] the desktop test failed to run: {err}")),
         Action::WidgetsTest => {
             crate::engine_client::end_widgets();
             let Some(program) = paperloom_common::process::sibling_binary("paperloom-widgets") else { return "paperloom-widgets was not found beside paperloom-gui".into() };
             let mut command = std::process::Command::new(program);
             paperloom_common::process::hide_console(&mut command);
             match command.args(["--test", "20"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).spawn() {
-                Ok(_) => "Showing a test clock, date, processor and memory widget for 20 seconds, ignoring the pause rules. If you see them, drawing works; if not, read Status → problem. Your own widgets come back afterwards.".into(),
+                Ok(_) => "Showing a test clock, date, processor and memory widget for 20 seconds exactly where widgets sit (between the wallpaper and the icons, or just above the desktop), ignoring the pause rules. Look at the desktop: if you can't see them, Status → problem says why. Your own widgets come back afterwards.".into(),
                 Err(err) => format!("Couldn't start the test: {err}"),
             }
         }

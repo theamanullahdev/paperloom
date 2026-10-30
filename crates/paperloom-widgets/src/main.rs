@@ -28,6 +28,13 @@ fn main() -> ExitCode {
     if args.iter().any(|arg| arg == "--selftest") {
         return selftest::run();
     }
+    if args.iter().any(|arg| arg == "--probe") {
+        let lines = surface::probe();
+        for line in &lines {
+            println!("{line}");
+        }
+        return if lines.iter().any(|line| line.starts_with("[FAIL]")) { ExitCode::FAILURE } else { ExitCode::SUCCESS };
+    }
     let testing = args.iter().any(|arg| arg == "--test");
     let Some(running) = Running::claim() else {
         if testing {

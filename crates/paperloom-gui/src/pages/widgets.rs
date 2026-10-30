@@ -157,6 +157,8 @@ pub struct State {
     removed: Vec<widgets::Placed>,
     /// The widget whose ⋯ menu is open.
     menu: Option<u32>,
+    /// What the widgets process says about itself (where it draws, whether anything was seen).
+    status: widgets::Status,
     /// The stack whose own page is open, on My widgets.
     open_stack: Option<u32>,
     /// The stack / the stack preset whose ⋯ menu is open.
@@ -189,7 +191,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), menu: None, open_stack: None, menu_stack: None, menu_preset: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), menu: None, status: widgets::Status::read().unwrap_or_default(), open_stack: None, menu_stack: None, menu_preset: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
@@ -204,6 +206,7 @@ impl State {
 
     /// Re-reads the file (another window, the tray, or a reset may have changed it).
     pub fn open(&mut self) -> Task<Message> {
+        self.status = widgets::Status::read().unwrap_or_default();
         // A way back stays until it is dismissed; other lines are about the page you left.
         if !self.notice.as_ref().is_some_and(|notice| matches!(notice.action, Some((_, Message::Undo)))) {
             self.notice = None;
@@ -261,6 +264,7 @@ impl State {
     /// (a new wallpaper; a new minute for the clocks).
     fn tick(&mut self) -> Task<Message> {
         self.running = widgets::is_running();
+        self.status = widgets::Status::read().unwrap_or_default();
         let mut tasks = Vec::new();
         if self.stacks_tab == BrowseTab::Online {
             tasks.push(self.stacks_online.retry().map(Message::StackOnline));
@@ -687,10 +691,29 @@ impl State {
         Task::none()
     }
 
+    /// What to tell the user about the widgets: never "showing" unless the process has seen
+    /// them on the screen, and the reason in words when it can't.
+    fn state_line(&self, t: theme::Tokens) -> (String, iced::Color) {
+        let status = &self.status;
+        if !self.running {
+            return (if self.widgets.enabled { "Starting…" } else { "Hidden" }.to_string(), t.muted_foreground);
+        }
+        if !status.paused.is_empty() {
+            return ("Hidden for now".to_string(), t.muted_foreground);
+        }
+        if !status.problem.is_empty() && !status.verified {
+            return ("Can't show the widgets".to_string(), t.destructive);
+        }
+        if status.verified {
+            return ("Showing on the desktop".to_string(), t.success);
+        }
+        ("Checking that they show…".to_string(), t.muted_foreground)
+    }
+
     pub fn header<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let state = if self.running { "Showing on the desktop" } else if self.widgets.enabled { "Starting…" } else { "Hidden" };
+        let (state, color) = self.state_line(t);
         row![
-            text(state).size(13).color(if self.running { t.success } else { t.muted_foreground }),
+            text(state).size(13).color(color),
             toggler(self.widgets.enabled).label("Show widgets").on_toggle(Message::SetEnabled),
         ]
         .spacing(16)
@@ -715,6 +738,34 @@ impl State {
                     .width(Length::Fill)
                     .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.primary, width: 1.0, radius: 8.0.into() }, ..container::Style::default() }),
             );
+        }
+        // Running, but nothing can be seen: say why, in words, where it can't be missed.
+        if self.running && self.widgets.enabled && !self.status.problem.is_empty() && !self.status.verified {
+            page = page.push(
+                container(
+                    column![
+                        text("The widgets are running but can't be shown on this desktop").size(15).color(t.destructive),
+                        text(self.status.problem.clone()).size(13).color(t.foreground),
+                        text("Settings → Developer mode → Developers → Widgets has a test that tries every way and reports which one works. Send its result along with the report.").size(12).color(t.muted_foreground),
+                    ]
+                    .spacing(4),
+                )
+                .padding([10, 16])
+                .width(Length::Fill)
+                .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.destructive, width: 1.0, radius: 8.0.into() }, ..container::Style::default() }),
+            );
+        }
+        // Running but hidden on purpose (the wallpaper's pause rules): say which.
+        if self.running && self.widgets.enabled && !self.status.paused.is_empty() {
+            page = page.push(panel(
+                column![
+                    text("The widgets are hidden right now").size(15).color(t.foreground),
+                    text(format!("Because {}. They come back by themselves.", self.status.paused)).size(13).color(t.muted_foreground),
+                ]
+                .spacing(2)
+                .into(),
+                t,
+            ));
         }
         // Placed but switched off: say so where it can't be missed, with the way back.
         if !self.widgets.enabled && !self.widgets.placed.is_empty() {

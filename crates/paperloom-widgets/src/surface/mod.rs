@@ -47,3 +47,12 @@ pub fn test_widgets() -> paperloom_common::widgets::Widgets {
     }
     widgets
 }
+
+/// `--probe` on platforms where the screen can't be read back: nothing to report.
+#[cfg(not(windows))]
+pub fn probe() -> Vec<String> {
+    vec!["[INFO] the on-screen check is available on Windows only".to_string()]
+}
+
+#[cfg(windows)]
+pub use windows::probe;
