@@ -48,6 +48,8 @@ fn main() -> ExitCode {
     });
     paperloom_skin::set_user_dir(&paperloom_common::skins_dir());
 
+    // Errors in a row: one is retried (a hiccup of the desktop), several stop the process.
+    let mut failures = 0;
     loop {
         // A look may have been installed (or removed) since the last pass.
         paperloom_skin::refresh();
@@ -69,11 +71,20 @@ fn main() -> ExitCode {
         control.sample.set_needs(widgets.placed.iter().map(|placed| placed.kind.as_str()));
         let has = |kind: &str| widgets.placed.iter().any(|placed| placed.kind == kind);
         feeds::set_needs(has("weather"), has("nowplaying"));
+        let started = std::time::Instant::now();
         if let Err(err) = surface::run(&widgets, &mut text, &mut control) {
             eprintln!("paperloom-widgets: {err}");
-            paperloom_common::log::error(&format!("widgets stopped: {err}"));
             paperloom_common::widgets::Status::update(|status| status.problem = err.to_string());
-            return ExitCode::FAILURE;
+            // A pass that ran for a while was fine before it failed.
+            failures = if started.elapsed() > std::time::Duration::from_secs(30) { 1 } else { failures + 1 };
+            if failures >= 5 {
+                paperloom_common::log::error(&format!("widgets stopped after repeated failures: {err}"));
+                return ExitCode::FAILURE;
+            }
+            paperloom_common::log::warn(&format!("widgets: {err}; trying again"));
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        } else {
+            failures = 0;
         }
     }
 }

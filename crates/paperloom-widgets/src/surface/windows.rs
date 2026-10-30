@@ -13,6 +13,7 @@
 use std::error::Error;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -32,7 +33,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, EnumWindows, GetCursorPos, GetParent,
     GetWindowLongPtrW, GetWindowRect, PostMessageW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, FindWindowExW, FindWindowW, GetSystemMetrics, GetTopWindow, GetWindow,
     IsWindow, PeekMessageW, RegisterClassExW, SendMessageTimeoutW, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow,
-    GW_HWNDNEXT, HWND_TOP, MSG, PM_REMOVE, SMTO_NORMAL, SM_CXSCREEN, SM_CYSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE,
+    GW_HWNDNEXT, GW_HWNDPREV, HWND_TOP, MSG, PM_REMOVE, SMTO_NORMAL, SM_CXSCREEN, SM_CYSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNOACTIVATE, ULW_ALPHA, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, GWLP_USERDATA, MF_STRING, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_LBUTTONDOWN, WM_LBUTTONUP,
     WM_MOUSEMOVE, WM_NULL, WM_RBUTTONUP,
@@ -47,6 +48,15 @@ use crate::render::Text;
 use crate::widgets::{self, Context};
 
 const CLASS_NAME: &str = "PaperloomWidget";
+
+/// The window class and the menu's owner window are made once per process (a
+/// reload of the settings runs the surface again, and a class can't be
+/// registered twice).
+static CLASS_READY: AtomicBool = AtomicBool::new(false);
+static OWNER: AtomicIsize = AtomicIsize::new(0);
+/// Set once this machine refused a layered child window of the desktop (or one
+/// that never painted): from then on widgets are plain windows just above it.
+static DESKTOP_UNSUPPORTED: AtomicBool = AtomicBool::new(false);
 /// How often the stacking order is verified.
 const RESTACK_EVERY: Duration = Duration::from_secs(5);
 
@@ -56,6 +66,8 @@ fn wide(value: &str) -> Vec<u16> {
 
 struct Window {
     hwnd: HWND,
+    /// Showing a picture failed (logged once).
+    failed: bool,
     placed: Placed,
     pixmap: Option<Pixmap>,
     due: Instant,
@@ -66,6 +78,8 @@ struct Window {
 struct Layer {
     parent: HWND,
     icons: Option<HWND>,
+    /// Plain windows: the desktop window (Progman) they are kept directly above.
+    desktop: Option<HWND>,
 }
 
 pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<(), Box<dyn Error>> {
@@ -77,15 +91,21 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
         // Test mode shows plain windows on top, to prove drawing works even where
         // attaching to the desktop doesn't; otherwise the desktop first, and
         // plain windows beneath everything else if the desktop refuses us.
-        let first = if control.testing() { Mode::PlainTop } else { Mode::Desktop };
+        let first = if control.testing() {
+            Mode::PlainTop
+        } else if DESKTOP_UNSUPPORTED.load(Ordering::Relaxed) || paperloom_common::dev::DevSwitches::active().widgets_plain_windows {
+            Mode::PlainAbove
+        } else {
+            Mode::Desktop
+        };
         let built = build(widgets, first).or_else(|err| {
-            paperloom_common::log::warn(&format!("widgets: couldn't attach to the desktop ({err}); using plain windows instead"));
-            paperloom_common::widgets::Status::update(|status| status.problem = format!("couldn't attach to the desktop: {err}"));
-            if first == Mode::Desktop {
-                build(widgets, Mode::PlainBottom)
-            } else {
-                Err(err)
+            if first != Mode::Desktop {
+                return Err(err);
             }
+            DESKTOP_UNSUPPORTED.store(true, Ordering::Relaxed);
+            paperloom_common::log::warn(&format!("widgets: couldn't attach to the desktop ({err}); using plain windows just above it instead"));
+            paperloom_common::widgets::Status::update(|status| status.problem = format!("couldn't attach to the desktop: {err}"));
+            build(widgets, Mode::PlainAbove)
         });
         let (layer, mut windows) = match built {
             Ok(built) => built,
@@ -137,7 +157,18 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 };
                 window.due = now + frame.next_change;
                 let Some(pixmap) = frame.pixmap else { continue };
-                present(window.hwnd, &pixmap, window.placed.opacity);
+                if !present(window.hwnd, &pixmap, window.placed.opacity) && !window.failed {
+                    window.failed = true;
+                    let why = last_error("UpdateLayeredWindow");
+                    paperloom_common::log::warn(&format!("widgets: a widget picture couldn't be shown ({why})"));
+                    paperloom_common::widgets::Status::update(|status| status.problem = format!("a widget picture couldn't be shown ({why})"));
+                    // Attached to the desktop but nothing can be painted there: use plain windows instead.
+                    if layer.parent.is_null() {
+                        continue;
+                    }
+                    DESKTOP_UNSUPPORTED.store(true, Ordering::Relaxed);
+                    break 'alive;
+                }
                 window.pixmap = Some(pixmap);
             }
             if now >= next_restack {
@@ -245,6 +276,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
 }
 
 fn register_class() -> Result<(), Box<dyn Error>> {
+    if CLASS_READY.load(Ordering::Relaxed) {
+        return Ok(());
+    }
     // SAFETY: a zeroed WNDCLASSEXW with its fields filled in; the class name outlives the call.
     unsafe {
         let name = wide(CLASS_NAME);
@@ -253,16 +287,22 @@ fn register_class() -> Result<(), Box<dyn Error>> {
         class.lpfnWndProc = Some(window_proc);
         class.hInstance = GetModuleHandleW(std::ptr::null());
         class.lpszClassName = name.as_ptr();
-        if RegisterClassExW(&class) == 0 {
-            return Err("couldn't register the widget window class".into());
+        // 1410 = already registered (by an earlier pass of this process): fine.
+        if RegisterClassExW(&class) == 0 && windows_sys::Win32::Foundation::GetLastError() != 1410 {
+            return Err(last_error("couldn't register the widget window class").into());
         }
     }
+    CLASS_READY.store(true, Ordering::Relaxed);
     Ok(())
 }
 
 /// A hidden top-level window that owns the right-click menu (a menu needs a
 /// top-level owner, which the desktop-layer child windows are not).
 fn menu_owner() -> Result<HWND, Box<dyn Error>> {
+    let existing = OWNER.load(Ordering::Relaxed);
+    if existing != 0 {
+        return Ok(existing as HWND);
+    }
     // SAFETY: creating a window of our own registered class; the strings outlive the call.
     let owner = unsafe {
         CreateWindowExW(
@@ -281,8 +321,9 @@ fn menu_owner() -> Result<HWND, Box<dyn Error>> {
         )
     };
     if owner.is_null() {
-        return Err("couldn't create the menu owner window".into());
+        return Err(last_error("couldn't create the menu owner window").into());
     }
+    OWNER.store(owner as isize, Ordering::Relaxed);
     Ok(owner)
 }
 
@@ -395,8 +436,8 @@ fn find_legacy_workerw() -> Option<HWND> {
 enum Mode {
     /// Child windows of the desktop layer, between the wallpaper and the icons.
     Desktop,
-    /// Ordinary windows kept beneath every other window.
-    PlainBottom,
+    /// Ordinary windows kept directly above the desktop and below every other window.
+    PlainAbove,
     /// Ordinary windows above everything (the developer test).
     PlainTop,
 }
@@ -435,7 +476,7 @@ fn find_layer() -> Result<(HWND, bool), Box<dyn Error>> {
 /// wallpaper engine does when that is refused) as a pop-up moved in with `SetParent`.
 fn make_window(mode: Mode, parent: HWND, style: u32, (x, y, w, h): (i32, i32, i32, i32)) -> Result<HWND, String> {
     use windows_sys::Win32::Foundation::SetLastError;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{SetParent, GWL_STYLE, HWND_BOTTOM, HWND_TOPMOST, SWP_FRAMECHANGED};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{HWND_TOPMOST, WS_EX_TOPMOST};
     // SAFETY: Win32 window creation with live NUL-terminated strings and handles we hold.
     unsafe {
         let module = GetModuleHandleW(std::ptr::null());
@@ -443,32 +484,24 @@ fn make_window(mode: Mode, parent: HWND, style: u32, (x, y, w, h): (i32, i32, i3
         let title = wide("Paperloom widget");
         SetLastError(0);
         if mode != Mode::Desktop {
-            let top = if mode == Mode::PlainTop { windows_sys::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST } else { 0 };
+            let top = if mode == Mode::PlainTop { WS_EX_TOPMOST } else { 0 };
             let hwnd = CreateWindowExW(style | WS_EX_TOOLWINDOW | top, class.as_ptr(), title.as_ptr(), WS_POPUP, x, y, w, h, std::ptr::null_mut(), std::ptr::null_mut(), module, std::ptr::null());
             if hwnd.is_null() {
                 return Err(last_error("CreateWindowExW (plain window)"));
             }
-            SetWindowPos(hwnd, if mode == Mode::PlainTop { HWND_TOPMOST } else { HWND_BOTTOM }, x, y, w, h, SWP_NOACTIVATE);
+            if mode == Mode::PlainTop {
+                SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
+            }
             return Ok(hwnd);
         }
+        // A layered child of the desktop layer. Some computers refuse this for a program
+        // without the Windows 8 compatibility entry (and a pop-up moved in with SetParent
+        // is accepted but never paints), so there is no second try here: the caller
+        // switches to plain windows.
         let hwnd = CreateWindowExW(style, class.as_ptr(), title.as_ptr(), WS_CHILD | WS_CLIPCHILDREN, x, y, w, h, parent, std::ptr::null_mut(), module, std::ptr::null());
-        if !hwnd.is_null() {
-            return Ok(hwnd);
-        }
-        let first = last_error("CreateWindowExW (child)");
-        SetLastError(0);
-        let hwnd = CreateWindowExW(style, class.as_ptr(), title.as_ptr(), WS_POPUP, x, y, w, h, std::ptr::null_mut(), std::ptr::null_mut(), module, std::ptr::null());
         if hwnd.is_null() {
-            return Err(format!("{first}; then {}", last_error("CreateWindowExW (pop-up)")));
+            return Err(last_error("a layered child window of the desktop was refused"));
         }
-        SetLastError(0);
-        if SetParent(hwnd, parent).is_null() {
-            let second = last_error("SetParent");
-            DestroyWindow(hwnd);
-            return Err(format!("{first}; then {second}"));
-        }
-        SetWindowLongPtrW(hwnd, GWL_STYLE, (WS_CHILD | WS_CLIPCHILDREN) as isize);
-        SetWindowPos(hwnd, std::ptr::null_mut(), x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
         Ok(hwnd)
     }
 }
@@ -481,7 +514,9 @@ fn build(widgets: &Widgets, mode: Mode) -> Result<(Layer, Vec<Window>), Box<dyn 
             .then(|| FindWindowExW(parent, std::ptr::null_mut(), wide("SHELLDLL_DefView").as_ptr(), std::ptr::null()))
             .filter(|icons| !icons.is_null())
     };
-    let layer = Layer { parent, icons };
+    // SAFETY: a window lookup.
+    let desktop = (mode == Mode::PlainAbove).then(|| unsafe { FindWindowW(wide("Progman").as_ptr(), std::ptr::null()) }).filter(|desktop| !desktop.is_null());
+    let layer = Layer { parent, icons, desktop };
 
     // The desktop layer spans the virtual screen; widget positions are
     // fractions of the primary monitor.
@@ -522,13 +557,13 @@ fn build(widgets: &Widgets, mode: Mode) -> Result<(Layer, Vec<Window>), Box<dyn 
             }
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         }
-        windows.push(Window { hwnd, placed: placed.clone(), pixmap: None, due: Instant::now() });
+        windows.push(Window { hwnd, failed: false, placed: placed.clone(), pixmap: None, due: Instant::now() });
     }
     restack(&layer, &windows);
     let backend = match (mode, raised) {
         (Mode::Desktop, true) => "windows (raised desktop)",
         (Mode::Desktop, false) => "windows (classic desktop)",
-        (Mode::PlainBottom, _) => "windows (plain windows, beneath everything)",
+        (Mode::PlainAbove, _) => "windows (plain windows just above the desktop)",
         (Mode::PlainTop, _) => "windows (plain windows, on top: test)",
     };
     paperloom_common::log::info(&format!("widgets attached: {backend}, {} window(s)", windows.len()));
@@ -545,7 +580,21 @@ fn build(widgets: &Widgets, mode: Mode) -> Result<(Layer, Vec<Window>), Box<dyn 
 /// wallpaper inside the same `WorkerW` (classic layout). The order is touched
 /// only when it has drifted.
 fn restack(layer: &Layer, windows: &[Window]) {
-    // Plain windows have no desktop layer to keep an order in.
+    // Plain windows: kept directly above the desktop window, below every other window.
+    if let Some(desktop) = layer.desktop {
+        // SAFETY: z-order queries and changes on windows we own or just found.
+        unsafe {
+            let above = GetWindow(desktop, GW_HWNDPREV);
+            if windows.iter().any(|window| window.hwnd == above) {
+                return;
+            }
+            for window in windows {
+                SetWindowPos(window.hwnd, if above.is_null() { HWND_TOP } else { above }, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+            }
+        }
+        return;
+    }
+    // Test windows have no desktop layer to keep an order in.
     if layer.parent.is_null() {
         return;
     }
@@ -581,7 +630,7 @@ fn restack(layer: &Layer, windows: &[Window]) {
 }
 
 /// Shows `pixmap` (premultiplied RGBA) as the window's content with per-pixel alpha.
-fn present(hwnd: HWND, pixmap: &Pixmap, opacity: f32) {
+fn present(hwnd: HWND, pixmap: &Pixmap, opacity: f32) -> bool {
     let (width, height) = (pixmap.width() as i32, pixmap.height() as i32);
     // SAFETY: a DIB section we create, fill with exactly width*height*4 bytes, hand to
     // UpdateLayeredWindow, and release before returning.
@@ -601,7 +650,7 @@ fn present(hwnd: HWND, pixmap: &Pixmap, opacity: f32) {
         let bitmap = CreateDIBSection(memory, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0);
         if bitmap.is_null() || bits.is_null() {
             DeleteDC(memory);
-            return;
+            return false;
         }
         let target = std::slice::from_raw_parts_mut(bits as *mut u8, (width * height * 4) as usize);
         target.copy_from_slice(pixmap.data());
@@ -617,9 +666,13 @@ fn present(hwnd: HWND, pixmap: &Pixmap, opacity: f32) {
         };
         let size = SIZE { cx: width, cy: height };
         let origin = POINT { x: 0, y: 0 };
-        UpdateLayeredWindow(hwnd, std::ptr::null_mut(), std::ptr::null(), &size, memory, &origin, 0, &blend, ULW_ALPHA);
+        let shown = UpdateLayeredWindow(hwnd, std::ptr::null_mut(), std::ptr::null(), &size, memory, &origin, 0, &blend, ULW_ALPHA) != 0;
+        let error = if shown { 0 } else { windows_sys::Win32::Foundation::GetLastError() };
         SelectObject(memory, old);
         DeleteObject(bitmap);
         DeleteDC(memory);
+        // Keep the reason where the caller's `last_error` can read it.
+        windows_sys::Win32::Foundation::SetLastError(error);
+        shown
     }
 }

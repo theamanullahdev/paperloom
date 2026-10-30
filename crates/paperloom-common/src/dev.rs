@@ -21,6 +21,8 @@ pub struct DevSwitches {
     pub verbose_log: bool,
     /// Never pause automatically (fullscreen app, lock, battery…).
     pub disable_auto_pause: bool,
+    /// Windows: draw widgets as plain windows just above the desktop instead of attaching them to it.
+    pub widgets_plain_windows: bool,
 }
 
 impl DevSwitches {
