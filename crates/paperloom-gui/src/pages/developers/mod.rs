@@ -68,7 +68,7 @@ pub enum Switch {
     DisableTray,
     VerboseLog,
     DisableAutoPause,
-    WidgetsPlainWindows,
+    WidgetsUnderIcons,
 }
 
 #[derive(Debug, Clone)]
@@ -294,7 +294,7 @@ impl State {
                     Switch::DisableTray => self.switches.disable_tray = value,
                     Switch::VerboseLog => self.switches.verbose_log = value,
                     Switch::DisableAutoPause => self.switches.disable_auto_pause = value,
-                    Switch::WidgetsPlainWindows => self.switches.widgets_plain_windows = value,
+                    Switch::WidgetsUnderIcons => self.switches.widgets_under_icons = value,
                 }
                 let _ = self.switches.save();
                 log::set_verbose(self.switches.verbose_log);
@@ -604,7 +604,7 @@ impl State {
                 switch("Disable the tray icon", "Hides the icon even if the setting is on.", self.switches.disable_tray, Switch::DisableTray),
                 switch("Verbose logging", "Writes debug lines to the logs.", self.switches.verbose_log, Switch::VerboseLog),
                 switch("Never pause automatically", "Fullscreen, lock, battery and covered-desktop pauses are ignored.", self.switches.disable_auto_pause, Switch::DisableAutoPause),
-                switch("Widgets as plain windows (Windows)", "Draws widgets as windows just above the desktop instead of attaching them to it. Restart the widgets (Developers → Widgets → Restart) after changing it.", self.switches.widgets_plain_windows, Switch::WidgetsPlainWindows),
+                switch("Widgets under the icons (Windows)", "Attaches widgets to the desktop layer, under the icons, instead of plain windows directly above the desktop. Falls back if that isn't possible. Restart the widgets (Developers → Widgets → Restart) after changing it.", self.switches.widgets_under_icons, Switch::WidgetsUnderIcons),
             ]
             .spacing(12)
             .into(),

@@ -57,6 +57,15 @@ fn wait_until(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
     done()
 }
 
+/// Shows the desktop (minimises every window), or brings the windows back (Windows).
+fn desktop(on: bool) {
+    if let Some(program) = paperloom_common::process::sibling_binary("paperloom-widgets") {
+        let mut command = std::process::Command::new(program);
+        paperloom_common::process::hide_console(&mut command);
+        let _ = command.args(["--show-desktop", if on { "on" } else { "off" }]).stdin(std::process::Stdio::null()).output();
+    }
+}
+
 fn screen() -> (u32, u32) {
     paperloom_common::primary_size().unwrap_or((1920, 1080))
 }
@@ -172,7 +181,13 @@ pub fn run(progress: Progress) -> String {
         }
     });
 
-    // --- One of every kind, for real
+    // --- One of every kind, for real. The desktop is shown (other windows minimised, this one
+    // too) so it can be looked at, and everything is brought back at the end.
+    if cfg!(windows) {
+        report.info("minimising all windows for the test, so the desktop can be looked at (they come back at the end)".to_string());
+        desktop(true);
+        std::thread::sleep(Duration::from_secs(1));
+    }
     let all = every_kind();
     let wanted = all.placed.len();
     let mut shown: Option<Status> = None;
@@ -309,6 +324,9 @@ pub fn run(progress: Progress) -> String {
     });
 
     // --- Put everything back
+    if cfg!(windows) {
+        desktop(false);
+    }
     crate::engine_client::end_widgets();
     let _ = switches.save();
     match &saved_settings {

@@ -28,6 +28,10 @@ fn main() -> ExitCode {
     if args.iter().any(|arg| arg == "--selftest") {
         return selftest::run();
     }
+    if let Some(at) = args.iter().position(|arg| arg == "--show-desktop") {
+        surface::show_desktop(args.get(at + 1).is_some_and(|value| value == "on"));
+        return ExitCode::SUCCESS;
+    }
     if args.iter().any(|arg| arg == "--probe") {
         let lines = surface::probe();
         for line in &lines {

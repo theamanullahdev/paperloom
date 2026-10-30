@@ -55,4 +55,8 @@ pub fn probe() -> Vec<String> {
 }
 
 #[cfg(windows)]
-pub use windows::probe;
+pub use windows::{probe, show_desktop};
+
+/// `--show-desktop on|off`: minimises other windows so the desktop can be looked at (and brings them back).
+#[cfg(not(windows))]
+pub fn show_desktop(_on: bool) {}

@@ -33,7 +33,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, EnumWindows, GetCursorPos, GetParent,
     GetWindowLongPtrW, GetWindowRect, PostMessageW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, FindWindowExW, FindWindowW, GetSystemMetrics, GetTopWindow, GetWindow,
     IsWindow, PeekMessageW, RegisterClassExW, SendMessageTimeoutW, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow,
-    GW_HWNDNEXT, GW_HWNDPREV, HWND_TOP, MSG, PM_REMOVE, SMTO_NORMAL, SM_CXSCREEN, SM_CYSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE,
+    GW_HWNDNEXT, GW_HWNDPREV, HWND_TOP, GA_ROOT, GetAncestor, GetClassNameW, IsWindowVisible, WindowFromPoint, WM_COMMAND, MSG, PM_REMOVE, SMTO_NORMAL, SM_CXSCREEN, SM_CYSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNOACTIVATE, ULW_ALPHA, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, GWLP_USERDATA, MF_STRING, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_LBUTTONDOWN, WM_LBUTTONUP,
     WM_MOUSEMOVE, WM_NULL, WM_RBUTTONUP,
@@ -66,7 +66,7 @@ fn status(change: impl FnOnce(&mut paperloom_common::widgets::Status)) {
     }
 }
 /// How often the stacking order is verified.
-const RESTACK_EVERY: Duration = Duration::from_secs(5);
+const RESTACK_EVERY: Duration = Duration::from_secs(2);
 
 fn wide(value: &str) -> Vec<u16> {
     OsStr::new(value).encode_wide().chain(Some(0)).collect()
@@ -97,12 +97,13 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
     let owner = menu_owner()?;
 
     loop {
-        // The desktop first (between the wallpaper and the icons); if this computer refuses that,
-        // or nothing can be seen there, ordinary windows kept just above the desktop.
-        let first = if DESKTOP_UNSUPPORTED.load(Ordering::Relaxed) || paperloom_common::dev::DevSwitches::active().widgets_plain_windows {
-            Mode::PlainAbove
-        } else {
+        // Ordinary windows kept directly above the desktop (as Rainmeter does): they work on every
+        // version of Windows, above the icons and the wallpaper, below every other window. Attaching
+        // to the desktop layer itself (under the icons) is a developer switch, and falls back to this.
+        let first = if paperloom_common::dev::DevSwitches::active().widgets_under_icons && !DESKTOP_UNSUPPORTED.load(Ordering::Relaxed) {
             Mode::Desktop
+        } else {
+            Mode::PlainAbove
         };
         let built = build(widgets, first).or_else(|err| {
             if first != Mode::Desktop {
@@ -181,23 +182,8 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 window.pixmap = Some(pixmap);
             }
             if !paused && !verified && now >= verify_at && windows.iter().all(|window| window.pixmap.is_some()) {
-                match windows.first_mut().map(check_visible) {
-                    Some(Err(reason)) if !layer.parent.is_null() => {
-                        // Attached to the desktop, but nothing can be seen there.
-                        DESKTOP_UNSUPPORTED.store(true, Ordering::Relaxed);
-                        paperloom_common::log::warn(&format!("widgets: nothing could be seen on the desktop layer ({reason}); using plain windows just above the desktop"));
-                        status(|status| status.problem = format!("widgets attached to the desktop but nothing could be seen there ({reason})"));
-                        break 'alive;
-                    }
-                    Some(Err(reason)) => {
-                        paperloom_common::log::warn(&format!("widgets: not visible ({reason})"));
-                        status(|status| {
-                            status.verified = false;
-                            status.problem = format!("widgets can't be seen on this desktop ({reason})");
-                        });
-                        verify_at = now + Duration::from_secs(60);
-                    }
-                    _ => {
+                match check_visible(&layer) {
+                    Seen::Yes => {
                         verified = true;
                         paperloom_common::log::info("widgets: a test patch was seen on the screen");
                         status(|status| {
@@ -205,11 +191,23 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                             status.problem.clear();
                         });
                     }
-                }
-                // The check drew its own picture: redraw the real ones.
-                for window in &mut windows {
-                    window.pixmap = None;
-                    window.due = now;
+                    // Other windows cover the whole desktop right now: nothing can be judged. Try again soon.
+                    Seen::Covered => verify_at = now + Duration::from_secs(8),
+                    Seen::No(reason) if !layer.parent.is_null() => {
+                        // Attached to the desktop layer, but nothing can be seen there.
+                        DESKTOP_UNSUPPORTED.store(true, Ordering::Relaxed);
+                        paperloom_common::log::warn(&format!("widgets: nothing could be seen on the desktop layer ({reason}); using plain windows just above the desktop"));
+                        status(|status| status.problem = format!("widgets attached to the desktop layer but nothing could be seen there ({reason})"));
+                        break 'alive;
+                    }
+                    Seen::No(reason) => {
+                        paperloom_common::log::warn(&format!("widgets: not visible ({reason})"));
+                        status(|status| {
+                            status.verified = false;
+                            status.problem = format!("widgets can't be seen on this desktop ({reason})");
+                        });
+                        verify_at = now + Duration::from_secs(60);
+                    }
                 }
             }
             if now >= next_restack {
@@ -637,6 +635,15 @@ fn build(widgets: &Widgets, mode: Mode) -> Result<(Layer, Vec<Window>), Box<dyn 
 /// wallpaper inside the same `WorkerW` (classic layout). The order is touched
 /// only when it has drifted.
 fn restack(layer: &Layer, windows: &[Window]) {
+    // "Show desktop" hides windows: ours come back.
+    for window in windows {
+        // SAFETY: visibility query and show on our own windows.
+        unsafe {
+            if IsWindowVisible(window.hwnd) == 0 {
+                ShowWindow(window.hwnd, SW_SHOWNOACTIVATE);
+            }
+        }
+    }
     // Plain windows: kept directly above the desktop window, below every other window.
     if let Some(desktop) = layer.desktop {
         // SAFETY: z-order queries and changes on windows we own or just found.
@@ -734,35 +741,118 @@ fn present(hwnd: HWND, pixmap: &Pixmap, opacity: f32) -> bool {
     }
 }
 
-/// Draws a small solid patch in `window`, and looks for it on the screen itself. True only when it
-/// was really seen there, wherever the wallpaper, a video or another window might be.
-fn check_visible(window: &mut Window) -> Result<(), String> {
-    const PATCH: i32 = 16;
-    // SAFETY: a window rectangle query on our own window.
-    let mut rect: RECT = unsafe { std::mem::zeroed() };
-    unsafe { GetWindowRect(window.hwnd, &mut rect) };
-    let (width, height) = ((rect.right - rect.left).max(PATCH), (rect.bottom - rect.top).max(PATCH));
-    let Some(mut frame) = Pixmap::new(width as u32, height as u32) else { return Ok(()) };
-    for y in 0..PATCH as usize {
-        for x in 0..PATCH as usize {
-            let at = (y * width as usize + x) * 4;
-            frame.data_mut()[at..at + 4].copy_from_slice(&[255, 0, 255, 255]);
+/// What looking for the test patch on the screen found.
+enum Seen {
+    Yes,
+    /// The patch was drawn in a clear part of the desktop and was not there.
+    No(String),
+    /// No part of the desktop is uncovered right now (other windows are over all of it): can't tell.
+    Covered,
+}
+
+fn class_of(window: HWND) -> String {
+    let mut buffer = [0u16; 64];
+    // SAFETY: the buffer is 64 wide characters, as stated.
+    let length = unsafe { GetClassNameW(window, buffer.as_mut_ptr(), 64) };
+    String::from_utf16_lossy(&buffer[..length.max(0) as usize])
+}
+
+/// Whether the desktop itself (not another window) is what shows at this screen point.
+fn desktop_at(x: i32, y: i32) -> bool {
+    // SAFETY: point-to-window queries.
+    unsafe {
+        let window = WindowFromPoint(POINT { x, y });
+        if window.is_null() {
+            return false;
         }
+        let root = GetAncestor(window, GA_ROOT);
+        let class = class_of(if root.is_null() { window } else { root });
+        class == "Progman" || class == "WorkerW"
     }
-    if !present(window.hwnd, &frame, 1.0) {
-        return Err(last_error("the test patch couldn't be shown (UpdateLayeredWindow)"));
+}
+
+/// A square of `size` pixels on the primary screen where nothing but the desktop is showing.
+fn clear_spot(size: i32) -> Option<(i32, i32)> {
+    // SAFETY: plain metric queries.
+    let (width, height) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+    let mut y = 90;
+    while y + size < height - 60 {
+        let mut x = 90;
+        while x + size < width - 20 {
+            let corners = [(x, y), (x + size - 1, y), (x, y + size - 1), (x + size - 1, y + size - 1), (x + size / 2, y + size / 2)];
+            if corners.iter().all(|(cx, cy)| desktop_at(*cx, *cy)) {
+                return Some((x, y));
+            }
+            x += 97;
+        }
+        y += 83;
     }
-    std::thread::sleep(Duration::from_millis(200));
-    let Some(seen) = capture(rect.left, rect.top, PATCH, PATCH) else {
-        paperloom_common::log::warn("widgets: couldn't read the screen to check; trusting that the window is shown");
-        return Ok(());
+    None
+}
+
+/// Draws a small solid patch in a window of its own, put where widgets are put (the same layer and
+/// order), at a spot of the desktop nothing covers, and looks for it on the screen itself. Seen only
+/// when it really is there, whatever the wallpaper, a video or another window is doing.
+fn check_visible(layer: &Layer) -> Seen {
+    const PATCH: i32 = 16;
+    let Some((x, y)) = clear_spot(PATCH) else { return Seen::Covered };
+    let mode = if layer.desktop.is_some() { Mode::PlainAbove } else { Mode::Desktop };
+    // SAFETY: a metric query.
+    let (origin_x, origin_y) = if mode == Mode::Desktop { unsafe { (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN)) } } else { (0, 0) };
+    let hwnd = match make_window(mode, layer.parent, WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT, (x - origin_x, y - origin_y, PATCH, PATCH)) {
+        Ok(hwnd) => hwnd,
+        Err(err) => return Seen::No(format!("the test window couldn't be made: {err}")),
     };
-    let pink = seen.as_chunks::<4>().0.iter().filter(|pixel| pixel[2] > 235 && pixel[0] > 235 && pixel[1] < 40).count();
-    let total = (PATCH * PATCH) as usize;
-    if pink * 100 >= total * 60 {
-        Ok(())
-    } else {
-        Err(format!("a test patch drawn in a widget window did not show on the screen ({pink} of {total} pixels)"))
+    // SAFETY: our own window.
+    unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+    let probe = Window { hwnd, failed: false, placed: Placed { drag: false, menu: false, ..Placed::default() }, pixmap: None, due: Instant::now() };
+    restack(layer, std::slice::from_ref(&probe));
+    let outcome = (|| {
+        let Some(mut frame) = Pixmap::new(PATCH as u32, PATCH as u32) else { return Seen::Yes };
+        for pixel in frame.data_mut().as_chunks_mut::<4>().0 {
+            pixel.copy_from_slice(&[255, 0, 255, 255]);
+        }
+        if !present(hwnd, &frame, 1.0) {
+            return Seen::No(last_error("the test patch couldn't be shown (UpdateLayeredWindow)"));
+        }
+        std::thread::sleep(Duration::from_millis(220));
+        let Some(seen) = capture(x, y, PATCH, PATCH) else {
+            paperloom_common::log::warn("widgets: couldn't read the screen to check; trusting that the windows are shown");
+            return Seen::Yes;
+        };
+        let pink = seen.as_chunks::<4>().0.iter().filter(|pixel| pixel[2] > 235 && pixel[0] > 235 && pixel[1] < 40).count();
+        let total = (PATCH * PATCH) as usize;
+        if pink * 100 >= total * 60 {
+            Seen::Yes
+        } else {
+            // Something may have moved over the spot just now: only a clear spot proves anything.
+            if desktop_at(x + PATCH / 2, y + PATCH / 2) || class_of_point_is_ours(x + PATCH / 2, y + PATCH / 2, hwnd) {
+                Seen::No(format!("a test patch drawn in a clear part of the desktop did not show on the screen ({pink} of {total} pixels)"))
+            } else {
+                Seen::Covered
+            }
+        }
+    })();
+    // SAFETY: our own window.
+    unsafe { DestroyWindow(hwnd) };
+    outcome
+}
+
+/// Whether the window at this screen point is `ours` (so nothing else is covering it).
+fn class_of_point_is_ours(x: i32, y: i32, ours: HWND) -> bool {
+    // SAFETY: a point-to-window query.
+    unsafe { WindowFromPoint(POINT { x, y }) == ours }
+}
+
+/// Shows the desktop (what Win+D does) so a test can look at it, and puts the windows back after.
+pub fn show_desktop(on: bool) {
+    // SAFETY: lookups and one message to the taskbar; 419 = minimise all, 416 = undo that.
+    unsafe {
+        let tray = FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null());
+        if !tray.is_null() {
+            let mut result = 0usize;
+            SendMessageTimeoutW(tray, WM_COMMAND, if on { 419 } else { 416 }, 0, SMTO_NORMAL, 1500, &mut result);
+        }
     }
 }
 
@@ -817,10 +907,13 @@ pub fn probe() -> Vec<String> {
     let mut seen_in: Option<&str> = None;
     let mut text = Text::new();
     let sample = crate::sample::Sample::new();
-    for (mode, name) in [(Mode::Desktop, "between the wallpaper and the icons"), (Mode::PlainAbove, "plain windows just above the desktop")] {
+    // The test looks at the desktop, so other windows are minimised for its length (and restored).
+    show_desktop(true);
+    std::thread::sleep(Duration::from_millis(900));
+    for (mode, name) in [(Mode::Desktop, "under the icons, attached to the desktop layer"), (Mode::PlainAbove, "plain windows just above the desktop")] {
         match build(&widgets, mode) {
             Err(err) => lines.push(format!("[FAIL] {name}: the windows couldn't be made — {err}")),
-            Ok((_layer, mut windows)) => {
+            Ok((layer, windows)) => {
                 // Draw each window's real picture first, as the real thing does.
                 let drawn = windows.iter().all(|window| {
                     widgets::render(&window.placed, &mut text, &Context { sample: &sample, slow: false }).and_then(|frame| frame.pixmap).is_some_and(|pixmap| present(window.hwnd, &pixmap, window.placed.opacity))
@@ -828,13 +921,13 @@ pub fn probe() -> Vec<String> {
                 if !drawn {
                     lines.push(format!("[FAIL] {name}: a widget's picture couldn't be shown ({})", last_error("UpdateLayeredWindow")));
                 }
-                match windows.first_mut().map(check_visible) {
-                    Some(Ok(())) => {
+                match check_visible(&layer) {
+                    Seen::Yes => {
                         lines.push(format!("[PASS] {name}: a test patch was seen on the screen"));
                         seen_in.get_or_insert(name);
                     }
-                    Some(Err(reason)) => lines.push(format!("[FAIL] {name}: {reason}")),
-                    None => lines.push(format!("[FAIL] {name}: there were no windows")),
+                    Seen::No(reason) => lines.push(format!("[FAIL] {name}: {reason}")),
+                    Seen::Covered => lines.push(format!("[FAIL] {name}: no part of the desktop was uncovered to check (something is full-screen over it)")),
                 }
                 for window in &windows {
                     // SAFETY: our own windows.
@@ -843,6 +936,7 @@ pub fn probe() -> Vec<String> {
             }
         }
     }
+    show_desktop(false);
     lines.push(match seen_in {
         Some(name) => format!("[PASS] widgets can be seen on this desktop ({name})"),
         None => "[FAIL] widgets can NOT be seen on this desktop: every way of showing them failed (see the lines above)".to_string(),
