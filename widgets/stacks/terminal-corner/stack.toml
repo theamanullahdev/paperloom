@@ -1,0 +1,23 @@
+id = "stack/terminal-corner"
+name = "Terminal corner"
+author = "Paperloom"
+description = "A glass clock over two terminal-style meters."
+size = [310, 364]
+
+[[widget]]
+kind = "clock"
+skin = "clock/glass"
+dx = 0
+dy = 0
+
+[[widget]]
+kind = "cpu"
+skin = "meter/terminal"
+dx = 0
+dy = 140
+
+[[widget]]
+kind = "memory"
+skin = "meter/terminal"
+dx = 0
+dy = 260

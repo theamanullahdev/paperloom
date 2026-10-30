@@ -1,0 +1,57 @@
+id = "date/flip"
+name = "Flip"
+author = "Paperloom"
+description = "A flip-calendar page: two halves, a split line and a big Bebas Neue day."
+kinds = ["date"]
+fonts = ["fonts/BebasNeue-Regular.ttf", "fonts/ShareTechMono-Regular.ttf"]
+size = [140, 160]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 140
+h = 160
+radius = 14
+fill = "grad(#2a2d36,#15171d,90)"
+stroke = "#ffffff18"
+stroke_width = 1.5
+
+[[element]]
+type = "rect"
+x = 0
+y = 78
+w = 140
+h = 4
+fill = "#00000099"
+
+[[element]]
+type = "text"
+text = "{weekday}"
+x = 70
+y = 8
+size = 14
+font = "Share Tech Mono"
+color = "#ff9a3d"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{day}"
+x = 70
+y = 18
+size = 120
+font = "Bebas Neue"
+color = "#f4f5f9"
+align = "center"
+shadow = "#00000088"
+
+[[element]]
+type = "text"
+text = "{month_year}"
+x = 70
+y = 134
+size = 13
+font = "Share Tech Mono"
+color = "#9aa2b5"
+align = "center"
