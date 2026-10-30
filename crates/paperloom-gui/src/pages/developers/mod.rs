@@ -6,6 +6,7 @@
 
 mod actions;
 mod suite;
+mod widgets_suite;
 
 use std::time::Duration;
 
@@ -16,6 +17,11 @@ use paperloom_common::dev::DevSwitches;
 use paperloom_common::{log, EngineState, Settings};
 
 pub use actions::{Action, Folder};
+
+/// The full widgets test as text (also behind `paperloom-gui --widgets-test`).
+pub fn run_widgets_suite() -> String {
+    widgets_suite::run(Default::default())
+}
 
 /// The whole self-test as text (also behind `paperloom-gui --selftest`).
 pub fn run_suite(settings: &Settings) -> String {
@@ -73,6 +79,9 @@ pub enum Message {
     // Tests
     RunTests,
     TestsDone(String),
+    // The full widgets test
+    RunWidgetsTests,
+    WidgetsTestsDone(String),
     // Diagnostics
     Refresh,
     DiagnosticsReady(String),
@@ -106,6 +115,9 @@ pub struct State {
     test_progress: suite::Progress,
     test_running: bool,
     test_report: String,
+    widgets_progress: suite::Progress,
+    widgets_running: bool,
+    widgets_report: String,
     state_files: [String; 3],
 }
 
@@ -128,6 +140,9 @@ impl State {
             test_progress: Default::default(),
             test_running: false,
             test_report: String::new(),
+            widgets_progress: Default::default(),
+            widgets_running: false,
+            widgets_report: String::new(),
             state_files: Default::default(),
         }
     }
@@ -204,6 +219,23 @@ impl State {
                 self.test_report.clear();
                 let (settings, progress) = (settings.clone(), self.test_progress.clone());
                 return Task::perform(crate::pages::online::blocking::<String, String>(move || Ok(suite::run(&settings, progress))), |result| Message::TestsDone(result.unwrap_or_default()));
+            }
+            Message::RunWidgetsTests => {
+                if self.widgets_running {
+                    return Task::none();
+                }
+                self.widgets_running = true;
+                self.widgets_report.clear();
+                let progress = self.widgets_progress.clone();
+                return Task::perform(crate::pages::online::blocking::<String, String>(move || Ok(widgets_suite::run(progress))), |result| Message::WidgetsTestsDone(result.unwrap_or_default()));
+            }
+            Message::WidgetsTestsDone(report) => {
+                self.widgets_running = false;
+                let path = paperloom_common::logs_dir().join("widgets-test.txt");
+                let _ = std::fs::create_dir_all(paperloom_common::logs_dir());
+                let _ = std::fs::write(&path, &report);
+                log::info(&format!("widgets test finished: {}", report.lines().nth(1).unwrap_or_default()));
+                self.widgets_report = report;
             }
             Message::TestsDone(report) => {
                 self.test_running = false;
@@ -487,12 +519,43 @@ impl State {
             .into(),
             t,
         );
+        // The full test: takes the widgets off for its length, and puts them back.
+        let live: Vec<String> = self.widgets_progress.lock().map(|lines| lines.clone()).unwrap_or_default();
+        let full_bar = row![
+            button(crate::ui::label(if self.widgets_running { "Testing… (this takes a minute or two)" } else { "Run the full widgets test" }))
+                .on_press_maybe((!self.widgets_running).then_some(Message::RunWidgetsTests)),
+            button(crate::ui::label("Copy results")).style(crate::ui::secondary).on_press_maybe((!self.widgets_report.is_empty()).then(|| Message::Copy(self.widgets_report.clone()))),
+            button(crate::ui::label("Open the saved file")).style(crate::ui::secondary).on_press(Message::OpenFolder(Folder::Logs)),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .wrap();
+        let full_body: Element<'a, Message> = if !self.widgets_report.is_empty() {
+            column![text(self.widgets_report.lines().nth(1).unwrap_or_default().to_string()).size(14).color(t.foreground), mono_box(&self.widgets_report, 520.0, t)].spacing(8).into()
+        } else if self.widgets_running || !live.is_empty() {
+            column(live.into_iter().map(|line| text(line).size(12).font(Font::MONOSPACE).color(t.foreground).into())).spacing(2).into()
+        } else {
+            Space::new().into()
+        };
+        let full = card(
+            column![
+                heading("Full widgets test", t),
+                text("Takes your widgets off for the time it runs, then tests the whole system on the real desktop: every kind of widget, whether they are really seen on the screen, changes while running, stacks, switching off and on, and how much of the computer they use. It stops and starts the widgets process several times. Your widgets and settings are put back afterwards. Copy the results and send them along with a report.")
+                    .size(12)
+                    .color(t.muted_foreground),
+                full_bar,
+                full_body,
+            ]
+            .spacing(8)
+            .into(),
+            t,
+        );
         let results: Element<'a, Message> = if self.results.is_empty() {
             text("Results appear here.").size(12).color(t.muted_foreground).into()
         } else {
             column(self.results.iter().rev().take(12).map(|result| text(result.clone()).size(12).font(Font::MONOSPACE).color(t.foreground).into())).spacing(3).into()
         };
-        column![status_card, buttons, card(column![heading("Results", t), results].spacing(8).into(), t)].spacing(12).into()
+        column![full, status_card, buttons, card(column![heading("Results", t), results].spacing(8).into(), t)].spacing(12).into()
     }
 
     fn logs_tab<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {

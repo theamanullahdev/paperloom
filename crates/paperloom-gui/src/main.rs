@@ -103,6 +103,16 @@ pub fn main() -> iced::Result {
         return Ok(());
     }
 
+    // `--widgets-test`: the full widgets test without a window (saved as logs/widgets-test.txt).
+    if args.iter().any(|arg| arg == "--widgets-test") {
+        let report = pages::developers::run_widgets_suite();
+        let path = paperloom_common::logs_dir().join("widgets-test.txt");
+        let _ = std::fs::create_dir_all(paperloom_common::logs_dir());
+        let _ = std::fs::write(&path, &report);
+        println!("{report}\n\nSaved to {}", path.display());
+        return Ok(());
+    }
+
     // `--dev`: turn developer mode on and open the Developers page.
     if args.iter().any(|arg| arg == "--dev") {
         let mut settings = paperloom_common::load();
