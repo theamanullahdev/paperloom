@@ -38,6 +38,8 @@ pub struct App {
     /// The global search box (top bar) and whether its popup is showing.
     search: String,
     search_open: bool,
+    /// The full sidebar opened over the page (when the window is too narrow to show it).
+    menu_open: bool,
     /// A newer Paperloom was installed over this one (by `apt upgrade` or
     /// the Updates page); the banner offers a restart.
     replaced: bool,
@@ -81,6 +83,8 @@ pub(crate) enum NavTarget {
 #[derive(Debug, Clone)]
 pub enum Message {
     SwitchPage(Page),
+    /// Open or close the full sidebar over the page (narrow windows).
+    ToggleMenu,
     Settings(settings::Message),
     Library(library::Message),
     Online(online::Message),
@@ -139,6 +143,7 @@ impl App {
             system_theme: iced::theme::Mode::None,
             search: String::new(),
             search_open: false,
+            menu_open: false,
             replaced: false,
             banner_dismissed: false,
         };
@@ -346,8 +351,13 @@ impl App {
             Message::Widgets(msg) => self.widgets_page.update(msg).map(Message::Widgets),
             Message::Usage(msg) => self.usage_page.update(msg).map(Message::Usage),
             Message::Settings(settings::Message::OpenUsage) => self.update(Message::SwitchPage(Page::Usage)),
+            Message::ToggleMenu => {
+                self.menu_open = !self.menu_open;
+                Task::none()
+            }
             Message::SwitchPage(page) => {
                 self.search_open = false;
+                self.menu_open = false;
                 // My widgets picked again: back to the list from a widget's page.
                 if page == Page::Widgets && self.page == Page::Widgets {
                     self.widgets_page.close();
@@ -616,7 +626,7 @@ impl App {
         // Everything in the bar wraps onto further lines rather than
         // squeezing: buttons keep their full labels at any width.
         let top_bar: Element<'_, Message> = if width == Width::Narrow {
-            let mut nav = row![].spacing(4).align_y(Alignment::Center);
+            let mut nav = row![menu_button(t)].spacing(4).align_y(Alignment::Center);
             for (icon, label, page) in nav_pages() {
                 nav = nav.push(nav_item(icon, label, page, self.is_active(page), self.has_badge(page), false, t));
             }
@@ -729,10 +739,23 @@ impl App {
             _ => None,
             }
         };
-        match overlay {
+        let shown: Element<'_, Message> = match overlay {
             Some(overlay) => stack![root, overlay].into(),
             None => root,
+        };
+        // Narrow windows: the whole sidebar (every page, with its sub-pages) slides over the page.
+        if self.menu_open && width != Width::Wide {
+            let drawer = row![
+                opaque(self.sidebar(Width::Wide, 260.0_f32.min(size.width * 0.85), t)),
+                mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
+                    ..container::Style::default()
+                }))
+                .on_press(Message::ToggleMenu),
+            ];
+            return stack![shown, drawer].into();
         }
+        shown
     }
 
     /// "New version installed — restart" across the top of the window.
@@ -1035,7 +1058,7 @@ impl App {
         let brand: Element<'_, Message> = if labels {
             text("Paperloom").font(theme::DISPLAY_FONT).size(20).color(t.primary).wrapping(text::Wrapping::None).into()
         } else {
-            container(text("P").font(theme::DISPLAY_FONT).size(22).color(t.primary)).center_x(Length::Fill).into()
+            container(menu_button(t)).center_x(Length::Fill).into()
         };
 
         // Scrolls when the tree outgrows the window, with no visible bar.
@@ -1053,6 +1076,23 @@ impl App {
             })
             .into()
     }
+}
+
+/// Three bars: opens the full sidebar over the page (the rail and the top bar can only show the four
+/// main pages).
+fn menu_button<'a>(t: theme::Tokens) -> Element<'a, Message> {
+    let bar = move || container(Space::new().width(18).height(2)).style(move |_theme| container::Style { background: Some(Background::Color(t.foreground)), border: Border { radius: 1.0.into(), ..Border::default() }, ..container::Style::default() });
+    button(column![bar(), bar(), bar()].spacing(4))
+        .padding([12, 12])
+        .on_press(Message::ToggleMenu)
+        .style(move |_theme, status| button::Style {
+            background: matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(t.muted)),
+            text_color: t.foreground,
+            border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 4.0.into() },
+            shadow: Shadow::default(),
+            snap: false,
+        })
+        .into()
 }
 
 /// The rail / top-bar navigation: one icon per sidebar group (their
