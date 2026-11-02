@@ -105,6 +105,9 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
     });
     let shared = Shared { root: screen.root, depth, visual, colormap, gc, screen: (screen_w, screen_h) };
     let mut popup: Option<Popup> = None;
+    // Whatever the window manager or the graphics driver does to a window's contents, they are
+    // sent again every so often (a few small pictures; nothing else is redrawn).
+    let mut last_repaint = Instant::now();
 
     loop {
         if control.changed() {
@@ -136,6 +139,14 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
             continue;
         }
         let now = Instant::now();
+        if now.duration_since(last_repaint) >= Duration::from_secs(20) {
+            last_repaint = now;
+            for window in &windows {
+                if let (Some(pixmap), None) = (&window.pixmap, &window.drag) {
+                    present(&conn, depth, window.id, gc, pixmap)?;
+                }
+            }
+        }
         control.refresh_sample();
         let slow = control.slow();
         for window in &mut windows {
