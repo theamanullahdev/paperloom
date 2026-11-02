@@ -36,7 +36,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GW_HWNDNEXT, GW_HWNDPREV, HWND_TOP, GA_ROOT, GetAncestor, GetClassNameW, IsWindowVisible, WindowFromPoint, WM_COMMAND, MSG, PM_REMOVE, SMTO_NORMAL, SM_CXSCREEN, SM_CYSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNOACTIVATE, ULW_ALPHA, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, GWLP_USERDATA, MF_STRING, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_NULL, WM_RBUTTONUP,
+    WM_CAPTURECHANGED, WM_MOUSEMOVE, WM_NULL, WM_RBUTTONUP, MsgWaitForMultipleObjects, QS_ALLINPUT,
 };
 
 use paperloom_common::widgets::{Placed, Widgets};
@@ -161,7 +161,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
             let paused = control.paused();
             if !paused {
                 control.refresh_sample();
-            } else if INPUT.lock().map(|mut input| input.drag.take().is_some()).unwrap_or(false) {
+            } else if input().drag.take().is_some() {
                 // Never hold the mouse while paused (a fullscreen game, the lock screen).
                 // SAFETY: releases this thread's capture; no arguments.
                 unsafe { ReleaseCapture() };
@@ -233,9 +233,9 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 next_restack = now + RESTACK_EVERY;
             }
             let wake = windows.iter().map(|window| window.due).chain([next_restack]).min().unwrap_or(now + Duration::from_secs(1));
-            let dragging = INPUT.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).drag.is_some();
+            let dragging = input().drag.is_some();
             let nap = if dragging { Duration::from_millis(15) } else { wake.saturating_duration_since(Instant::now()).min(Duration::from_secs(1)) };
-            std::thread::sleep(nap);
+            wait_for_input(nap);
         }
         for window in &windows {
             // SAFETY: our own windows; destroying one that is already gone is harmless.
@@ -277,57 +277,91 @@ const CAN_MENU: isize = 2;
 /// Closer than this (pixels) and a press-and-release is a click, not a drag.
 const DRAG_SLOP: i32 = 3;
 
+fn input() -> std::sync::MutexGuard<'static, Input> {
+    INPUT.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The window procedure. The input lock is only ever held for a moment and never across a Win32
+/// call: `SetWindowPos`, `SetCapture` and `ReleaseCapture` send messages straight back into this
+/// function, and a lock still held would freeze the widgets (and with them the desktop's "not
+/// responding" prompt).
 unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     // SAFETY: plain window and cursor queries on the window the message is for.
     unsafe {
         let flags = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-        let mut input = INPUT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut cursor = POINT { x: 0, y: 0 };
         GetCursorPos(&mut cursor);
         match message {
             WM_LBUTTONDOWN if flags & CAN_DRAG != 0 => {
                 let mut rect: RECT = std::mem::zeroed();
                 GetWindowRect(hwnd, &mut rect);
-                input.drag = Some(Dragging { window: hwnd as isize, start: (cursor.x, cursor.y), from: (rect.left, rect.top), moved: false });
+                input().drag = Some(Dragging { window: hwnd as isize, start: (cursor.x, cursor.y), from: (rect.left, rect.top), moved: false });
                 SetCapture(hwnd);
                 return 0;
             }
             WM_MOUSEMOVE => {
-                if let Some(drag) = &mut input.drag {
-                    if drag.window == hwnd as isize {
-                        let (dx, dy) = (cursor.x - drag.start.0, cursor.y - drag.start.1);
-                        if drag.moved || dx.abs() >= DRAG_SLOP || dy.abs() >= DRAG_SLOP {
-                            drag.moved = true;
-                            // The window is a child of the desktop layer: move it in that layer's coordinates.
-                            let mut at = POINT { x: drag.from.0 + dx, y: drag.from.1 + dy };
-                            ScreenToClient(GetParent(hwnd), &mut at);
-                            SetWindowPos(hwnd, std::ptr::null_mut(), at.x, at.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                let target = {
+                    let mut input = input();
+                    match &mut input.drag {
+                        Some(drag) if drag.window == hwnd as isize => {
+                            let (dx, dy) = (cursor.x - drag.start.0, cursor.y - drag.start.1);
+                            if drag.moved || dx.abs() >= DRAG_SLOP || dy.abs() >= DRAG_SLOP {
+                                drag.moved = true;
+                                Some(Some((drag.from.0 + dx, drag.from.1 + dy)))
+                            } else {
+                                Some(None)
+                            }
                         }
-                        return 0;
+                        _ => None,
                     }
+                };
+                if let Some(target) = target {
+                    if let Some((x, y)) = target {
+                        // On the desktop layer a widget is a child: move it in that layer's coordinates.
+                        let mut at = POINT { x, y };
+                        let parent = GetParent(hwnd);
+                        if !parent.is_null() {
+                            ScreenToClient(parent, &mut at);
+                        }
+                        SetWindowPos(hwnd, std::ptr::null_mut(), at.x, at.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    }
+                    return 0;
                 }
             }
             WM_LBUTTONUP => {
-                if let Some(drag) = input.drag {
-                    if drag.window == hwnd as isize {
-                        input.drag = None;
-                        ReleaseCapture();
-                        if drag.moved {
-                            let mut rect: RECT = std::mem::zeroed();
-                            GetWindowRect(hwnd, &mut rect);
-                            input.events.push(Event::Dropped(hwnd as isize, rect.left, rect.top));
-                        }
-                        return 0;
+                let drag = {
+                    let mut input = input();
+                    if input.drag.is_some_and(|drag| drag.window == hwnd as isize) {
+                        input.drag.take()
+                    } else {
+                        None
                     }
+                };
+                if let Some(drag) = drag {
+                    ReleaseCapture();
+                    if drag.moved {
+                        let mut rect: RECT = std::mem::zeroed();
+                        GetWindowRect(hwnd, &mut rect);
+                        input().events.push(Event::Dropped(hwnd as isize, rect.left, rect.top));
+                    }
+                    return 0;
+                }
+            }
+            // Capture taken away (a menu opened, another window was clicked): the drag is over.
+            WM_CAPTURECHANGED => {
+                let dropped = input().drag.take();
+                if dropped.is_some_and(|drag| drag.moved && drag.window == hwnd as isize) {
+                    let mut rect: RECT = std::mem::zeroed();
+                    GetWindowRect(hwnd, &mut rect);
+                    input().events.push(Event::Dropped(hwnd as isize, rect.left, rect.top));
                 }
             }
             WM_RBUTTONUP if flags & CAN_MENU != 0 => {
-                input.events.push(Event::Menu(hwnd as isize, cursor.x, cursor.y));
+                input().events.push(Event::Menu(hwnd as isize, cursor.x, cursor.y));
                 return 0;
             }
             _ => {}
         }
-        drop(input);
         DefWindowProcW(hwnd, message, wparam, lparam)
     }
 }
@@ -386,7 +420,7 @@ fn menu_owner() -> Result<HWND, Box<dyn Error>> {
 
 /// Saves finished drags and shows the right-click menu.
 fn handle_events(windows: &mut [Window], owner: HWND, control: &mut Control) {
-    let events = std::mem::take(&mut INPUT.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).events);
+    let events = std::mem::take(&mut input().events);
     // SAFETY: plain metric query.
     let (screen_w, screen_h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
     for event in events {
@@ -422,6 +456,13 @@ fn handle_events(windows: &mut [Window], owner: HWND, control: &mut Control) {
             }
         }
     }
+}
+
+/// Sleeps until `nap` has passed or the mouse (or anything else) needs the windows, so a click
+/// or a drag is answered at once and not at the next frame.
+fn wait_for_input(nap: Duration) {
+    // SAFETY: waits on this thread's own message queue only (no handles).
+    unsafe { MsgWaitForMultipleObjects(0, std::ptr::null(), 0, nap.as_millis().min(1000) as u32, QS_ALLINPUT) };
 }
 
 fn pump_messages() {
