@@ -496,7 +496,7 @@ impl State {
                 line("Settings", format!("{} placed, widgets {}", placed.placed.len(), if placed.enabled { "on" } else { "off" }), t),
                 line("Draws on", if status.backend.is_empty() { "—".into() } else { status.backend.clone() }, t),
                 line("Windows", status.windows.to_string(), t),
-                line("Hidden because", if status.paused.is_empty() { "not hidden".into() } else { status.paused.clone() }, t),
+                line("Paused because", if status.paused.is_empty() { "not paused".into() } else { status.paused.clone() }, t),
                 line("Last problem", if status.problem.is_empty() { "none".into() } else { status.problem.clone() }, t),
                 line("Last click", if status.last_click.is_empty() { "none yet (click a widget on the desktop)".into() } else { status.last_click.clone() }, t),
                 line("Reported", ago(status.updated), t),

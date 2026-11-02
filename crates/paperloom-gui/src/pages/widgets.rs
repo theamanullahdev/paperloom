@@ -820,7 +820,7 @@ impl State {
             page = page.push(panel(
                 column![
                     text("The widgets are paused right now").size(15).color(t.foreground),
-                    text(format!("Because {}. They keep showing their last values and update again by themselves.", self.status.paused)).size(13).color(t.muted_foreground),
+                    text(format!("{}. They keep showing their last values and update again by themselves.", capitalised(&self.status.paused))).size(13).color(t.muted_foreground),
                 ]
                 .spacing(2)
                 .into(),
@@ -1315,4 +1315,10 @@ impl State {
         };
         card(self.previews.card(&skin.id, &kind), skin.name.clone(), detail, actions, None, in_use, t)
     }
+}
+
+/// "the wallpaper is paused…" → "The wallpaper is paused…".
+fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or(String::new(), |first| first.to_uppercase().chain(chars).collect())
 }

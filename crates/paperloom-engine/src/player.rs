@@ -96,6 +96,7 @@ fn set_audio(mpv: &Mpv, muted: bool) {
 /// `background-size: cover` instead of letterboxing when the clip's aspect
 /// ratio doesn't match the display's (`panscan=1.0` crops-to-fill).
 pub fn configure_wallpaper(mpv: &Mpv) -> Result<(), Box<dyn Error>> {
+    reset_pause_state();
     mpv.set_property("loop-file", "inf".to_string())?;
     let _ = mpv.set_property("osc", false); // absent when mpv is built without Lua (the Flatpak)
     mpv.set_property("input-default-bindings", false)?;
@@ -169,15 +170,37 @@ fn apply_pause(mpv: &Mpv) {
 /// Writes the pause state where the tray widget can read it — only when it
 /// changed, so the ~2s tick doesn't touch the disk.
 fn publish_pause(auto: bool, user: bool) {
-    static LAST: std::sync::Mutex<Option<(bool, bool)>> = std::sync::Mutex::new(None);
-    let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if *last == Some((auto, user)) {
+    let reason = if auto { PAUSE_REASON.lock().map(|reason| reason.clone()).unwrap_or_default() } else { String::new() };
+    let mut last = LAST_PAUSE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if last.as_ref() == Some(&(auto, user, reason.clone())) {
         return;
     }
-    *last = Some((auto, user));
+    *last = Some((auto, user, reason.clone()));
     let mut state = EngineState::load();
-    (state.auto_paused, state.user_paused) = (auto, user);
+    (state.auto_paused, state.user_paused, state.pause_reason) = (auto, user, reason);
     let _ = state.save();
+}
+
+type PauseKey = (bool, bool, String);
+static LAST_PAUSE: std::sync::Mutex<Option<PauseKey>> = std::sync::Mutex::new(None);
+static PAUSE_REASON: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// Says (in words) why the automatic triggers want a pause; published with the pause state.
+pub fn set_pause_reason(reason: String) {
+    if let Ok(mut current) = PAUSE_REASON.lock() {
+        *current = reason;
+    }
+}
+
+/// A new engine starts not paused: the flag a previous engine left in the state file (it quit or was
+/// killed while paused) must not outlive it, or everything that follows the pause state (the
+/// widgets) believes in a pause that isn't happening.
+pub fn reset_pause_state() {
+    AUTO_PAUSED.store(false, Ordering::Relaxed);
+    USER_PAUSED.store(false, Ordering::Relaxed);
+    set_pause_reason(String::new());
+    *LAST_PAUSE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    publish_pause(false, false);
 }
 
 /// Called by the backends with the automatic pause triggers' verdict.

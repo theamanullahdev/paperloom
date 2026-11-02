@@ -17,7 +17,8 @@ const CHECK_EVERY: Duration = Duration::from_secs(1);
 pub struct Control {
     seen: Option<SystemTime>,
     last_check: Instant,
-    engine_paused: bool,
+    /// Why the wallpaper engine says it is paused (`None`: it isn't).
+    engine_pause: Option<String>,
     hide_below: Option<u8>,
     guard: Guard,
     pub sample: Sample,
@@ -28,7 +29,7 @@ pub struct Control {
 
 impl Control {
     pub fn new() -> Self {
-        let mut control = Self { seen: None, last_check: Instant::now(), engine_paused: false, hide_below: None, guard: Guard::new(), sample: Sample::new(), test_until: None, reported: String::new() };
+        let mut control = Self { seen: None, last_check: Instant::now(), engine_pause: None, hide_below: None, guard: Guard::new(), sample: Sample::new(), test_until: None, reported: String::new() };
         control.mark_seen();
         control
     }
@@ -64,7 +65,7 @@ impl Control {
             return false;
         }
         self.last_check = Instant::now();
-        self.engine_paused = engine_is_pausing();
+        self.engine_pause = engine_pause();
         // Say why nothing shows (or that it does), where the developer page can read it.
         let why = self.pause_reason().unwrap_or_default();
         if why != self.reported {
@@ -86,8 +87,8 @@ impl Control {
         if self.testing() || paperloom_common::dev::DevSwitches::active().disable_auto_pause {
             return None;
         }
-        if self.engine_paused {
-            return Some("the wallpaper is paused automatically (a fullscreen or covering window, the lock screen, or battery rules)".into());
+        if let Some(why) = &self.engine_pause {
+            return Some(if why.is_empty() { "the wallpaper engine says it is paused".to_string() } else { format!("the wallpaper is paused because {why}") });
         }
         match (self.hide_below, self.sample.battery) {
             (Some(threshold), Some(battery)) if battery.discharging && battery.percent <= threshold => Some(format!("the battery is at {}% (hidden at {threshold}% or less)", battery.percent)),
@@ -108,14 +109,14 @@ impl Control {
 /// The wallpaper engine says it paused itself (a fullscreen app, the lock screen, battery…)
 /// — but only if it is still running with a wallpaper. The flag stays in the state file
 /// when the engine quits or crashes while paused, and must not hide widgets for good.
-fn engine_is_pausing() -> bool {
+fn engine_pause() -> Option<String> {
     let state = EngineState::load();
     if !state.auto_paused || state.current_wallpaper.is_none() || state.engine.pid == 0 {
-        return false;
+        return None;
     }
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
     let pid = Pid::from_u32(state.engine.pid);
     let mut system = System::new();
     system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), true, ProcessRefreshKind::nothing());
-    system.process(pid).is_some_and(|process| process.name().to_string_lossy().to_lowercase().starts_with("paperloom"))
+    system.process(pid).is_some_and(|process| process.name().to_string_lossy().to_lowercase().starts_with("paperloom")).then_some(state.pause_reason)
 }

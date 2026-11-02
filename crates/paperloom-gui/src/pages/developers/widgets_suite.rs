@@ -98,7 +98,7 @@ fn show(all: &Widgets, wait: Duration) -> Result<Status, String> {
 
 fn describe(status: &Status) -> String {
     format!(
-        "draws on: {} · {} windows · seen on screen: {} · hidden: {} · problem: {}",
+        "draws on: {} · {} windows · seen on screen: {} · paused: {} · problem: {}",
         if status.backend.is_empty() { "—" } else { &status.backend },
         status.windows,
         if status.verified { "yes" } else { "no" },

@@ -106,10 +106,11 @@ pub fn run(initial_path: Option<&str>) -> Result<(), Box<dyn Error>> {
                 let _ = conn.flush();
             }
             hotkeys.sync(&conn, &settings.hotkey_next, &settings.hotkey_pause);
-            let should_be_paused =
-                pause_detector.should_pause(&conn, screen.width_in_pixels, screen.height_in_pixels, window, &settings);
+            let reason = pause_detector.pause_reason(&conn, screen.width_in_pixels, screen.height_in_pixels, window, &settings);
+            let should_be_paused = reason.is_some();
             if should_be_paused != is_paused {
                 is_paused = should_be_paused;
+                player::set_pause_reason(reason.unwrap_or_default());
                 player::set_paused(&mpv, is_paused);
             }
 

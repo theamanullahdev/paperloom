@@ -24,6 +24,8 @@ pub struct EngineState {
     pub user_paused: bool,
     /// Paused by an automatic trigger (fullscreen app, lock, battery…).
     pub auto_paused: bool,
+    /// Which trigger, in words (empty when the engine doesn't say).
+    pub pause_reason: String,
     /// What the engine itself reports about the running engine and the video
     /// it is playing (read by Usage, the Developers page and diagnostics).
     pub engine: EngineInfo,

@@ -124,7 +124,7 @@ pub fn run(settings: &Settings, progress: Progress) -> String {
             if widgets.enabled { "on" } else { "off" },
             if status.backend.is_empty() { "—" } else { &status.backend },
             if status.verified { "yes" } else { "no" },
-            if status.paused.is_empty() { "not hidden".to_string() } else { format!("hidden: {}", status.paused) }
+            if status.paused.is_empty() { "not paused".to_string() } else { format!("paused: {}", status.paused) }
         );
         // Running, switched on and not hidden on purpose, yet nothing was seen: that is a failure.
         let should_show = running && widgets.enabled && status.paused.is_empty();

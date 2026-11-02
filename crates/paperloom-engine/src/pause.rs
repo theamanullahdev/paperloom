@@ -42,21 +42,27 @@ impl PauseDetector {
         })
     }
 
-    pub fn should_pause(
-        &self,
-        conn: &impl Connection,
-        screen_width: u16,
-        screen_height: u16,
-        our_window: Window,
-        settings: &Settings,
-    ) -> bool {
-        (settings.pause_on_fullscreen_app && self.active_window_is_fullscreen(conn).unwrap_or(false))
-            || (settings.pause_on_window_covering_desktop
-                && self.a_window_covers_desktop(conn, screen_width, screen_height, our_window).unwrap_or(false))
-            || (settings.pause_on_screen_lock && screen_is_locked())
-            || (settings.pause_on_low_battery && battery_low(settings.low_battery_percent))
-            || (!settings.pause_apps.is_empty() && self.active_app_matches(conn, &settings.pause_apps))
-            || (settings.pause_when_idle_minutes > 0 && self.idle_longer_than(conn, settings.pause_when_idle_minutes))
+    /// Why the wallpaper should be paused right now, in words; `None` when it should play.
+    pub fn pause_reason(&self, conn: &impl Connection, screen_width: u16, screen_height: u16, our_window: Window, settings: &Settings) -> Option<String> {
+        if settings.pause_on_fullscreen_app && self.active_window_is_fullscreen(conn).unwrap_or(false) {
+            return Some("a fullscreen app is in front".into());
+        }
+        if settings.pause_on_window_covering_desktop && self.a_window_covers_desktop(conn, screen_width, screen_height, our_window).unwrap_or(false) {
+            return Some("a window covers the whole desktop".into());
+        }
+        if settings.pause_on_screen_lock && screen_is_locked() {
+            return Some("the screen is locked".into());
+        }
+        if settings.pause_on_low_battery && battery_low(settings.low_battery_percent) {
+            return Some(format!("the battery is at or below {}%", settings.low_battery_percent));
+        }
+        if !settings.pause_apps.is_empty() && self.active_app_matches(conn, &settings.pause_apps) {
+            return Some("an app on your pause list is in front".into());
+        }
+        if settings.pause_when_idle_minutes > 0 && self.idle_longer_than(conn, settings.pause_when_idle_minutes) {
+            return Some(format!("nothing has been touched for {} minutes", settings.pause_when_idle_minutes));
+        }
+        None
     }
 
     /// The focused window's program/class (WM_CLASS) contains one of `apps`.
