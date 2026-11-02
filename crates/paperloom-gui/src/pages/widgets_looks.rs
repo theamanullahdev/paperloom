@@ -113,7 +113,19 @@ pub fn into_previews(drawn: Drawn) -> Previews {
 /// Redraws only the clocks and dates (they show the real time), on the
 /// wallpaper already decoded.
 pub fn load_times<M: Send + 'static>(done: impl Fn(Drawn) -> M + Send + 'static) -> Task<M> {
-    blocking(|| draw(|kind| kind == "clock" || kind == "date", false), done)
+    blocking(|| draw(|kind| kind == "clock" || kind == "date", false, &core()), done)
+}
+
+/// Draws these looks (by id) and nothing else: the ones of an imported pack that is open.
+pub fn load_skins<M: Send + 'static>(ids: Vec<String>, done: impl Fn(Drawn) -> M + Send + 'static) -> Task<M> {
+    blocking(move || draw(|_| true, false, &|skin: &Skin| ids.contains(&skin.id)), done)
+}
+
+/// What is drawn up front: every look except the imported ones (a pack can hold hundreds, so
+/// those are drawn when it is opened), plus any imported look a widget is using.
+fn core() -> impl Fn(&Skin) -> bool {
+    let used: Vec<String> = paperloom_common::widgets::Widgets::load().placed.into_iter().map(|placed| placed.skin).collect();
+    move |skin| !skin.imported() || used.contains(&skin.id)
 }
 
 impl Previews {
@@ -155,11 +167,11 @@ pub fn on_wallpaper(png: &[u8]) -> Option<image::Handle> {
 }
 
 fn draw_all() -> Drawn {
-    draw(|_| true, true)
+    draw(|_| true, true, &core())
 }
 
 /// Draws the looks of the kinds `wanted` picks; `fresh` reads the wallpaper again.
-fn draw(wanted: impl Fn(&str) -> bool, fresh: bool) -> Drawn {
+fn draw(wanted: impl Fn(&str) -> bool, fresh: bool, include: &dyn Fn(&Skin) -> bool) -> Drawn {
     let screen = paperloom_common::primary_size().unwrap_or((1920, 1080));
     let cached = WALLPAPER.lock().ok().and_then(|cached| cached.clone());
     let wallpaper = if fresh || cached.is_none() { wallpaper() } else { cached };
@@ -168,7 +180,7 @@ fn draw(wanted: impl Fn(&str) -> bool, fresh: bool) -> Drawn {
     }
     let mut text = paperloom_skin::Text::new();
     let mut looks = Vec::new();
-    for skin in paperloom_skin::all() {
+    for skin in paperloom_skin::all().into_iter().filter(|skin| include(skin)) {
         for kind in skin.kinds.iter().filter(|kind| wanted(kind)) {
             let vars = paperloom_skin::preview(kind);
             let bare = paperloom_skin::render(skin, &vars, 1.0, &mut text);

@@ -173,6 +173,7 @@ fn import_ini(path: &Path, root: &Path, skins_dir: &Path, author: Option<String>
         look.insert("id".into(), format!("{}/{folder}", converted.kind).into());
         look.insert("name".into(), name.clone().into());
         look.insert("author".into(), author.into());
+        look.insert("pack".into(), suite.clone().into());
         look.insert("description".into(), about.chars().take(200).collect::<String>().into());
         look.insert("kinds".into(), Value::Array(vec![converted.kind.clone().into()]));
         look.insert("fonts".into(), Value::Array(fonts));

@@ -20,6 +20,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, 
 
 use paperloom_common::widgets::{self, Widgets, BUILT_IN, MAX_PLACED};
 
+mod looks;
 mod stacks;
 
 use super::widgets_looks::{self, Previews, CARD};
@@ -107,9 +108,30 @@ pub enum Message {
     ImportRainmeter(bool),
     /// Looks added, parts left out — or why nothing could be.
     Imported(Imported),
-    /// Browse: Installed or Online.
+    /// Browse: Installed, Online or Imported.
     Tab(BrowseTab),
+    /// A part of a widget's own page.
+    Part(DetailTab),
+    /// Open (or close) an imported pack; show more of its looks.
+    OpenPack(String),
+    MorePack,
+    /// Ask before removing a pack, or every imported look; answer.
+    AskRemovePack(String),
+    AskRemoveImported,
+    CancelRemove,
+    ConfirmRemove,
+    /// Close the import pop-up; close it and go to the Imported tab.
+    CloseImport,
+    SeeImported,
     Online(widgets_online::Message),
+}
+
+/// The parts of a widget's own page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailTab {
+    Look,
+    Place,
+    Behaviour,
 }
 
 /// A Rainmeter import: the looks added and the parts left out, or why nothing was.
@@ -132,6 +154,7 @@ impl Notice {
 pub enum BrowseTab {
     Installed,
     Online,
+    Imported,
 }
 
 pub struct State {
@@ -153,6 +176,15 @@ pub struct State {
     expanded: Option<&'static str>,
     importing: bool,
     imported: Option<Imported>,
+    /// The import pop-up is showing (progress, then what came of it).
+    show_import: bool,
+    /// The imported pack that is open, and how many of its looks are shown.
+    pack_open: Option<String>,
+    pack_shown: usize,
+    /// Which part of a widget's own page is showing.
+    part: DetailTab,
+    /// A removal waiting for a yes.
+    confirm: Option<looks::Confirm>,
     /// What just happened, with the obvious next step.
     notice: Option<Notice>,
     /// What the last removal took off the desktop (for Undo).
@@ -197,7 +229,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), menu: None, inside: false, last_start: None, status: widgets::Status::read().unwrap_or_default(), open_stack: None, menu_stack: None, menu_preset: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, show_import: false, pack_open: None, pack_shown: looks::PAGE, part: DetailTab::Look, confirm: None, notice: None, removed: Vec::new(), menu: None, inside: false, last_start: None, status: widgets::Status::read().unwrap_or_default(), open_stack: None, menu_stack: None, menu_preset: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
@@ -354,11 +386,68 @@ impl State {
                 self.minute = paperloom_common::log::now_unix() / 60;
                 self.previews = widgets_looks::into_previews(drawn);
                 self.previews_loading = false;
-                return Task::none();
+                // The open pack's looks are drawn apart from the rest.
+                return if self.pack_open.is_some() { widgets_looks::load_skins(self.pack_ids(), Message::TimesReady) } else { Task::none() };
             }
             Message::Tab(tab) => {
                 self.tab = tab;
                 return if tab == BrowseTab::Online { self.online.opened().map(Message::Online) } else { Task::none() };
+            }
+            Message::Part(part) => {
+                self.part = part;
+                return Task::none();
+            }
+            Message::OpenPack(name) => {
+                if self.pack_open.as_deref() == Some(name.as_str()) {
+                    self.pack_open = None;
+                    return Task::none();
+                }
+                self.pack_open = Some(name);
+                self.pack_shown = looks::PAGE;
+                return widgets_looks::load_skins(self.pack_ids(), Message::TimesReady);
+            }
+            Message::MorePack => {
+                self.pack_shown += looks::PAGE;
+                return widgets_looks::load_skins(self.pack_ids(), Message::TimesReady);
+            }
+            Message::AskRemovePack(name) => {
+                self.confirm = Some(looks::Confirm::Pack(name));
+                return Task::none();
+            }
+            Message::AskRemoveImported => {
+                self.confirm = Some(looks::Confirm::AllImported);
+                return Task::none();
+            }
+            Message::CancelRemove => {
+                self.confirm = None;
+                return Task::none();
+            }
+            Message::ConfirmRemove => {
+                let Some(confirm) = self.confirm.take() else { return Task::none() };
+                let pack = match &confirm {
+                    looks::Confirm::Pack(name) => Some(name.as_str()),
+                    looks::Confirm::AllImported => None,
+                };
+                let folders: Vec<String> = paperloom_skin::all().into_iter().filter(|skin| skin.imported() && pack.is_none_or(|name| skin.pack_name() == name)).filter_map(|skin| skin.folder().map(str::to_string)).collect();
+                if pack.is_none_or(|name| self.pack_open.as_deref() == Some(name)) {
+                    self.pack_open = None;
+                }
+                return widgets_looks::blocking(
+                    move || match paperloom_fetch::looks::remove_many(&folders, &paperloom_common::skins_dir()) {
+                        0 => Ok(()),
+                        failed => Err(format!("{failed} could not be removed")),
+                    },
+                    Message::LookRemoved,
+                );
+            }
+            Message::CloseImport => {
+                self.show_import = false;
+                return Task::none();
+            }
+            Message::SeeImported => {
+                self.show_import = false;
+                self.tab = BrowseTab::Imported;
+                return Task::done(Message::Browse);
             }
             Message::Online(widgets_online::Message::Use(skin)) => return self.update(Message::UseLook(skin)),
             Message::Online(widgets_online::Message::Add(kind, skin)) => return self.update(Message::AddWithLook(kind, skin)),
@@ -562,8 +651,20 @@ impl State {
             Message::LookRemoved(result) => {
                 paperloom_skin::refresh();
                 self.problem = result.err().map(|err| format!("Couldn't remove that look: {err}"));
-                // Widgets that used it are back on their kind's default look.
+                // Widgets that used it go back to their kind's default look.
                 self.widgets = Widgets::load();
+                let mut reset = 0;
+                for placed in &mut self.widgets.placed {
+                    let missing = !placed.skin.is_empty() && paperloom_skin::get(&placed.skin).is_none_or(|skin| !skin.kinds.contains(&placed.kind));
+                    if missing {
+                        placed.skin = paperloom_skin::default_for(&placed.kind).map(|skin| skin.id.clone()).unwrap_or_default();
+                        reset += 1;
+                    }
+                }
+                if reset > 0 {
+                    let _ = self.widgets.save();
+                    self.notice = Notice::new(if reset == 1 { "1 widget went back to its default look.".to_string() } else { format!("{reset} widgets went back to their default look.") }, None);
+                }
                 self.previews_loading = true;
                 return widgets_looks::load(Message::PreviewsReady);
             }
@@ -633,6 +734,7 @@ impl State {
                 self.open_stack = None;
                 self.selected = Some(id);
                 self.open = Some(id);
+                self.part = DetailTab::Look;
                 return Task::none();
             }
             Message::Back => {
@@ -656,6 +758,7 @@ impl State {
                 let picked = if folder { dialog.pick_folder() } else { dialog.add_filter("Rainmeter skin", &["rmskin", "zip", "ini"]).pick_file() };
                 let Some(path) = picked else { return Task::none() };
                 self.importing = true;
+                self.show_import = true;
                 self.imported = None;
                 return widgets_looks::blocking(
                     move || paperloom_skin::rainmeter::import(&path, &paperloom_common::skins_dir()).map(|report| (report.looks, report.left_out)),
@@ -669,6 +772,7 @@ impl State {
                     self.filter.clear();
                     self.previews_loading = true;
                     self.imported = Some(result);
+                    self.show_import = true;
                     return widgets_looks::load(Message::PreviewsReady);
                 }
                 self.imported = Some(result);
@@ -889,6 +993,9 @@ impl State {
 
     /// A widget's ⋯ menu, over the whole window: its looks, and what else can be done to it.
     pub fn overlay<'a>(&'a self, t: theme::Tokens) -> Option<Element<'a, Message>> {
+        if let Some(overlay) = self.looks_overlay(t) {
+            return Some(overlay);
+        }
         if let Some(overlay) = self.stack_overlay(t) {
             return Some(overlay);
         }
@@ -994,78 +1101,87 @@ impl State {
         .spacing(12)
         .align_y(Alignment::Center);
 
-        let screen = section(
-            "Where it sits",
-            "Your screen, with this widget outlined. Drag it to move it.",
-            super::widgets_layout::view(&self.widgets.placed, Some(id), self.screen, &self.previews, 380.0, t),
-            t,
-        );
-
         let current = widgets_looks::skin_of(placed).map(|skin| skin.id.clone());
-        let mut looks: Vec<Element<'a, Message>> = paperloom_skin::for_kind(&placed.kind)
-            .into_iter()
-            .map(|skin| {
-                let chosen = current.as_deref() == Some(skin.id.as_str());
-                let detail = if chosen { "In use".to_string() } else { format!("by {}", skin.author) };
-                card(self.previews.card(&skin.id, &placed.kind), skin.name.clone(), detail, Vec::new(), (!chosen).then(|| Message::SetLook(id, skin.id.clone())), chosen, t)
-            })
-            .collect();
-        looks.push(more_looks_card(placed.kind.clone(), t));
-        let looks = section("Look", "Click a look to use it. What the widget shows stays the same.", row(looks).spacing(16).wrap().vertical_spacing(16).into(), t);
-
-        let percent = |value: f32| text(format!("{:.0}%", value * 100.0)).size(13).color(t.muted_foreground).width(Length::Fixed(48.0));
-        let line = |label: &'static str, control: Element<'a, Message>, value: Element<'a, Message>| -> Element<'a, Message> {
-            row![text(label).size(13).color(t.foreground).width(Length::Fixed(110.0)), control, value].spacing(12).align_y(Alignment::Center).into()
-        };
-        let size = section(
-            "Size",
-            "",
-            column![
-                line("Size", slider(0.5..=2.0, placed.scale, move |value| Message::Scale(id, value)).step(0.05_f32).on_release(Message::Commit).into(), percent(placed.scale).into()),
-                line("Opacity", slider(0.1..=1.0, placed.opacity, move |value| Message::Opacity(id, value)).step(0.05_f32).on_release(Message::Commit).into(), percent(placed.opacity).into()),
-            ]
-            .spacing(10)
-            .into(),
-            t,
-        );
-
-        let behaviour = section(
-            "On the desktop",
-            if placed.interactive() {
-                "It sits above your desktop icons so you can grab it. Turn both off and it sits below them, and every click goes through to the desktop."
-            } else {
-                "Clicks go through it to the desktop, and it sits below your desktop icons. Move it here or in Arrange."
-            },
-            column![
-                toggler(placed.drag).label("Move it by dragging on the desktop").on_toggle(move |value| Message::Drag(id, value)),
-                toggler(placed.menu).label("Right-click it for a menu").on_toggle(move |value| Message::Menu(id, value)),
-            ]
-            .spacing(8)
-            .into(),
-            t,
-        );
-
-        let mut page = column![heading, screen, looks].spacing(16);
-        // The weather needs to know where you are.
-        if placed.kind == "weather" {
-            page = page.push(section(
-                "Location",
-                "The city the weather is for. Leave it empty to use the city of this computer's time zone.",
+        let part = match self.part {
+            DetailTab::Look => {
+                let mut looks: Vec<Element<'a, Message>> = paperloom_skin::for_kind(&placed.kind)
+                    .into_iter()
+                    .filter(|skin| !skin.imported() || current.as_deref() == Some(skin.id.as_str()))
+                    .map(|skin| {
+                        let chosen = current.as_deref() == Some(skin.id.as_str());
+                        let detail = if chosen { "In use".to_string() } else { format!("by {}", skin.author) };
+                        card(self.previews.card(&skin.id, &placed.kind), skin.name.clone(), detail, Vec::new(), (!chosen).then(|| Message::SetLook(id, skin.id.clone())), chosen, t)
+                    })
+                    .collect();
+                looks.push(more_looks_card(placed.kind.clone(), t));
                 column![
-                    row![
-                        iced::widget::text_input("Your city, for example Karachi", &self.widgets.weather_city).on_input(Message::WeatherCity).on_submit(Message::Commit).width(Length::Fixed(280.0)),
-                        button(ui::label("Set").color(ui::on_accent())).style(ui::primary).on_press(Message::Commit),
-                    ]
-                    .spacing(8)
-                    .align_y(Alignment::Center),
-                    toggler(self.widgets.fahrenheit).label("Show degrees Fahrenheit").on_toggle(Message::Fahrenheit),
+                    text("Click a look to use it. What the widget shows stays the same. Imported looks are in Looks → Imported.").size(13).color(t.muted_foreground),
+                    row(looks).spacing(16).wrap().vertical_spacing(16),
                 ]
-                .spacing(10)
-                .into(),
-                t,
-            ));
-        }
-        page.push(size).push(behaviour).into()
+                .spacing(12)
+                .into()
+            }
+            DetailTab::Place => {
+                let percent = |value: f32| text(format!("{:.0}%", value * 100.0)).size(13).color(t.muted_foreground).width(Length::Fixed(48.0));
+                let line = |label: &'static str, control: Element<'a, Message>, value: Element<'a, Message>| -> Element<'a, Message> {
+                    row![text(label).size(13).color(t.foreground).width(Length::Fixed(110.0)), control, value].spacing(12).align_y(Alignment::Center).into()
+                };
+                column![
+                    text("Your screen, with this widget outlined. Drag it to move it.").size(13).color(t.muted_foreground),
+                    super::widgets_layout::view(&self.widgets.placed, Some(id), self.screen, &self.previews, 380.0, t),
+                    panel(
+                        column![
+                            line("Size", slider(0.5..=2.0, placed.scale, move |value| Message::Scale(id, value)).step(0.05_f32).on_release(Message::Commit).into(), percent(placed.scale).into()),
+                            line("Opacity", slider(0.1..=1.0, placed.opacity, move |value| Message::Opacity(id, value)).step(0.05_f32).on_release(Message::Commit).into(), percent(placed.opacity).into()),
+                        ]
+                        .spacing(10)
+                        .into(),
+                        t,
+                    ),
+                ]
+                .spacing(12)
+                .into()
+            }
+            DetailTab::Behaviour => {
+                let mut options = column![
+                    text(if placed.interactive() {
+                        "It sits above your desktop icons so you can grab it. Turn both off and it sits below them, and every click goes through to the desktop."
+                    } else {
+                        "Clicks go through it to the desktop, and it sits below your desktop icons. Move it here or in Arrange."
+                    })
+                    .size(13)
+                    .color(t.muted_foreground),
+                    toggler(placed.drag).label("Move it by dragging on the desktop").on_toggle(move |value| Message::Drag(id, value)),
+                    toggler(placed.menu).label("Right-click it for a menu").on_toggle(move |value| Message::Menu(id, value)),
+                ]
+                .spacing(10);
+                // The weather needs to know where you are.
+                if placed.kind == "weather" {
+                    options = options
+                        .push(ui::rule(t))
+                        .push(text("The city the weather is for. Leave it empty to use the city of this computer's time zone.").size(13).color(t.muted_foreground))
+                        .push(
+                            row![
+                                iced::widget::text_input("Your city, for example Karachi", &self.widgets.weather_city).on_input(Message::WeatherCity).on_submit(Message::Commit).width(Length::Fixed(280.0)),
+                                button(ui::label("Set").color(ui::on_accent())).style(ui::primary).on_press(Message::Commit),
+                            ]
+                            .spacing(8)
+                            .align_y(Alignment::Center),
+                        )
+                        .push(toggler(self.widgets.fahrenheit).label("Show degrees Fahrenheit").on_toggle(Message::Fahrenheit));
+                }
+                panel(options.into(), t)
+            }
+        };
+        let parts = ui::segmented(
+            vec![
+                ("Look".to_string(), self.part == DetailTab::Look, Message::Part(DetailTab::Look)),
+                ("Size and place".to_string(), self.part == DetailTab::Place, Message::Part(DetailTab::Place)),
+                ("Behaviour".to_string(), self.part == DetailTab::Behaviour, Message::Part(DetailTab::Behaviour)),
+            ],
+            t,
+        );
+        column![heading, parts, part].spacing(16).into()
     }
 
     /// Every kind of widget that can be added, with the ones already placed folded under it.
@@ -1206,115 +1322,6 @@ fn panel<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Mes
             ..container::Style::default()
         })
         .into()
-}
-
-impl State {
-    /// Looks: the gallery of looks, each drawn on the user's wallpaper.
-    fn looks<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let kinds: Vec<(String, String)> = std::iter::once((String::new(), "All".to_string()))
-            .chain(BUILT_IN.iter().filter(|entry| !paperloom_skin::for_kind(entry.kind).is_empty()).map(|entry| (entry.kind.to_string(), entry.name.to_string())))
-            .collect();
-        let tabs = ui::segmented(
-            vec![
-                ("On this computer".to_string(), self.tab == BrowseTab::Installed, Message::Tab(BrowseTab::Installed)),
-                ("Online library".to_string(), self.tab == BrowseTab::Online, Message::Tab(BrowseTab::Online)),
-            ],
-            t,
-        );
-        let filters = ui::segmented(kinds.into_iter().map(|(kind, name)| (name, self.filter == kind, Message::Filter(kind))).collect(), t);
-        if self.tab == BrowseTab::Online {
-            let target = |kinds: &[String], skin: &str| self.target_for(kinds).map(|placed| (self.title_of(placed), widgets_looks::skin_of(placed).is_some_and(|current| current.id == skin)));
-            return column![
-                tabs,
-                text("More looks, some with their own fonts and images. Install one, then use it on a widget you have or add it as a new one.").size(13).color(t.muted_foreground),
-                filters,
-                self.online.view(&self.filter, &target, t).map(Message::Online),
-            ]
-            .spacing(14)
-            .into();
-        }
-
-        let mut cards = Vec::new();
-        for skin in paperloom_skin::all() {
-            if !self.filter.is_empty() && !skin.kinds.contains(&self.filter) {
-                continue;
-            }
-            cards.push(self.look_card(skin, t));
-        }
-        let hint = "Shown on your wallpaper. “Use on…” changes a widget you have; “Add” puts a new one on the desktop.";
-        column![tabs, self.import_panel(t), text(hint).size(13).color(t.muted_foreground), filters, row(cards).spacing(16).wrap().vertical_spacing(16)].spacing(14).into()
-    }
-
-    /// Bringing in Rainmeter skins, and what came of the last import.
-    fn import_panel<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let mut buttons = row![].spacing(8).align_y(Alignment::Center);
-        if self.importing {
-            buttons = buttons.push(text("Importing…").size(13).color(t.muted_foreground));
-        } else {
-            buttons = buttons
-                .push(button(ui::label("Import .rmskin file…")).style(ui::secondary).on_press(Message::ImportRainmeter(false)))
-                .push(button(ui::label("Import a skin folder…")).style(ui::ghost).on_press(Message::ImportRainmeter(true)));
-        }
-        let mut body = column![
-            row![
-                column![
-                    text("Rainmeter skins").size(15).color(t.foreground),
-                    text("Bring in a Rainmeter skin package or folder. Each skin becomes a look here, with its pictures and fonts.").size(13).color(t.muted_foreground),
-                ]
-                .spacing(2)
-                .width(Length::Fill),
-                buttons,
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center),
-        ]
-        .spacing(10);
-        match &self.imported {
-            Some(Ok((looks, left_out))) => {
-                body = body.push(text(format!("Added {}: {}. They're in the gallery below.", if looks.len() == 1 { "1 look".to_string() } else { format!("{} looks", looks.len()) }, looks.join(", "))).size(13).color(t.success));
-                if !left_out.is_empty() {
-                    let shown: Vec<String> = left_out.iter().take(8).cloned().collect();
-                    let more = if left_out.len() > 8 { format!("\n…and {} more", left_out.len() - 8) } else { String::new() };
-                    body = body.push(text(format!("Left out, as Paperloom has nothing that matches:\n{}{more}", shown.join("\n"))).size(12).color(t.muted_foreground));
-                }
-            }
-            Some(Err(err)) => body = body.push(text(err.as_str()).size(13).color(t.destructive)),
-            None => {}
-        }
-        panel(body.into(), t)
-    }
-
-    /// The widget "Use" changes for a look of these kinds: the one picked last
-    /// if it can show it, else the first that can.
-    fn target_for(&self, kinds: &[String]) -> Option<&widgets::Placed> {
-        let selected = self.selected.and_then(|id| self.widgets.placed.iter().find(|placed| placed.id == id)).filter(|placed| kinds.contains(&placed.kind));
-        selected.or_else(|| self.widgets.placed.iter().find(|placed| kinds.contains(&placed.kind)))
-    }
-
-    fn look_card<'a>(&'a self, skin: &'static paperloom_skin::Skin, t: theme::Tokens) -> Element<'a, Message> {
-        let target = self.target_for(&skin.kinds);
-        // The kind it is shown as: the filter's, else its widget's, else its first.
-        let kind = if skin.kinds.contains(&self.filter) {
-            self.filter.clone()
-        } else {
-            target.map(|placed| placed.kind.clone()).or_else(|| skin.kinds.first().cloned()).unwrap_or_default()
-        };
-        let in_use = target.is_some_and(|placed| widgets_looks::skin_of(placed).is_some_and(|current| current.id == skin.id));
-        let mut actions: Vec<Element<'a, Message>> = Vec::new();
-        if let Some(placed) = target.filter(|_| !in_use) {
-            actions.push(button(ui::label(format!("Use on {}", self.title_of(placed))).color(ui::on_accent())).style(ui::primary).on_press(Message::UseLook(skin.id.clone())).into());
-        }
-        actions.push(button(ui::label("Add")).style(ui::secondary).on_press(Message::AddWithLook(kind.clone(), skin.id.clone())).into());
-        // Installed and imported looks can be removed again.
-        if let Some(folder) = skin.dir.as_ref().and_then(|dir| dir.file_name()).and_then(|name| name.to_str()) {
-            actions.push(button(ui::label("Remove")).style(ui::ghost).on_press(Message::RemoveLook(folder.to_string())).into());
-        }
-        let detail = match target.filter(|_| in_use) {
-            Some(placed) => format!("In use on your {}", self.title_of(placed)),
-            None => format!("by {}", skin.author),
-        };
-        card(self.previews.card(&skin.id, &kind), skin.name.clone(), detail, actions, None, in_use, t)
-    }
 }
 
 /// "the wallpaper is paused…" → "The wallpaper is paused…".

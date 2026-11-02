@@ -192,6 +192,11 @@ pub fn remove(folder: &str, skins_dir: &Path) -> Result<(), String> {
     std::fs::remove_dir_all(skins_dir.join(folder)).map_err(|err| err.to_string())
 }
 
+/// Removes several installed looks; returns how many could not be removed.
+pub fn remove_many(folders: &[String], skins_dir: &Path) -> usize {
+    folders.iter().filter(|folder| remove(folder, skins_dir).is_err()).count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

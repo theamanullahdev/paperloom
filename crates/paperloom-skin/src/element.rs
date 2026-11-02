@@ -11,6 +11,10 @@ pub struct Skin {
     pub name: String,
     #[serde(default)]
     pub author: String,
+    /// The pack an imported look came with (a Rainmeter suite); empty for the looks that ship with
+    /// Paperloom and the ones from its online library.
+    #[serde(default)]
+    pub pack: String,
     /// The widget kinds this look can be used for (`clock`, `cpu`, …).
     pub kinds: Vec<String>,
     /// Font files the look ships (TTF/OTF), relative to its folder; the text
@@ -30,6 +34,25 @@ pub struct Skin {
 }
 
 impl Skin {
+    /// Brought in from a file or folder by the user (not built in, not from the online library).
+    pub fn imported(&self) -> bool {
+        !self.pack.is_empty() || self.folder().is_some_and(|folder| folder.starts_with("rm-"))
+    }
+
+    /// The name of the pack it belongs to. Looks imported before packs were recorded are
+    /// grouped by the first word of their name, which is the Rainmeter suite's.
+    pub fn pack_name(&self) -> String {
+        if !self.pack.is_empty() {
+            return self.pack.clone();
+        }
+        self.name.split_whitespace().next().unwrap_or("Imported").to_string()
+    }
+
+    /// The name of the folder an installed look lives in.
+    pub fn folder(&self) -> Option<&str> {
+        self.dir.as_ref().and_then(|dir| dir.file_name()).and_then(|name| name.to_str())
+    }
+
     pub fn parse(source: &str) -> Result<Self, toml::de::Error> {
         let mut skin: Skin = toml::from_str(source)?;
         let elements = format!("{:?}", skin.element);
@@ -322,4 +345,29 @@ pub struct Segments {
     pub track: String,
     pub glow: Option<f32>,
     pub show_if: Option<String>,
+}
+
+#[cfg(test)]
+mod pack_tests {
+    use super::Skin;
+
+    fn skin(extra: &str, dir: Option<&str>) -> Skin {
+        let mut skin = Skin::parse(&format!("id = \"clock/x\"\nname = \"Mond Time\"\nkinds = [\"clock\"]\nsize = [10.0, 10.0]\n{extra}")).unwrap();
+        skin.dir = dir.map(std::path::PathBuf::from);
+        skin
+    }
+
+    #[test]
+    fn imported_looks_know_their_pack() {
+        let own = skin("pack = \"Mondish\"\n", Some("/skins/rm-mond-time"));
+        assert!(own.imported());
+        assert_eq!(own.pack_name(), "Mondish");
+        // Imported before packs were recorded: the folder says so, the name's first word is the pack.
+        let old = skin("", Some("/skins/rm-mond-time"));
+        assert!(old.imported());
+        assert_eq!(old.pack_name(), "Mond");
+        // Built in or from the online library: not imported.
+        assert!(!skin("", None).imported());
+        assert!(!skin("", Some("/skins/neon-clock")).imported());
+    }
 }
