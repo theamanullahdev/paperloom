@@ -782,6 +782,10 @@ impl State {
         if let Some(problem) = &self.problem {
             page = page.push(text(problem.as_str()).size(13).color(t.destructive));
         }
+        // macOS widgets are display-only: say how to move them.
+        if cfg!(target_os = "macos") {
+            page = page.push(panel(text("On a Mac, widgets are display-only: position them in Arrange. Dragging them on the desktop and the right-click menu are not available there.").size(13).color(t.muted_foreground).into(), t));
+        }
         if let Some(notice) = &self.notice {
             let mut line = row![text(notice.text.as_str()).size(14).color(t.foreground).width(Length::Fill)].spacing(10).align_y(Alignment::Center);
             if let Some((label, message)) = &notice.action {

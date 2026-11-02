@@ -132,11 +132,28 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
         let mut verify_at = Instant::now() + Duration::from_millis(800);
         'alive: loop {
             if control.changed() {
-                for window in &windows {
-                    // SAFETY: our own windows.
-                    unsafe { DestroyWindow(window.hwnd) };
+                let new = Widgets::load();
+                if control.test_over() || control.testing() || !new.enabled || new.placed.is_empty() {
+                    for window in &windows {
+                        // SAFETY: our own windows.
+                        unsafe { DestroyWindow(window.hwnd) };
+                    }
+                    return Ok(());
                 }
-                return Ok(());
+                // Only what changed is touched: a moved widget moves, a removed one goes, a new one appears.
+                if let Err(err) = apply_change(&layer, &mut windows, &new) {
+                    paperloom_common::log::warn(&format!("widgets: couldn't apply a change in place ({err}); rebuilding"));
+                    for window in &windows {
+                        // SAFETY: our own windows.
+                        unsafe { DestroyWindow(window.hwnd) };
+                    }
+                    return Ok(());
+                }
+                control.mark_seen();
+                control.sample.set_needs(new.placed.iter().map(|placed| placed.kind.as_str()));
+                let has = |kind: &str| new.placed.iter().any(|placed| placed.kind == kind);
+                crate::feeds::set_needs(has("weather"), has("nowplaying"));
+                status(|status| status.windows = windows.len() as u32);
             }
             pump_messages();
             handle_events(&mut windows, owner, control);
@@ -560,6 +577,76 @@ fn make_window(mode: Mode, parent: HWND, style: u32, (x, y, w, h): (i32, i32, i3
     }
 }
 
+/// One widget's window, where `mode` and `layer` say widgets go.
+fn create_widget(mode: Mode, layer: &Layer, placed: &Placed) -> Result<Window, String> {
+    // The desktop layer spans the virtual screen; widget positions are fractions of the primary monitor.
+    // SAFETY: plain metric queries.
+    let ((origin_x, origin_y), (screen_w, screen_h)) = unsafe {
+        let origin = if mode == Mode::Desktop { (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN)) } else { (0, 0) };
+        (origin, (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)))
+    };
+    let (w, h) = widgets::size_of(placed);
+    let (w, h) = ((w as f32 * placed.scale) as i32, (h as f32 * placed.scale) as i32);
+    let x = (placed.x * screen_w as f32) as i32 - origin_x;
+    let y = (placed.y * screen_h as f32) as i32 - origin_y;
+    // In the classic layout the icons' window sits above the desktop layer and
+    // would swallow every click, so there widgets stay click-through.
+    let takes_input = placed.interactive() && (layer.icons.is_some() || mode != Mode::Desktop);
+    let mut style = WS_EX_LAYERED | WS_EX_NOACTIVATE;
+    if !takes_input {
+        style |= WS_EX_TRANSPARENT;
+    }
+    let hwnd = make_window(mode, layer.parent, style, (x, y, w, h))?;
+    // SAFETY: our own window.
+    unsafe {
+        if takes_input {
+            let flags = if placed.drag { CAN_DRAG } else { 0 } | if placed.menu { CAN_MENU } else { 0 };
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, flags);
+        }
+        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    }
+    Ok(Window { hwnd, failed: false, placed: placed.clone(), pixmap: None, due: Instant::now() })
+}
+
+/// Brings the windows in line with new settings, touching only what differs.
+fn apply_change(layer: &Layer, windows: &mut Vec<Window>, new: &Widgets) -> Result<(), String> {
+    let mode = if layer.desktop.is_some() { Mode::PlainAbove } else { Mode::Desktop };
+    windows.retain(|window| {
+        let kept = new.placed.iter().any(|placed| placed.id == window.placed.id);
+        if !kept {
+            // SAFETY: our own window.
+            unsafe { DestroyWindow(window.hwnd) };
+        }
+        kept
+    });
+    // SAFETY: plain metric queries.
+    let ((origin_x, origin_y), (screen_w, screen_h)) = unsafe {
+        let origin = if mode == Mode::Desktop { (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN)) } else { (0, 0) };
+        (origin, (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)))
+    };
+    for placed in &new.placed {
+        match windows.iter().position(|window| window.placed.id == placed.id) {
+            Some(index) => {
+                let old = &windows[index].placed;
+                let same = old.kind == placed.kind && old.skin == placed.skin && (old.scale - placed.scale).abs() < 1e-6 && (old.opacity - placed.opacity).abs() < 1e-6 && old.drag == placed.drag && old.menu == placed.menu;
+                if !same {
+                    // SAFETY: our own window.
+                    unsafe { DestroyWindow(windows[index].hwnd) };
+                    windows[index] = create_widget(mode, layer, placed)?;
+                    continue;
+                }
+                let (x, y) = ((placed.x * screen_w as f32) as i32 - origin_x, (placed.y * screen_h as f32) as i32 - origin_y);
+                // SAFETY: our own window.
+                unsafe { SetWindowPos(windows[index].hwnd, std::ptr::null_mut(), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE) };
+                windows[index].placed = placed.clone();
+            }
+            None => windows.push(create_widget(mode, layer, placed)?),
+        }
+    }
+    restack(layer, windows);
+    Ok(())
+}
+
 fn build(widgets: &Widgets, mode: Mode) -> Result<(Layer, Vec<Window>), Box<dyn Error>> {
     let (parent, raised) = if mode == Mode::Desktop { find_layer()? } else { (std::ptr::null_mut(), false) };
     // SAFETY: Win32 calls on handles we just looked up.
@@ -573,29 +660,10 @@ fn build(widgets: &Widgets, mode: Mode) -> Result<(Layer, Vec<Window>), Box<dyn 
     let desktop = (mode == Mode::PlainAbove).then(icon_host).flatten();
     let layer = Layer { parent, icons, desktop };
 
-    // The desktop layer spans the virtual screen; widget positions are
-    // fractions of the primary monitor.
-    // SAFETY: plain metric queries.
-    let ((origin_x, origin_y), (screen_w, screen_h)) = unsafe {
-        let origin = if mode == Mode::Desktop { (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN)) } else { (0, 0) };
-        (origin, (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)))
-    };
-
     let mut windows: Vec<Window> = Vec::new();
     for placed in &widgets.placed {
-        let (w, h) = widgets::size_of(placed);
-        let (w, h) = ((w as f32 * placed.scale) as i32, (h as f32 * placed.scale) as i32);
-        let x = (placed.x * screen_w as f32) as i32 - origin_x;
-        let y = (placed.y * screen_h as f32) as i32 - origin_y;
-        // In the classic layout the icons' window sits above the desktop layer and
-        // would swallow every click, so there widgets stay click-through.
-        let takes_input = placed.interactive() && (raised || mode != Mode::Desktop);
-        let mut style = WS_EX_LAYERED | WS_EX_NOACTIVATE;
-        if !takes_input {
-            style |= WS_EX_TRANSPARENT;
-        }
-        let hwnd = match make_window(mode, parent, style, (x, y, w, h)) {
-            Ok(hwnd) => hwnd,
+        match create_widget(mode, &layer, placed) {
+            Ok(window) => windows.push(window),
             Err(err) => {
                 for window in &windows {
                     // SAFETY: our own windows.
@@ -603,16 +671,7 @@ fn build(widgets: &Widgets, mode: Mode) -> Result<(Layer, Vec<Window>), Box<dyn 
                 }
                 return Err(err.into());
             }
-        };
-        // SAFETY: our own window.
-        unsafe {
-            if takes_input {
-                let flags = if placed.drag { CAN_DRAG } else { 0 } | if placed.menu { CAN_MENU } else { 0 };
-                SetWindowLongPtrW(hwnd, GWLP_USERDATA, flags);
-            }
-            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         }
-        windows.push(Window { hwnd, failed: false, placed: placed.clone(), pixmap: None, due: Instant::now() });
     }
     restack(&layer, &windows);
     let backend = match (mode, raised) {
