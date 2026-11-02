@@ -130,14 +130,9 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
         // Paused (a fullscreen app, the lock screen…): nothing is recomputed, but the windows keep
         // showing what they have, and the events that repaint them are still handled. (Dropping the
         // events here once left windows blank for good if they were shown while paused.)
+        // (A menu or a drag the user has started goes on while paused: a menu closes by itself
+        // after 15 seconds, and any click closes it, so nothing holds the pointer for long.)
         let paused = control.paused();
-        if paused {
-            // Nothing may hold the pointer while paused: close the menu, drop any drag.
-            close_popup(&conn, &mut popup)?;
-            for window in &mut windows {
-                window.drag = None;
-            }
-        }
         let now = Instant::now();
         if now.duration_since(last_repaint) >= Duration::from_secs(20) {
             last_repaint = now;
@@ -269,6 +264,13 @@ fn handle(
         Event::ButtonPress(press) => {
             let Some(index) = find(windows, press.event) else { return Ok(()) };
             let window = &mut windows[index];
+            let what = match press.detail {
+                1 if window.placed.drag => "left button: drag started".to_string(),
+                3 if window.placed.menu => "right button: menu opened".to_string(),
+                button => format!("button {button}: ignored (drag {}, menu {})", if window.placed.drag { "on" } else { "off" }, if window.placed.menu { "on" } else { "off" }),
+            };
+            paperloom_common::log::info(&format!("widgets: click on widget {} — {what}", window.placed.id));
+            paperloom_common::widgets::Status::update(|status| status.last_click = format!("widget {}: {what}", window.placed.id));
             if press.detail == 1 && window.placed.drag {
                 window.drag = Some(Drag { root: (press.root_x, press.root_y), from: window.at, moved: false });
             } else if press.detail == 3 && window.placed.menu {

@@ -35,6 +35,7 @@ color = "#35f0e0"
 [[element]]
 type = "text"
 text = "{value}"
+marquee = true
 x = 160
 y = 118
 size = 20
@@ -45,6 +46,7 @@ shadow = "#00000080"
 [[element]]
 type = "text"
 text = "{detail}"
+marquee = true
 x = 160
 y = 154
 size = 13

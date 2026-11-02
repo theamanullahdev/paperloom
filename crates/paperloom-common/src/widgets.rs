@@ -219,6 +219,8 @@ pub struct Status {
     pub verified: bool,
     /// Why nothing is drawn right now; empty when it is drawing.
     pub paused: String,
+    /// The last click a widget got and what was done with it (empty: none yet).
+    pub last_click: String,
     /// The last thing that went wrong; empty when nothing did.
     pub problem: String,
     pub updated: u64,

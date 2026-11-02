@@ -21,4 +21,4 @@ pub use text::{Style, Text};
 pub use vars::{clock, meter, preview, Value, Vars};
 
 /// A skin with its draw instructions rendered at `scale`.
-pub use draw::render;
+pub use draw::{render, render_at};

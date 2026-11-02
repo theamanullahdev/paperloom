@@ -25,6 +25,7 @@ color = "$muted"
 [[element]]
 type = "text"
 text = "{value}"
+marquee = true
 x = 14
 y = 26
 size = 32
@@ -33,6 +34,7 @@ bold = true
 [[element]]
 type = "text"
 text = "{detail}"
+marquee = true
 x = 14
 y = 68
 size = 12

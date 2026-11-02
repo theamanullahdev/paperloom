@@ -498,6 +498,7 @@ impl State {
                 line("Windows", status.windows.to_string(), t),
                 line("Hidden because", if status.paused.is_empty() { "not hidden".into() } else { status.paused.clone() }, t),
                 line("Last problem", if status.problem.is_empty() { "none".into() } else { status.problem.clone() }, t),
+                line("Last click", if status.last_click.is_empty() { "none yet (click a widget on the desktop)".into() } else { status.last_click.clone() }, t),
                 line("Reported", ago(status.updated), t),
                 line("Pause rules", if self.switches.disable_auto_pause { "ignored (Switches → Never pause automatically)".into() } else { "followed".into() }, t),
             ]

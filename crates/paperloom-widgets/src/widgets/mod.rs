@@ -42,6 +42,10 @@ impl Context<'_> {
 const GLIDE: Duration = Duration::from_millis(300);
 /// While gliding: about 30 frames a second.
 const FRAME: Duration = Duration::from_millis(33);
+/// While text scrolls: about 15 frames a second.
+const SCROLL_FRAME: Duration = Duration::from_millis(66);
+
+static START: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
 
 /// What one widget showed last: to skip drawing the same picture twice, and
 /// to glide its numbers from the old value to the new one.
@@ -49,6 +53,8 @@ const FRAME: Duration = Duration::from_millis(33);
 struct Live {
     look: u64,
     drawn: Option<u64>,
+    /// The last picture had text scrolling in it (so it is drawn again every few frames).
+    animated: bool,
     from: Vec<(String, f32)>,
     shown: Vec<(String, f32)>,
     target: Vec<(String, f32)>,
@@ -108,12 +114,23 @@ pub fn render(placed: &Placed, text: &mut Text, context: &Context) -> Option<Fra
         for (name, value) in &state.shown {
             vars = vars.number(name, *value);
         }
+        // Scrolling text moves with the clock; everything else only when its values change.
+        let tick = if state.animated { START.elapsed().as_millis() as u32 } else { 0 };
+        if state.animated {
+            vars = vars.number("tick", tick as f32);
+            next_change = next_change.min(SCROLL_FRAME);
+        }
         let print = vars.fingerprint();
         if state.drawn == Some(print) {
             return Some(Frame { pixmap: None, next_change });
         }
         state.drawn = Some(print);
-        Some(Frame { pixmap: Some(paperloom_skin::render(skin, &vars, placed.scale, text)), next_change })
+        let (pixmap, moving) = paperloom_skin::render_at(skin, &vars, placed.scale, text, tick);
+        state.animated = moving;
+        if moving {
+            next_change = next_change.min(SCROLL_FRAME);
+        }
+        Some(Frame { pixmap: Some(pixmap), next_change })
     })
 }
 

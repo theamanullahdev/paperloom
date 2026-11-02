@@ -76,7 +76,7 @@ impl Element {
             return false;
         }
         match self {
-            Element::Text(e) => !e.text.contains('{'),
+            Element::Text(e) => !e.text.contains('{') && !e.marquee,
             Element::Bar(_) | Element::Hand(_) | Element::Segments(_) => false,
             Element::Arc(e) => e.value.is_none(),
             _ => true,
@@ -159,6 +159,9 @@ pub struct TextElement {
     pub spacing: f32,
     /// A soft halo in this colour around the letters.
     pub glow: Option<String>,
+    /// Text too long for its place scrolls round and round (like a ticker) instead of being cut.
+    #[serde(default)]
+    pub marquee: bool,
     pub show_if: Option<String>,
 }
 

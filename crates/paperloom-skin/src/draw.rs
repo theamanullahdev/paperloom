@@ -9,6 +9,14 @@ use crate::vars::Vars;
 
 /// Renders `skin` with `vars` at `scale`.
 pub fn render(skin: &Skin, vars: &Vars, scale: f32, text: &mut Text) -> Pixmap {
+    render_at(skin, vars, scale, text, 0).0
+}
+
+/// Like `render`, for the moment `tick_ms` of an animation: text marked `marquee` that is too long
+/// for its place is scrolled to where it is by then. Also says whether anything is scrolling, so the
+/// caller knows to ask for the next frame soon.
+pub fn render_at(skin: &Skin, vars: &Vars, scale: f32, text: &mut Text, tick_ms: u32) -> (Pixmap, bool) {
+    let mut motion = Motion { tick_ms, moving: false };
     text.ensure_fonts(skin);
     let width = ((skin.size[0] * scale) as u32).max(1);
     let height = ((skin.size[1] * scale) as u32).max(1);
@@ -19,16 +27,22 @@ pub fn render(skin: &Skin, vars: &Vars, scale: f32, text: &mut Text) -> Pixmap {
         Some(base) => base.clone(),
         None => {
             let mut base = Pixmap::new(width, height).expect("non-empty pixmap");
-            draw_elements(&mut base, &skin.element[..fixed], skin, vars, scale, text);
+            draw_elements(&mut base, &skin.element[..fixed], skin, vars, scale, text, &mut motion);
             text.keep_base(skin, scale, base.clone());
             base
         }
     };
-    draw_elements(&mut pixmap, &skin.element[fixed..], skin, vars, scale, text);
-    pixmap
+    draw_elements(&mut pixmap, &skin.element[fixed..], skin, vars, scale, text, &mut motion);
+    (pixmap, motion.moving)
 }
 
-fn draw_elements(pixmap: &mut Pixmap, elements: &[Element], skin: &Skin, vars: &Vars, scale: f32, text: &mut Text) {
+/// Where in an animation a picture is drawn, and whether anything in it moved.
+struct Motion {
+    tick_ms: u32,
+    moving: bool,
+}
+
+fn draw_elements(pixmap: &mut Pixmap, elements: &[Element], skin: &Skin, vars: &Vars, scale: f32, text: &mut Text, motion: &mut Motion) {
     for element in elements {
         if element.show_if().is_some_and(|name| !vars.has(name)) {
             continue;
@@ -36,7 +50,7 @@ fn draw_elements(pixmap: &mut Pixmap, elements: &[Element], skin: &Skin, vars: &
         match element {
             Element::Rect(rect) => rectangle(pixmap, rect, scale),
             Element::Circle(circle) => circle_shape(pixmap, circle, scale),
-            Element::Text(item) => draw_text(pixmap, item, vars, scale, text),
+            Element::Text(item) => draw_text(pixmap, item, vars, scale, text, motion),
             Element::Bar(bar) => bar_shape(pixmap, bar, vars, scale),
             Element::Arc(arc) => arc_shape(pixmap, arc, vars, scale),
             Element::Hand(hand) => hand_shape(pixmap, hand, vars, scale),
@@ -115,7 +129,7 @@ fn circle_shape(pixmap: &mut Pixmap, circle: &Circle, s: f32) {
     }
 }
 
-fn draw_text(pixmap: &mut Pixmap, item: &TextElement, vars: &Vars, s: f32, text: &mut Text) {
+fn draw_text(pixmap: &mut Pixmap, item: &TextElement, vars: &Vars, s: f32, text: &mut Text, motion: &mut Motion) {
     let content = match item.case.as_str() {
         "upper" => vars.fill(&item.text).to_uppercase(),
         "lower" => vars.fill(&item.text).to_lowercase(),
@@ -132,6 +146,12 @@ fn draw_text(pixmap: &mut Pixmap, item: &TextElement, vars: &Vars, s: f32, text:
         "right" => item.x * s - 4.0 * s,
         _ => edge - item.x * s - 4.0 * s,
     };
+    // Marked as a ticker and too long: it scrolls round inside the room it has.
+    if item.marquee && room > 0.0 && text.measure(&content, &style).0 > room {
+        motion.moving = true;
+        marquee(pixmap, item, &content, &style, room, s, text, motion.tick_ms);
+        return;
+    }
     let content = fit(text, content, &mut style, room);
     let (width, _) = text.measure(&content, &style);
     // Letter spacing also trails the last letter; centre on the letters themselves.
@@ -358,5 +378,51 @@ mod tests {
         let mut style = Style::bold(24.0, [255; 4]);
         assert_eq!(fit(&mut text, "Short".to_string(), &mut style, 300.0), "Short");
         assert_eq!(style.size, 24.0, "short text keeps its size");
+    }
+}
+
+/// Draws `content` scrolling to the left inside `room` pixels, starting again after a pause, with a
+/// gap before the text comes round again.
+#[allow(clippy::too_many_arguments)]
+fn marquee(pixmap: &mut Pixmap, item: &TextElement, content: &str, style: &Style, room: f32, s: f32, text: &mut Text, tick_ms: u32) {
+    let width = text.measure(content, style).0 - item.spacing * item.size * s;
+    let gap = style.size * 2.0;
+    let period = width + gap;
+    let speed = style.size * 2.6; // pixels a second
+    let (hold, travel) = (1.4_f32, period / speed);
+    let t = (tick_ms as f32 / 1000.0) % (hold + travel);
+    let offset = if t < hold { 0.0 } else { (t - hold) * speed };
+    let height = (style.size * 1.5).ceil().max(1.0);
+    let left = match item.align.as_str() {
+        "center" => item.x * s - room / 2.0,
+        "right" => item.x * s - room,
+        _ => item.x * s,
+    };
+    let Some(mut strip) = Pixmap::new(room.ceil().max(1.0) as u32, height as u32) else { return };
+    let layers: Vec<(Style, f32)> = match &item.shadow {
+        Some(shadow) => {
+            let nudge = (item.size / 24.0).clamp(1.0, 3.0) * s;
+            vec![(Style { color: rgba8(parse(shadow)), ..style.clone() }, nudge), (style.clone(), 0.0)]
+        }
+        None => vec![(style.clone(), 0.0)],
+    };
+    for (look, nudge) in &layers {
+        for copy in [0.0, period] {
+            text.draw(&mut strip, content, (copy - offset + nudge, *nudge), look);
+        }
+    }
+    pixmap.draw_pixmap(left.round() as i32, (item.y * s).round() as i32, strip.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+
+    #[test]
+    fn long_marked_text_scrolls_and_short_text_stays() {
+        let skin = crate::Skin::parse("id = \"x/y\"\nname = \"T\"\nkinds = [\"clock\"]\nsize = [160, 40]\n[[element]]\ntype = \"text\"\ntext = \"{song}\"\nx = 4\ny = 4\nsize = 20\nmarquee = true\n").unwrap();
+        let mut text = Text::new();
+        let long = Vars::new().text("song", "A very long song title that cannot possibly fit");
+        let (first, moving) = render_at(&skin, &long, 1.0, &mut text, 0);
+        let (later, _) = render_at(&skin, &long, 1.0, &mut text, 4000);
+        assert!(moving, "long text scrolls");
+        assert_ne!(first.data(), later.data(), "the picture changes as time passes");
+        let (_, moving) = render_at(&skin, &Vars::new().text("song", "Short"), 1.0, &mut text, 4000);
+        assert!(!moving, "short text stays put");
     }
 }

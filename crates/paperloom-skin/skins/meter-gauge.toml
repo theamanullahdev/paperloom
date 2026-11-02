@@ -27,6 +27,7 @@ value = "fraction"
 [[element]]
 type = "text"
 text = "{value}"
+marquee = true
 x = 100
 y = 62
 size = 30
