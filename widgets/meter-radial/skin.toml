@@ -1,0 +1,62 @@
+id = "meter/radial"
+name = "Radial"
+author = "Paperloom"
+description = "A gauge that shifts from green to red as the load rises."
+kinds = ["cpu", "memory", "disk", "battery"]
+fonts = ["fonts/Orbitron[wght].ttf"]
+size = [200, 200]
+
+[[element]]
+type = "circle"
+cx = 100
+cy = 100
+r = 98
+fill = "grad(#232733,#0e1015,90)"
+stroke = "grad(#d9dde6,#5b6270,45)"
+stroke_width = 3
+
+[[element]]
+type = "ticks"
+cx = 100
+cy = 100
+outer = 88
+inner = 82
+count = 36
+width = 1.5
+color = "#ffffff40"
+big_every = 6
+big_inner = 76
+
+[[element]]
+type = "arc"
+cx = 100
+cy = 100
+r = 68
+width = 13
+start = 225
+sweep = 270
+value = "fraction"
+fill = "grad(#2ee59d,#ff3d57,0)"
+track = "#ffffff10"
+glow = 1.0
+
+[[element]]
+type = "text"
+text = "{value}"
+x = 100
+y = 72
+size = 32
+bold = true
+font = "Orbitron"
+color = "#f4f6fb"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{title}"
+x = 100
+y = 112
+size = 12
+font = "Orbitron"
+color = "#9aa3b8"
+align = "center"

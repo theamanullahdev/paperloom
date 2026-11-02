@@ -1,0 +1,133 @@
+id = "clock/chrono"
+name = "Chrono"
+author = "Paperloom"
+description = "An analog chronograph: metal bezel, Orbitron numerals and glowing hands."
+kinds = ["clock"]
+fonts = ["fonts/Orbitron[wght].ttf"]
+size = [210, 210]
+
+[[element]]
+type = "circle"
+cx = 105
+cy = 105
+r = 102
+fill = "grad(#3a3f4d,#0c0e13,90)"
+stroke = "grad(#eef1f7,#5b6270,45)"
+stroke_width = 5
+
+[[element]]
+type = "circle"
+cx = 105
+cy = 105
+r = 90
+fill = "#0b0d12"
+stroke = "#ffffff14"
+stroke_width = 1.5
+
+[[element]]
+type = "ticks"
+cx = 105
+cy = 105
+outer = 86
+inner = 80
+count = 60
+width = 1
+color = "#ffffff55"
+big_every = 5
+big_inner = 72
+
+[[element]]
+type = "text"
+text = "12"
+x = 105
+y = 26
+size = 17
+bold = true
+font = "Orbitron"
+color = "#e8ecf5"
+align = "center"
+
+[[element]]
+type = "text"
+text = "3"
+x = 168
+y = 92
+size = 17
+bold = true
+font = "Orbitron"
+color = "#e8ecf5"
+align = "center"
+
+[[element]]
+type = "text"
+text = "6"
+x = 105
+y = 156
+size = 17
+bold = true
+font = "Orbitron"
+color = "#e8ecf5"
+align = "center"
+
+[[element]]
+type = "text"
+text = "9"
+x = 42
+y = 92
+size = 17
+bold = true
+font = "Orbitron"
+color = "#e8ecf5"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{date_short}"
+x = 105
+y = 130
+size = 11
+font = "Orbitron"
+color = "#00e5ff"
+align = "center"
+
+[[element]]
+type = "hand"
+cx = 105
+cy = 105
+length = 46
+width = 6
+angle = "hour_angle"
+color = "#f2f4f8"
+tail = 8
+glow = 0.8
+
+[[element]]
+type = "hand"
+cx = 105
+cy = 105
+length = 70
+width = 4
+angle = "minute_angle"
+color = "#f2f4f8"
+tail = 10
+glow = 0.8
+
+[[element]]
+type = "hand"
+cx = 105
+cy = 105
+length = 76
+width = 2
+angle = "second_angle"
+color = "#ff3d57"
+tail = 16
+glow = 2.0
+
+[[element]]
+type = "circle"
+cx = 105
+cy = 105
+r = 6
+fill = "#ff3d57"
+stroke = "#0b0d12"
+stroke_width = 2

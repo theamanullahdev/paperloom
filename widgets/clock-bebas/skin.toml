@@ -1,0 +1,47 @@
+id = "clock/bebas"
+name = "Stacked"
+author = "Paperloom"
+description = "Giant stacked hour and minute in Bebas Neue, with an accent stripe."
+kinds = ["clock"]
+fonts = ["fonts/BebasNeue-Regular.ttf", "fonts/ShareTechMono-Regular.ttf"]
+size = [230, 250]
+
+[[element]]
+type = "rect"
+x = 0
+y = 14
+w = 7
+h = 212
+radius = 3
+fill = "grad(#ff3d6e,#ff9a3d,90)"
+glow = 3.0
+
+[[element]]
+type = "text"
+text = "{hour}"
+x = 24
+y = -6
+size = 132
+font = "Bebas Neue"
+color = "#ffffff"
+shadow = "#00000066"
+
+[[element]]
+type = "text"
+text = "{minute}"
+x = 24
+y = 104
+size = 132
+font = "Bebas Neue"
+color = "#ff3d6e"
+shadow = "#00000066"
+
+[[element]]
+type = "text"
+text = "{date}"
+x = 26
+y = 232
+size = 13
+font = "Share Tech Mono"
+color = "#c9c3d6"
+shadow = "#00000066"

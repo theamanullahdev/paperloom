@@ -1,0 +1,23 @@
+id = "stack/big-day"
+name = "Big day"
+author = "Paperloom"
+description = "A giant stacked clock, a flip-style date and the battery."
+size = [476, 272]
+
+[[widget]]
+kind = "clock"
+skin = "clock/bebas"
+dx = 0
+dy = 0
+
+[[widget]]
+kind = "date"
+skin = "date/flip"
+dx = 246
+dy = 0
+
+[[widget]]
+kind = "battery"
+skin = "meter/thin"
+dx = 246
+dy = 176

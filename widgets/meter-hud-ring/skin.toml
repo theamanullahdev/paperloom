@@ -1,0 +1,75 @@
+id = "meter/hud-ring"
+name = "HUD ring"
+author = "Paperloom"
+description = "A segmented HUD gauge with a glowing gradient and Orbitron numbers."
+kinds = ["cpu", "memory", "disk", "battery"]
+fonts = ["fonts/Orbitron[wght].ttf", "fonts/ShareTechMono-Regular.ttf"]
+size = [180, 180]
+
+[[element]]
+type = "circle"
+cx = 90
+cy = 90
+r = 88
+fill = "#050b16cc"
+stroke = "#00e5ff30"
+stroke_width = 1.5
+
+[[element]]
+type = "segments"
+cx = 90
+cy = 90
+r = 76
+width = 11
+count = 40
+start = 225
+sweep = 270
+gap = 2.6
+value = "fraction"
+fill = "grad(#00e5ff,#ff3df2,45)"
+track = "#ffffff10"
+glow = 1.1
+
+[[element]]
+type = "arc"
+cx = 90
+cy = 90
+r = 60
+width = 2
+start = 225
+sweep = 270
+value = "fraction"
+fill = "#ffffff55"
+track = "#ffffff0c"
+
+[[element]]
+type = "text"
+text = "{value}"
+x = 90
+y = 64
+size = 30
+bold = true
+font = "Orbitron"
+color = "#eafcff"
+shadow = "#00e5ff55"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{title}"
+x = 90
+y = 104
+size = 12
+font = "Share Tech Mono"
+color = "#00e5ff"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{detail}"
+x = 90
+y = 121
+size = 10
+font = "Share Tech Mono"
+color = "#9fb4c8"
+align = "center"

@@ -1,0 +1,43 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: amd64
+Codename: stable
+Components: main
+Date: Mon, 02 Nov 2026 20:37:36 +0000
+Description: Paperloom live wallpapers
+Label: Paperloom
+Origin: Paperloom
+Suite: stable
+MD5Sum:
+ 536497766d8ab15511685815fb67cf12              181 Release
+ 328a9787c0555a255fd4a780428aa527             1177 main/binary-amd64/Packages
+ 8b1aa97cdab16a4fb815723f475caf06              795 main/binary-amd64/Packages.gz
+SHA1:
+ e8552d812b6fb9e24bd3051794491f618dbaf346              181 Release
+ 41c7934ae9162dfe6a70b50c647fef491e70cfb1             1177 main/binary-amd64/Packages
+ b9e334c0ad1d3859fd837624a4b0fd41899cc37c              795 main/binary-amd64/Packages.gz
+SHA256:
+ 033dedbbdcc3a9c1d538697f977f9d198dade9aaa559405b1dbfd275ad354a4e              181 Release
+ 9ddfc015e675342157bdb134e176f11fbb9161c3ff3ee3c6fd43ededcfaee089             1177 main/binary-amd64/Packages
+ 4a2a9400e77f1964fbb4884dfd5763d41cbfad5b82ca0151b43d805da4c497dc              795 main/binary-amd64/Packages.gz
+SHA512:
+ b79df653ac4a7ca2d9f24b213dd0cfd6783efcae4685fc85e3b9e5d085a4d245ee2c90462aafec1546e2f145215c0d8ac8afaaf0837d26999a80dd2fc6096cd5              181 Release
+ 6901d300e33edf28a661cd232492bf726f2d5fc3e8c7bb228b659864f99cceaaa360988e088199afce55977e7ffdd786f79cdfe55b3bdc088c7fe26c1695abde             1177 main/binary-amd64/Packages
+ 94b485b8b9dbc8d169f831b797ac5e4022c11940b52b1fe9c6c4fb8ecdb025d7dd814fea453fd0adf5db487b5ab3d78dc61b0bc29b243c3355a8dc2c6af2668e              795 main/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEBV3DM9dT2yPRPHM+oX4Lirq3TIYFAmro9JAACgkQoX4Lirq3
+TIYaiQ/+Oa/me3pk6zRdwzx4U1XatjR0/2AYmty2VobFgP8zbxPKVhsJCCDxUpAJ
+ol7sh2Tp95AtWpAgTMzPXip/uugc20nKptU2KSKu+lRpazTEcBtDbn1vs59G940z
+KS1mTZBhH2AoPXEQ03dUePC4q/xzV23+nNU/GMpQioi0IqQHQ26H1ftsJth4ikqe
+ToUVwNPiQ1PPEA/bglVxoxs877uZMJSUActChVMeExoX3Fxv27hztNv4D8YFCWGW
+3eTrthtgL8Cj0BKyNm+Ox2vvkl/dPbUUehJltJoWUjHaoEaaGxajKq5TNgt3usLY
+f80T8u1F6YdSIBBKqmysuLhLdyaN2AVCNr8qyN0YbHCuv/3s6DrBxiEBTARNV5h3
+IBOoIO1T8OKgYN9VGIX+K+7D3vclyluhnEkcS993hwJmykpPl5vHwTQt5UOojaWr
+HLRAlkuLDCCJztAE9Va0hLPq6UinxO4O+j8OwOPdE9UzubFdVy659q876FUECBdB
+fUcPK0MM6s7icwNF2CC5d/gt/RVq5ppJthQLY5M4EdSmtsSmiZIMl4ye1Os2VEJQ
+6loqNnAGwdzm3rijWSFPopDo6/kfEdztqZS+waWBc53ZYmBdhb4D4MD1jILTbp3P
+Cy7TuGbnVoch4zOhCXgaYADXavVAsklSwWfCsdtQRluf2c14P/k=
+=0LbB
+-----END PGP SIGNATURE-----
