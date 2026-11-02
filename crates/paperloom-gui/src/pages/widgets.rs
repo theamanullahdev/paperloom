@@ -755,7 +755,7 @@ impl State {
             return (if self.widgets.enabled { "Starting…" } else { "Hidden" }.to_string(), t.muted_foreground);
         }
         if !status.paused.is_empty() {
-            return ("Hidden for now".to_string(), t.muted_foreground);
+            return ("Paused for now".to_string(), t.muted_foreground);
         }
         if !status.problem.is_empty() && !status.verified {
             return ("Can't show the widgets".to_string(), t.destructive);
@@ -819,8 +819,8 @@ impl State {
         if self.running && self.widgets.enabled && !self.status.paused.is_empty() {
             page = page.push(panel(
                 column![
-                    text("The widgets are hidden right now").size(15).color(t.foreground),
-                    text(format!("Because {}. They come back by themselves.", self.status.paused)).size(13).color(t.muted_foreground),
+                    text("The widgets are paused right now").size(15).color(t.foreground),
+                    text(format!("Because {}. They keep showing their last values and update again by themselves.", self.status.paused)).size(13).color(t.muted_foreground),
                 ]
                 .spacing(2)
                 .into(),

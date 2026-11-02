@@ -125,6 +125,14 @@ fn draw_text(pixmap: &mut Pixmap, item: &TextElement, vars: &Vars, s: f32, text:
         return;
     }
     let mut style = Style { size: item.size * s, bold: item.bold, mono: item.mono, serif: item.serif, font: item.font.clone(), spacing: item.spacing, color: rgba8(parse(&item.color)) };
+    // Text never runs past the edge of the picture: smaller first, then cut with an ellipsis.
+    let edge = pixmap.width() as f32;
+    let room = match item.align.as_str() {
+        "center" => 2.0 * (item.x * s).min(edge - item.x * s) - 8.0 * s,
+        "right" => item.x * s - 4.0 * s,
+        _ => edge - item.x * s - 4.0 * s,
+    };
+    let content = fit(text, content, &mut style, room);
     let (width, _) = text.measure(&content, &style);
     // Letter spacing also trails the last letter; centre on the letters themselves.
     let width = width - item.spacing * item.size * s;
@@ -301,3 +309,54 @@ fn segments_shape(pixmap: &mut Pixmap, seg: &Segments, vars: &Vars, s: f32) {
     }
 }
 
+
+/// `content` made to fit `room` pixels: the size shrinks (down to 70%), and what still does not
+/// fit is cut short with "…". Short text is returned as it was.
+fn fit(text: &mut Text, content: String, style: &mut Style, room: f32) -> String {
+    if room <= 0.0 {
+        return content;
+    }
+    let (width, _) = text.measure(&content, style);
+    if width <= room {
+        return content;
+    }
+    style.size = (style.size * (room / width)).max(style.size * 0.7);
+    let (width, _) = text.measure(&content, style);
+    if width <= room {
+        return content;
+    }
+    // Still too wide: keep as many characters as fit, plus the ellipsis.
+    let chars: Vec<char> = content.chars().collect();
+    let (mut low, mut high) = (0usize, chars.len());
+    while low < high {
+        let middle = (low + high).div_ceil(2);
+        let candidate: String = chars[..middle].iter().collect::<String>().trim_end().to_string() + "…";
+        if text.measure(&candidate, style).0 <= room {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    if low == 0 {
+        return "…".to_string();
+    }
+    chars[..low].iter().collect::<String>().trim_end().to_string() + "…"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_text_is_made_to_fit() {
+        let mut text = Text::new();
+        for room in [60.0, 120.0, 200.0] {
+            let mut style = Style::bold(24.0, [255; 4]);
+            let fitted = fit(&mut text, "Wish You Were Here (2011 Remastered Version) — Pink Floyd".to_string(), &mut style, room);
+            assert!(text.measure(&fitted, &style).0 <= room + 0.5, "{fitted:?} is wider than {room}");
+        }
+        let mut style = Style::bold(24.0, [255; 4]);
+        assert_eq!(fit(&mut text, "Short".to_string(), &mut style, 300.0), "Short");
+        assert_eq!(style.size, 24.0, "short text keeps its size");
+    }
+}

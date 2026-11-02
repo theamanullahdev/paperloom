@@ -172,7 +172,8 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 if unsafe { IsWindow(window.hwnd) } == 0 {
                     break 'alive; // Explorer restarted and took them with it.
                 }
-                if paused {
+                // Paused: only a window that has nothing to show yet is drawn.
+                if paused && window.pixmap.is_some() {
                     continue;
                 }
                 if window.due > now && window.pixmap.is_some() {

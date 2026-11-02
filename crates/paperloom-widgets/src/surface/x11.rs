@@ -108,6 +108,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
     // Whatever the window manager or the graphics driver does to a window's contents, they are
     // sent again every so often (a few small pictures; nothing else is redrawn).
     let mut last_repaint = Instant::now();
+    let mut last_enforce = Instant::now();
 
     loop {
         if control.changed() {
@@ -126,17 +127,16 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
             crate::feeds::set_needs(has("weather"), has("nowplaying"));
             paperloom_common::widgets::Status::update(|status| status.windows = windows.len() as u32);
         }
-        if control.paused() {
-            // Nothing may hold the pointer while the widgets are paused (a
-            // fullscreen game, the lock screen): close the menu, drop any drag.
+        // Paused (a fullscreen app, the lock screen…): nothing is recomputed, but the windows keep
+        // showing what they have, and the events that repaint them are still handled. (Dropping the
+        // events here once left windows blank for good if they were shown while paused.)
+        let paused = control.paused();
+        if paused {
+            // Nothing may hold the pointer while paused: close the menu, drop any drag.
             close_popup(&conn, &mut popup)?;
             for window in &mut windows {
                 window.drag = None;
             }
-            conn.flush()?;
-            wait(conn.stream(), Duration::from_secs(1));
-            while conn.poll_for_event()?.is_some() {}
-            continue;
         }
         let now = Instant::now();
         if now.duration_since(last_repaint) >= Duration::from_secs(20) {
@@ -147,9 +147,20 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
                 }
             }
         }
-        control.refresh_sample();
+        // The window manager may change a widget window's layer (a click can raise it): put it back.
+        if now.duration_since(last_enforce) >= Duration::from_secs(2) {
+            last_enforce = now;
+            enforce_layer(&conn, screen.root, &windows)?;
+        }
+        if !paused {
+            control.refresh_sample();
+        }
         let slow = control.slow();
         for window in &mut windows {
+            // Paused: only a window that has nothing to show yet is drawn.
+            if paused && window.pixmap.is_some() {
+                continue;
+            }
             if window.due > now && window.pixmap.is_some() {
                 continue;
             }
@@ -177,6 +188,10 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
         // Sleep until the next widget is due. While something is being dragged
         // or a menu is open, stay responsive.
         let busy = popup.is_some() || windows.iter().any(|window| window.drag.is_some());
+        if busy {
+            // While something is dragged the layer is checked more often.
+            last_enforce = last_enforce.min(Instant::now().checked_sub(Duration::from_secs(2)).unwrap_or(last_enforce));
+        }
         let wake = windows.iter().map(|window| window.due).min().unwrap_or(now + Duration::from_secs(1));
         let nap = if busy { Duration::from_millis(15) } else { wake.saturating_duration_since(Instant::now()).min(Duration::from_secs(1)) };
         wait(conn.stream(), nap);
@@ -446,6 +461,31 @@ fn mark_as_widget(conn: &impl Connection, window: u32, placed: &Placed, at: (i16
         // An empty input shape: every click goes to what is underneath.
         conn.shape_rectangles(shape::SO::SET, SK::INPUT, x11rb::protocol::xproto::ClipOrdering::UNSORTED, window, 0, 0, &[])?;
     }
+    Ok(())
+}
+
+/// Keeps every widget window in the bottom layer without "demands attention": clicking a window can
+/// make the window manager raise it and drop its "below" state, and windows that appear unfocused get
+/// "demands attention". Both are put right with the standard state requests.
+fn enforce_layer(conn: &impl Connection, root: u32, windows: &[Window]) -> Result<(), Box<dyn Error>> {
+    use x11rb::protocol::xproto::{ClientMessageEvent, EventMask as Mask};
+    let (state, below, attention) = (atom(conn, b"_NET_WM_STATE")?, atom(conn, b"_NET_WM_STATE_BELOW")?, atom(conn, b"_NET_WM_STATE_DEMANDS_ATTENTION")?);
+    for window in windows {
+        let Ok(reply) = conn.get_property(false, window.id, state, AtomEnum::ATOM, 0, 32)?.reply() else { continue };
+        let current: Vec<u32> = reply.value32().map(Iterator::collect).unwrap_or_default();
+        let ask = |action: u32, property: u32| -> Result<(), Box<dyn Error>> {
+            let event = ClientMessageEvent::new(32, window.id, state, [action, property, 0, 1, 0]);
+            conn.send_event(false, root, Mask::SUBSTRUCTURE_REDIRECT | Mask::SUBSTRUCTURE_NOTIFY, event)?;
+            Ok(())
+        };
+        if !current.contains(&below) {
+            ask(1, below)?; // add
+        }
+        if current.contains(&attention) {
+            ask(0, attention)?; // remove
+        }
+    }
+    conn.flush()?;
     Ok(())
 }
 
