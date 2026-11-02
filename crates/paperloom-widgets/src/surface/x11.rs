@@ -1,6 +1,13 @@
-//! X11: a 32-bit (ARGB) window of the desktop type. It needs a compositing
-//! window manager for transparency (Muffin, Mutter, KWin, Xfwm with the
-//! compositor on); without one the corners are drawn solid.
+//! X11: a 32-bit (ARGB) window per widget, of the dock type with the "below"
+//! state. That puts it in the window manager's bottom layer: above the
+//! wallpaper and the desktop icons (the desktop layer, whose inner order no
+//! standard defines and that a window manager may reshuffle at any time),
+//! below every normal window, and out of Alt+Tab, the taskbar and "show
+//! desktop". Because it is a layer, not a position among siblings, nothing
+//! has to be re-asserted when the wallpaper window is replaced. It needs a
+//! compositing window manager for transparency (Muffin, Mutter, KWin, Xfwm
+//! with the compositor on); without one the corners are drawn solid.
+
 
 use std::error::Error;
 use std::time::{Duration, Instant};
@@ -12,6 +19,7 @@ use x11rb::protocol::xproto::{
     AtomEnum, ColormapAlloc, ConfigureWindowAux, ConnectionExt as _, CreateWindowAux, EventMask, GrabMode, ImageFormat, PropMode, StackMode, VisualClass,
     WindowClass,
 };
+use x11rb::protocol::xproto::{ExposeEvent, MapNotifyEvent, VisibilityNotifyEvent};
 use x11rb::protocol::Event;
 use std::os::fd::AsRawFd;
 use x11rb::wrapper::ConnectionExt as _;
@@ -82,31 +90,7 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
 
     let mut windows: Vec<Window> = Vec::new();
     for placed in widgets.placed.iter().cloned() {
-        let (w, h) = widgets::size_of(&placed);
-        let size = ((w as f32 * placed.scale) as u16, (h as f32 * placed.scale) as u16);
-        let at = ((placed.x * f32::from(screen_w)) as i16, (placed.y * f32::from(screen_h)) as i16);
-        let id = conn.generate_id()?;
-        let mut mask = EventMask::EXPOSURE;
-        if placed.interactive() {
-            mask |= EventMask::BUTTON_PRESS | EventMask::BUTTON_RELEASE | EventMask::POINTER_MOTION | EventMask::LEAVE_WINDOW;
-        }
-        conn.create_window(
-            depth,
-            id,
-            screen.root,
-            at.0,
-            at.1,
-            size.0,
-            size.1,
-            0,
-            WindowClass::INPUT_OUTPUT,
-            visual,
-            &CreateWindowAux::new().border_pixel(0).colormap(colormap).event_mask(mask),
-        )?;
-        mark_as_desktop_widget(&conn, id, &placed)?;
-        conn.map_window(id)?;
-        stack_against_icons(&conn, screen.root, id, placed.interactive())?;
-        windows.push(Window { id, placed, at, size, pixmap: None, due: Instant::now(), drag: None });
+        windows.push(make_window(&conn, &screen, depth, visual, colormap, placed)?);
     }
     conn.flush()?;
 
@@ -122,7 +106,23 @@ pub fn run(widgets: &Widgets, text: &mut Text, control: &mut Control) -> Result<
     let shared = Shared { root: screen.root, depth, visual, colormap, gc, screen: (screen_w, screen_h) };
     let mut popup: Option<Popup> = None;
 
-    while !control.changed() {
+    loop {
+        if control.changed() {
+            // Only what changed is touched: a moved widget moves, a removed one goes, a new one appears.
+            if control.test_over() || control.testing() {
+                break;
+            }
+            let new = Widgets::load();
+            if !new.enabled || new.placed.is_empty() {
+                break;
+            }
+            apply_change(&conn, &screen, depth, visual, colormap, &mut windows, &new)?;
+            control.mark_seen();
+            control.sample.set_needs(new.placed.iter().map(|placed| placed.kind.as_str()));
+            let has = |kind: &str| new.placed.iter().any(|placed| placed.kind == kind);
+            crate::feeds::set_needs(has("weather"), has("nowplaying"));
+            paperloom_common::widgets::Status::update(|status| status.windows = windows.len() as u32);
+        }
         if control.paused() {
             // Nothing may hold the pointer while the widgets are paused (a
             // fullscreen game, the lock screen): close the menu, drop any drag.
@@ -231,10 +231,12 @@ fn handle(
     }
 
     match event {
-        Event::Expose(expose) => {
-            if let Some(index) = find(windows, expose.window) {
+        // Whenever the window manager has really put a window on screen (or any part of it was
+        // uncovered), what it shows is sent again: what was drawn before it was mapped is lost.
+        Event::Expose(ExposeEvent { window, .. }) | Event::MapNotify(MapNotifyEvent { window, .. }) | Event::VisibilityNotify(VisibilityNotifyEvent { window, .. }) => {
+            if let Some(index) = find(windows, window) {
                 if let Some(pixmap) = &windows[index].pixmap {
-                    present(conn, shared.depth, expose.window, shared.gc, pixmap)?;
+                    present(conn, shared.depth, window, shared.gc, pixmap)?;
                 }
             }
         }
@@ -342,18 +344,89 @@ fn atom(conn: &impl Connection, name: &[u8]) -> Result<u32, Box<dyn Error>> {
     Ok(conn.intern_atom(false, name)?.reply()?.atom)
 }
 
-fn mark_as_desktop_widget(conn: &impl Connection, window: u32, placed: &Placed) -> Result<(), Box<dyn Error>> {
-    conn.change_property32(PropMode::REPLACE, window, atom(conn, b"_NET_WM_WINDOW_TYPE")?, AtomEnum::ATOM, &[atom(conn, b"_NET_WM_WINDOW_TYPE_DESKTOP")?])?;
-    // Every workspace, and out of the taskbar, Alt+Tab and pagers.
+/// One widget's window: ARGB, dock type, "below" state (see the top of this file), cleared to
+/// transparent so no part of it can ever show what was in that memory before.
+fn make_window(conn: &impl Connection, screen: &x11rb::protocol::xproto::Screen, depth: u8, visual: u32, colormap: u32, placed: Placed) -> Result<Window, Box<dyn Error>> {
+    let (screen_w, screen_h) = (screen.width_in_pixels, screen.height_in_pixels);
+    let (w, h) = widgets::size_of(&placed);
+    let size = ((w as f32 * placed.scale) as u16, (h as f32 * placed.scale) as u16);
+    let at = ((placed.x * f32::from(screen_w)) as i16, (placed.y * f32::from(screen_h)) as i16);
+    let id = conn.generate_id()?;
+    let mut mask = EventMask::EXPOSURE | EventMask::STRUCTURE_NOTIFY | EventMask::VISIBILITY_CHANGE;
+    if placed.interactive() {
+        mask |= EventMask::BUTTON_PRESS | EventMask::BUTTON_RELEASE | EventMask::POINTER_MOTION | EventMask::LEAVE_WINDOW;
+    }
+    conn.create_window(
+        depth,
+        id,
+        screen.root,
+        at.0,
+        at.1,
+        size.0,
+        size.1,
+        0,
+        WindowClass::INPUT_OUTPUT,
+        visual,
+        &CreateWindowAux::new().background_pixel(0).border_pixel(0).colormap(colormap).event_mask(mask),
+    )?;
+    mark_as_widget(conn, id, &placed, at, size)?;
+    conn.map_window(id)?;
+    Ok(Window { id, placed, at, size, pixmap: None, due: Instant::now(), drag: None })
+}
+
+/// Brings the windows in line with the new settings, touching only what differs.
+fn apply_change(conn: &impl Connection, screen: &x11rb::protocol::xproto::Screen, depth: u8, visual: u32, colormap: u32, windows: &mut Vec<Window>, new: &Widgets) -> Result<(), Box<dyn Error>> {
+    windows.retain(|window| {
+        let kept = new.placed.iter().any(|placed| placed.id == window.placed.id);
+        if !kept {
+            let _ = conn.destroy_window(window.id);
+        }
+        kept
+    });
+    let (screen_w, screen_h) = (screen.width_in_pixels, screen.height_in_pixels);
+    for placed in &new.placed {
+        match windows.iter().position(|window| window.placed.id == placed.id) {
+            Some(index) => {
+                let old = &windows[index].placed;
+                let same = old.kind == placed.kind && old.skin == placed.skin && (old.scale - placed.scale).abs() < 1e-6 && (old.opacity - placed.opacity).abs() < 1e-6 && old.interactive() == placed.interactive();
+                if !same {
+                    conn.destroy_window(windows[index].id)?;
+                    windows[index] = make_window(conn, screen, depth, visual, colormap, placed.clone())?;
+                    continue;
+                }
+                let at = ((placed.x * f32::from(screen_w)) as i16, (placed.y * f32::from(screen_h)) as i16);
+                if at != windows[index].at && windows[index].drag.is_none() {
+                    conn.configure_window(windows[index].id, &ConfigureWindowAux::new().x(i32::from(at.0)).y(i32::from(at.1)))?;
+                    windows[index].at = at;
+                }
+                windows[index].placed = placed.clone();
+            }
+            None => windows.push(make_window(conn, screen, depth, visual, colormap, placed.clone())?),
+        }
+    }
+    conn.flush()?;
+    Ok(())
+}
+
+fn mark_as_widget(conn: &impl Connection, window: u32, placed: &Placed, at: (i16, i16), size: (u16, u16)) -> Result<(), Box<dyn Error>> {
+    conn.change_property32(PropMode::REPLACE, window, atom(conn, b"_NET_WM_WINDOW_TYPE")?, AtomEnum::ATOM, &[atom(conn, b"_NET_WM_WINDOW_TYPE_DOCK")?])?;
+    // Every workspace, out of the taskbar, Alt+Tab and pagers, and in the bottom layer.
     conn.change_property32(PropMode::REPLACE, window, atom(conn, b"_NET_WM_DESKTOP")?, AtomEnum::CARDINAL, &[0xFFFF_FFFF])?;
     conn.change_property32(
         PropMode::REPLACE,
         window,
         atom(conn, b"_NET_WM_STATE")?,
         AtomEnum::ATOM,
-        &[atom(conn, b"_NET_WM_STATE_STICKY")?, atom(conn, b"_NET_WM_STATE_SKIP_TASKBAR")?, atom(conn, b"_NET_WM_STATE_SKIP_PAGER")?],
+        &[atom(conn, b"_NET_WM_STATE_BELOW")?, atom(conn, b"_NET_WM_STATE_STICKY")?, atom(conn, b"_NET_WM_STATE_SKIP_TASKBAR")?, atom(conn, b"_NET_WM_STATE_SKIP_PAGER")?],
     )?;
     conn.change_property8(PropMode::REPLACE, window, AtomEnum::WM_NAME, AtomEnum::STRING, b"Paperloom widget")?;
+    // Where it was put is where it stays: the window manager is told the position and size are the user's.
+    let mut hints = x11rb::properties::WmSizeHints::new();
+    hints.position = Some((x11rb::properties::WmSizeHintsSpecification::UserSpecified, i32::from(at.0), i32::from(at.1)));
+    hints.size = Some((x11rb::properties::WmSizeHintsSpecification::UserSpecified, i32::from(size.0), i32::from(size.1)));
+    hints.min_size = Some((i32::from(size.0), i32::from(size.1)));
+    hints.max_size = Some((i32::from(size.0), i32::from(size.1)));
+    hints.set_normal_hints(conn, window)?;
     // Never takes focus: input hint off, and a user time of 0 so the window manager
     // doesn't focus it when it appears (see the wallpaper engine's window).
     conn.change_property32(PropMode::REPLACE, window, AtomEnum::WM_HINTS, AtomEnum::WM_HINTS, &[1, 0, 0, 0, 0, 0, 0, 0, 0])?;
@@ -365,37 +438,6 @@ fn mark_as_desktop_widget(conn: &impl Connection, window: u32, placed: &Placed) 
     Ok(())
 }
 
-/// Stacks the widget against the desktop-icons window (Nemo's), which is also
-/// a desktop-type window and covers the screen. A widget that takes mouse
-/// input goes just above it (below it, every click would land on the icons'
-/// window); a click-through one goes just below, so icons draw over it. Either
-/// way it stays above the wallpaper, which the engine keeps at the very bottom.
-fn stack_against_icons(conn: &impl Connection, root: u32, window: u32, interactive: bool) -> Result<(), Box<dyn Error>> {
-    // Nemo has several desktop-class windows (menus, progress); the icons' is the one covering the screen.
-    let mut icons: Option<(u32, u32)> = None;
-    for child in conn.query_tree(root)?.reply()?.children {
-        if child == window {
-            continue;
-        }
-        let Ok(reply) = conn.get_property(false, child, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 64)?.reply() else { continue };
-        let class = String::from_utf8_lossy(&reply.value).to_lowercase();
-        if class.contains("nemo-desktop") || class.contains("desktop_window") || class.contains("nautilus-desktop") {
-            let Ok(geometry) = conn.get_geometry(child)?.reply() else { continue };
-            let area = u32::from(geometry.width) * u32::from(geometry.height);
-            if icons.is_none_or(|(_, best)| area > best) {
-                icons = Some((child, area));
-            }
-        }
-    }
-    if let Some((icons, _)) = icons {
-        let mode = if interactive { StackMode::ABOVE } else { StackMode::BELOW };
-        conn.configure_window(window, &ConfigureWindowAux::new().sibling(icons).stack_mode(mode))?;
-    }
-    Ok(())
-}
-
-/// Sends a premultiplied RGBA pixmap as BGRA, which is what a 32-bit
-/// little-endian X window expects.
 fn present(conn: &impl Connection, depth: u8, window: u32, gc: u32, pixmap: &Pixmap) -> Result<(), Box<dyn Error>> {
     let mut bytes = pixmap.data().to_vec();
     for pixel in bytes.as_chunks_mut::<4>().0 {

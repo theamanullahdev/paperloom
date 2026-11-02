@@ -172,6 +172,8 @@ pub fn set_enabled(enabled: bool) -> std::io::Result<()> {
         widgets.add("clock");
     }
     widgets.save()?;
+    // On means on for good: it also starts with the computer (and off removes that).
+    let _ = crate::autostart::set_program(crate::autostart::Program::Widgets, enabled);
     if enabled {
         start()?;
     }

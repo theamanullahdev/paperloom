@@ -66,6 +66,8 @@ pub enum Message {
     Expand(&'static str),
     /// A slider was let go (or a field submitted): save.
     Commit,
+    /// Dragging a widget of a stack moves just that widget inside it (true) or the whole stack (false).
+    InsideStacks(bool),
     WeatherCity(String),
     Fahrenheit(bool),
     /// Go to the Stacks page.
@@ -157,6 +159,10 @@ pub struct State {
     removed: Vec<widgets::Placed>,
     /// The widget whose ⋯ menu is open.
     menu: Option<u32>,
+    /// Move widgets inside their stacks on their own.
+    inside: bool,
+    /// When the process was last started from here.
+    last_start: Option<std::time::Instant>,
     /// What the widgets process says about itself (where it draws, whether anything was seen).
     status: widgets::Status,
     /// The stack whose own page is open, on My widgets.
@@ -191,7 +197,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), menu: None, status: widgets::Status::read().unwrap_or_default(), open_stack: None, menu_stack: None, menu_preset: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
+        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, notice: None, removed: Vec::new(), menu: None, inside: false, last_start: None, status: widgets::Status::read().unwrap_or_default(), open_stack: None, menu_stack: None, menu_preset: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
@@ -205,7 +211,19 @@ impl State {
     }
 
     /// Re-reads the file (another window, the tray, or a reset may have changed it).
+    /// Widgets are on and placed but nothing is drawing them (after a restart, a crash): start them,
+    /// at most once every 20 seconds so a process that cannot start isn't launched over and over.
+    fn ensure_running(&mut self) {
+        if self.running || !self.widgets.enabled || self.widgets.placed.is_empty() || self.last_start.is_some_and(|at| at.elapsed() < Duration::from_secs(20)) {
+            return;
+        }
+        self.last_start = Some(std::time::Instant::now());
+        self.problem = widgets::start().err().map(|err| format!("Couldn't start the widgets: {err}"));
+        self.running = widgets::is_running();
+    }
+
     pub fn open(&mut self) -> Task<Message> {
+        self.ensure_running();
         self.status = widgets::Status::read().unwrap_or_default();
         // A way back stays until it is dismissed; other lines are about the page you left.
         if !self.notice.as_ref().is_some_and(|notice| matches!(notice.action, Some((_, Message::Undo)))) {
@@ -244,8 +262,28 @@ impl State {
         }
     }
 
+    /// A stack is as big as the widgets in it, whatever looks they use now.
+    fn refit_stacks(&mut self) {
+        let ids: Vec<u32> = self.widgets.stacks.iter().map(|stack| stack.id).collect();
+        for id in ids {
+            let (mut width, mut height) = (0.0_f32, 0.0_f32);
+            for placed in self.widgets.members(id) {
+                let (w, h) = widgets_looks::size_of(placed);
+                width = width.max(placed.dx + w as f32);
+                height = height.max(placed.dy + h as f32);
+            }
+            if let Some(stack) = self.widgets.stacks.iter_mut().find(|stack| stack.id == id) {
+                if width > 0.0 {
+                    stack.size = [width, height];
+                }
+            }
+            self.widgets.arrange_stack(id, self.screen);
+        }
+    }
+
     /// Saves, and makes sure the process is running when widgets are on.
     fn apply(&mut self) {
+        self.refit_stacks();
         self.problem = None;
         if let Err(err) = self.widgets.save() {
             self.problem = Some(format!("Couldn't save the widget settings: {err}"));
@@ -264,6 +302,7 @@ impl State {
     /// (a new wallpaper; a new minute for the clocks).
     fn tick(&mut self) -> Task<Message> {
         self.running = widgets::is_running();
+        self.ensure_running();
         self.status = widgets::Status::read().unwrap_or_default();
         let mut tasks = Vec::new();
         if self.stacks_tab == BrowseTab::Online {
@@ -655,8 +694,25 @@ impl State {
                 self.open = self.open.filter(|id| self.widgets.placed.iter().any(|placed| placed.id == *id));
             }
             Message::Moved(id, x, y) => {
-                // A widget in a stack takes its whole stack along.
-                self.widgets.move_member(id, x, y, self.screen);
+                let stack = self.widgets.placed.iter().find(|placed| placed.id == id).map_or(0, |placed| placed.stack);
+                match self.widgets.stack(stack).cloned() {
+                    // Inside a stack, on its own: only this widget's place in the stack changes.
+                    Some(stack) if self.inside => {
+                        let (w, h) = (self.screen.0 as f32, self.screen.1 as f32);
+                        if let Some(placed) = self.widgets.placed.iter_mut().find(|placed| placed.id == id) {
+                            placed.dx = ((x - stack.x) * w / stack.scale).max(0.0);
+                            placed.dy = ((y - stack.y) * h / stack.scale).max(0.0);
+                        }
+                        self.refit_stacks();
+                        self.widgets.arrange_stack(stack.id, self.screen);
+                    }
+                    // Otherwise a widget in a stack takes its whole stack along.
+                    _ => self.widgets.move_member(id, x, y, self.screen),
+                }
+                return Task::none();
+            }
+            Message::InsideStacks(on) => {
+                self.inside = on;
                 return Task::none();
             }
             Message::Dropped => {}
@@ -866,6 +922,14 @@ impl State {
         }
         column![
             text("This is your screen. Drag a widget to move it — it snaps to the edges and the middle, and is saved when you let go. A stack moves as one.").size(13).color(t.muted_foreground),
+            {
+                let inside: Element<'a, Message> = if self.widgets.stacks.is_empty() {
+                    Space::new().into()
+                } else {
+                    toggler(self.inside).label("Move a widget inside its stack on its own (the stack stays together)").on_toggle(Message::InsideStacks).into()
+                };
+                inside
+            },
             super::widgets_layout::view(&self.widgets.placed, self.selected, self.screen, &self.previews, 520.0, t),
             self.desktop_list(t),
         ]

@@ -46,6 +46,9 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     };
+    if !testing && !paperloom_common::autostart::is_program_enabled(paperloom_common::autostart::Program::Widgets) {
+        let _ = paperloom_common::autostart::set_program(paperloom_common::autostart::Program::Widgets, true);
+    }
     let mut text = render::Text::new();
     let mut control = control::Control::new();
     if testing {

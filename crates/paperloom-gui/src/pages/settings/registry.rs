@@ -18,7 +18,6 @@ pub enum SettingId {
     LowBatteryPercent,
     Autostart,
     WidgetsEnabled,
-    WidgetsAutostart,
     Updates,
     AllowMature,
     TrayIcon,
@@ -114,12 +113,6 @@ pub const ENTRIES: &[Entry] = &[
         label: "Show desktop widgets",
         section: "Widgets",
         aliases: &["widgets", "clock", "desktop widgets", "rainmeter", "gadgets", "date", "time", "meter"],
-    },
-    Entry {
-        id: SettingId::WidgetsAutostart,
-        label: "Start widgets when I log in",
-        section: "Widgets",
-        aliases: &["widgets login", "widgets startup", "widgets boot", "autostart widgets"],
     },
     Entry {
         id: SettingId::AllowMature,

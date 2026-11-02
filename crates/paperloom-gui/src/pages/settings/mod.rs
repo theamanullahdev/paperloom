@@ -48,7 +48,6 @@ pub struct State {
     autostart: bool,
     autostart_error: Option<String>,
     widgets_enabled: bool,
-    widgets_autostart: bool,
     widgets_error: Option<String>,
     stats: Option<Stats>,
     /// The pause-by-app list as typed (commas included).
@@ -147,7 +146,6 @@ impl Default for State {
             autostart: paperloom_common::autostart::is_enabled(),
             autostart_error: None,
             widgets_enabled: paperloom_common::widgets::Widgets::load().enabled,
-            widgets_autostart: paperloom_common::autostart::is_program_enabled(paperloom_common::autostart::Program::Widgets),
             widgets_error: None,
             stats: None,
             pause_apps_text: String::new(),
@@ -251,11 +249,6 @@ impl State {
                     SettingId::WidgetsEnabled => {
                         self.widgets_error = paperloom_common::widgets::set_enabled(value).err().map(|err| err.to_string());
                         self.widgets_enabled = paperloom_common::widgets::Widgets::load().enabled;
-                    }
-                    SettingId::WidgetsAutostart => {
-                        use paperloom_common::autostart::{is_program_enabled, set_program, Program};
-                        self.widgets_error = set_program(Program::Widgets, value).err().map(|err| err.to_string());
-                        self.widgets_autostart = is_program_enabled(Program::Widgets);
                     }
                     SettingId::AllowMature => settings.allow_mature = value,
                     SettingId::TrayIcon => settings.show_tray_icon = value,
@@ -794,22 +787,11 @@ impl State {
                     SettingId::WidgetsEnabled,
                     column![
                         toggler(self.widgets_enabled).label("Show desktop widgets").on_toggle(|v| Message::Toggle(SettingId::WidgetsEnabled, v)),
-                        hint("Choose and arrange them under Widgets in the sidebar."),
+                        hint("Choose and arrange them under Widgets in the sidebar. They start with your computer and follow the same pause rules as the wallpaper: hidden under a fullscreen app and on a locked screen."),
                     ]
                     .spacing(6)
                     .into(),
                 ),
-                item(SettingId::WidgetsAutostart, {
-                    let mut content = column![
-                        toggler(self.widgets_autostart).label("Start widgets when I log in").on_toggle(|v| Message::Toggle(SettingId::WidgetsAutostart, v)),
-                        hint("Widgets follow the same pause rules as the wallpaper: hidden under a fullscreen app and on a locked screen."),
-                    ]
-                    .spacing(6);
-                    if let Some(error) = &self.widgets_error {
-                        content = content.push(text(format!("Couldn't change this: {error}")).size(12).color(t.destructive));
-                    }
-                    content.into()
-                }),
             ]
             .spacing(14)
             .into(),
@@ -1134,7 +1116,6 @@ const ORDER: &[SettingId] = &[
     SettingId::LowBatteryPercent,
     SettingId::Autostart,
     SettingId::WidgetsEnabled,
-    SettingId::WidgetsAutostart,
     SettingId::Muted,
     SettingId::HardwareDecoding,
     SettingId::TrayIcon,

@@ -92,8 +92,13 @@ impl State {
         let first = self.widgets.members(id).next().map(|placed| placed.id);
         let screen = section(
             "Where it sits",
-            "Your screen, with the stack outlined. Drag any part of it and the whole stack moves.",
-            super::super::widgets_layout::view(&self.widgets.placed, first, self.screen, &self.previews, 380.0, t),
+            "Your screen, with the stack outlined. Drag any part of it and the whole stack moves; turn the switch on to move one widget inside the stack instead.",
+            column![
+                iced::widget::toggler(self.inside).label("Move a widget inside this stack on its own").on_toggle(Message::InsideStacks),
+                super::super::widgets_layout::view(&self.widgets.placed, first, self.screen, &self.previews, 380.0, t),
+            ]
+            .spacing(8)
+            .into(),
             t,
         );
 
