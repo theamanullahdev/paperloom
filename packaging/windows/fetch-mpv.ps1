@@ -34,7 +34,21 @@ Copy-Item $ffmpeg.FullName $Out -Force
 # without it Windows refuses to start the engine at all. The loader is
 # redistributable (Apache-2.0); LunarG publishes it as "runtime components".
 $vulkanZip = Join-Path $download "vulkan-runtime.zip"
-Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-runtime-components.zip" -OutFile $vulkanZip
+# "latest" is tried first, then the published versions newest first: a new
+# SDK version is sometimes listed before its runtime components are uploaded.
+$versions = @("latest") + @(Invoke-RestMethod -Uri "https://vulkan.lunarg.com/sdk/versions/windows.json")
+$fetched = $false
+foreach ($version in ($versions | Select-Object -First 10)) {
+    try {
+        Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$version/windows/vulkan-runtime-components.zip" -OutFile $vulkanZip
+        Write-Host "Vulkan runtime components: $version"
+        $fetched = $true
+        break
+    } catch {
+        Write-Host "No Vulkan runtime components for ${version}: $($_.Exception.Message)"
+    }
+}
+if (-not $fetched) { throw "The Vulkan runtime components could not be downloaded" }
 Expand-Archive $vulkanZip -DestinationPath (Join-Path $download "vulkan-runtime") -Force
 $candidates = Get-ChildItem (Join-Path $download "vulkan-runtime") -Recurse -Filter "vulkan-1.dll"
 $candidates | ForEach-Object { Write-Host "vulkan-1.dll candidate: $($_.FullName)" }

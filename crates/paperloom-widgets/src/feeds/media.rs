@@ -44,6 +44,7 @@ pub fn start() {
 }
 
 /// 215 seconds → "3:35".
+#[cfg(not(target_os = "macos"))]
 fn clock(seconds: u64) -> String {
     format!("{}:{:02}", seconds / 60, seconds % 60)
 }
