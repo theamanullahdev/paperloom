@@ -36,7 +36,11 @@ Copy-Item $ffmpeg.FullName $Out -Force
 $vulkanZip = Join-Path $download "vulkan-runtime.zip"
 # "latest" is tried first, then the published versions newest first: a new
 # SDK version is sometimes listed before its runtime components are uploaded.
-$versions = @("latest") + @(Invoke-RestMethod -Uri "https://vulkan.lunarg.com/sdk/versions/windows.json")
+# (Invoke-RestMethod hands the list back as one object; `foreach` walks it.)
+$versions = [System.Collections.Generic.List[string]]::new()
+$versions.Add("latest")
+$published = Invoke-RestMethod -Uri "https://vulkan.lunarg.com/sdk/versions/windows.json"
+foreach ($version in $published) { $versions.Add([string]$version) }
 $fetched = $false
 foreach ($version in ($versions | Select-Object -First 10)) {
     try {
