@@ -176,7 +176,7 @@ impl State {
             container(
                 column![
                     text(label).size(12).color(t.muted_foreground),
-                    text(value).font(theme::DISPLAY_FONT).size(24).color(t.foreground).wrapping(text::Wrapping::WordOrGlyph),
+                    text(value).font(theme::display_font()).size(24).color(t.foreground).wrapping(text::Wrapping::WordOrGlyph),
                     text(note).size(12).color(t.muted_foreground),
                 ]
                 .spacing(4),
@@ -297,7 +297,7 @@ impl State {
         ]
         .spacing(8);
 
-        let mut table = column![text("Paperloom processes").font(theme::BODY_FONT).size(15).color(t.foreground), head].spacing(8);
+        let mut table = column![text("Paperloom processes").font(theme::body_font()).size(15).color(t.foreground), head].spacing(8);
         if self.rows.is_empty() {
             table = table.push(text("Reading…").size(12).color(t.muted_foreground));
         }
@@ -349,7 +349,7 @@ fn graph_card<'a>(title: &'static str, about: &'static str, key: Vec<(&'static s
             row![
                 container(Space::new()).width(10).height(10).style(move |_theme| container::Style {
                     background: Some(Background::Color(color)),
-                    border: Border { radius: 3.0.into(), ..Border::default() },
+                    border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
                     ..container::Style::default()
                 }),
                 text(label).size(12).color(t.muted_foreground),
@@ -360,7 +360,7 @@ fn graph_card<'a>(title: &'static str, about: &'static str, key: Vec<(&'static s
     }
     container(
         column![
-            row![text(title).font(theme::BODY_FONT).size(15).color(t.foreground), Space::new().width(Length::Fill), legend].align_y(iced::Alignment::Center),
+            row![text(title).font(theme::body_font()).size(15).color(t.foreground), Space::new().width(Length::Fill), legend].align_y(iced::Alignment::Center),
             text(about).size(12).color(t.muted_foreground),
             chart,
         ]

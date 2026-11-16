@@ -1,0 +1,43 @@
+id = "dusk"
+name = "Dusk"
+author = "Paperloom"
+description = "An evening sky behind see-through panels, with the navigation along the bottom."
+
+[colors.dark]
+background = "#1A1030"
+surface = "#FFFFFF12"
+muted = "#FFFFFF1C"
+border = "#FFFFFF26"
+foreground = "#FFF4EC"
+muted_foreground = "#D9BFCB"
+primary = "#FFB36B"
+primary_hover = "#FFCB99"
+overlay = "#12081FCC"
+
+[shape]
+control_radius = 8
+card_radius = 12
+popup_radius = 16
+shadow = 0.5
+
+[layout]
+nav = "bottom"
+
+[backdrop]
+gradient = ["#1A1030", "#4A1F5C", "#B2475C", "#F0935A"]
+angle = 100
+
+[part.nav]
+background = "#1A1030D9"
+
+[part.top_bar]
+background = "#1A103099"
+
+[part.modal]
+background = "#2A1740"
+
+[part.screen]
+background = "#2A1740"
+
+[part.popup]
+background = "#2A1740"

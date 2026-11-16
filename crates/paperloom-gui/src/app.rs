@@ -7,7 +7,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Size, 
 
 use paperloom_common::Settings;
 
-use crate::pages::{developers, downloads, library, mcp, online, settings, sources, updates, usage, widgets};
+use crate::pages::{appearance, developers, downloads, library, mcp, online, settings, sources, updates, usage, widgets};
 use crate::ui::Width;
 use crate::{icons, search, theme};
 
@@ -26,6 +26,13 @@ pub struct App {
     widgets_page: widgets::State,
     developers_page: developers::State,
     mcp_page: mcp::State,
+    appearance_page: appearance::State,
+    /// A theme that moved things was just applied: "Keep this theme?" counts down.
+    theme_trial: Option<ThemeTrial>,
+    /// Which frame the theme's animated picture layers show.
+    layer_frame: usize,
+    /// When the active theme's file was last written (to notice an edit from outside).
+    theme_stamp: Option<std::time::SystemTime>,
     /// Counts `Record` ticks, for the things checked less often than that.
     ticks: u32,
     /// Short usage history so the graphs are already filled when opened.
@@ -49,6 +56,14 @@ pub struct App {
     banner_dismissed: bool,
 }
 
+/// "Keep this theme?" after a theme that moves things was applied.
+pub(crate) struct ThemeTrial {
+    /// The theme to go back to. `None` = an unsaved preview from the
+    /// editor: going back means the saved theme.
+    previous: Option<String>,
+    pub seconds_left: u8,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Page {
     Library,
@@ -60,6 +75,7 @@ pub(crate) enum Page {
     Usage,
     Developers,
     Mcp,
+    Appearance,
     Widgets,
     WidgetsBrowse,
     WidgetsAdd,
@@ -99,6 +115,13 @@ pub enum Message {
     Widgets(widgets::Message),
     Developers(developers::Message),
     Mcp(mcp::Message),
+    Appearance(appearance::Message),
+    /// One second of "Keep this theme?" passed.
+    TrialTick,
+    /// Next frame of the theme's animated pictures.
+    LayerTick,
+    /// A theme's font file was handed to the renderer.
+    FontLoaded,
     /// Another launch of Paperloom (tray click, app menu…) asked this
     /// window for something: "SHOW", "PAGE usage", "TRAY-SETTINGS".
     OtherLaunch(String),
@@ -142,6 +165,10 @@ impl App {
             widgets_page: widgets::State::new(),
             developers_page: developers::State::new(),
             mcp_page: mcp::State::new(),
+            appearance_page: appearance::State::new(),
+            theme_trial: None,
+            layer_frame: 0,
+            theme_stamp: theme_stamp(&theme::active()),
             ticks: 0,
             lock_reset: None,
             recorder: crate::telemetry::Recorder::new(),
@@ -343,6 +370,49 @@ impl App {
             }
             Message::Developers(msg) => self.developers_page.update(&self.settings, msg).map(Message::Developers),
             Message::Mcp(msg) => self.mcp_page.update(msg).map(Message::Mcp),
+            Message::Appearance(appearance::Message::Keep) => {
+                self.theme_trial = None;
+                Task::none()
+            }
+            Message::Appearance(appearance::Message::Revert) => self.revert_theme(),
+            Message::Appearance(appearance::Message::Restart) => crate::engine_client::restart_app(),
+            Message::Appearance(msg) => {
+                let (task, outcome) = self.appearance_page.update(&mut self.settings, msg);
+                let after = match outcome {
+                    appearance::Outcome::None => Task::none(),
+                    appearance::Outcome::Apply(id) => self.apply_theme(&id, true),
+                    appearance::Outcome::Preview(draft, dir) => {
+                        theme::preview(*draft, dir);
+                        self.theme_trial = Some(ThemeTrial { previous: None, seconds_left: 10 });
+                        self.load_theme_fonts()
+                    }
+                    appearance::Outcome::EndPreview => {
+                        self.theme_trial = None;
+                        let _ = theme::activate(&self.settings.app_theme);
+                        Task::none()
+                    }
+                };
+                Task::batch([task.map(Message::Appearance), after])
+            }
+            Message::TrialTick => {
+                let expired = match self.theme_trial.as_mut() {
+                    Some(trial) => {
+                        trial.seconds_left = trial.seconds_left.saturating_sub(1);
+                        trial.seconds_left == 0
+                    }
+                    None => false,
+                };
+                if expired {
+                    self.revert_theme()
+                } else {
+                    Task::none()
+                }
+            }
+            Message::LayerTick => {
+                self.layer_frame = self.layer_frame.wrapping_add(1);
+                Task::none()
+            }
+            Message::FontLoaded => Task::none(),
             Message::Widgets(widgets::Message::Browse) => self.update(Message::SwitchPage(Page::WidgetsBrowse)),
             Message::Widgets(widgets::Message::AddWidgets) => self.update(Message::SwitchPage(Page::WidgetsAdd)),
             Message::Widgets(widgets::Message::ShowStacks) => self.update(Message::SwitchPage(Page::WidgetsStacks)),
@@ -376,7 +446,7 @@ impl App {
                     Page::Online | Page::Downloads | Page::Sources => {
                         self.expanded.insert(Group::Online);
                     }
-                    Page::Settings | Page::Updates | Page::Usage | Page::Developers | Page::Mcp => {
+                    Page::Settings | Page::Updates | Page::Usage | Page::Developers | Page::Mcp | Page::Appearance => {
                         self.expanded.insert(Group::Settings);
                     }
                     Page::Library => {
@@ -398,6 +468,9 @@ impl App {
                 if page == Page::Mcp {
                     return self.mcp_page.open().map(Message::Mcp);
                 }
+                if page == Page::Appearance {
+                    self.appearance_page.refresh();
+                }
                 if page == Page::Settings {
                     self.settings_page.refresh(self.library_page.library());
                 }
@@ -416,6 +489,7 @@ impl App {
                     Task::none()
                 }
             }
+            Message::Settings(settings::Message::OpenAppearance) => self.update(Message::SwitchPage(Page::Appearance)),
             Message::Settings(settings::Message::OpenUpdates) => {
                 self.page = Page::Updates;
                 Task::none()
@@ -460,8 +534,19 @@ impl App {
                     self.library_page.sync_from_disk();
                     let saved = paperloom_common::load();
                     if saved != self.settings {
+                        let theme_changed = saved.app_theme != self.settings.app_theme;
                         self.settings = saved;
                         self.library_page.set_lock(self.settings.hidden_lock.clone());
+                        if theme_changed {
+                            let id = self.settings.app_theme.clone();
+                            return self.apply_theme(&id, false);
+                        }
+                    }
+                    // An agent rewrote the theme in use: show the new file.
+                    if self.theme_file_changed() {
+                        let _ = theme::activate(&self.settings.app_theme);
+                        self.appearance_page.refresh();
+                        return self.load_theme_fonts();
                     }
                     if self.ticks.is_multiple_of(5) {
                         self.mcp_page.check();
@@ -495,6 +580,51 @@ impl App {
         }
     }
 
+    /// Switches to theme `id` and remembers the choice. With `ask`, a theme
+    /// that moves things (navigation, size) shows "Keep this theme?" and
+    /// goes back by itself after ten seconds.
+    fn apply_theme(&mut self, id: &str, ask: bool) -> Task<Message> {
+        let before = theme::active();
+        let previous = self.settings.app_theme.clone();
+        if let Err(why) = theme::activate(id) {
+            paperloom_common::log::warn(&why);
+        }
+        let now = theme::active();
+        self.settings.app_theme = if now.id() == paperloom_theme::DEFAULT_ID { String::new() } else { now.id().to_string() };
+        let _ = paperloom_common::save(&self.settings);
+        self.theme_stamp = theme_stamp(&now);
+        self.layer_frame = 0;
+        self.theme_trial = (ask && now.spec().moves_things(before.spec())).then_some(ThemeTrial { previous: Some(previous), seconds_left: 10 });
+        self.appearance_page.refresh();
+        self.load_theme_fonts()
+    }
+
+    /// "Go back" (or the countdown ran out).
+    fn revert_theme(&mut self) -> Task<Message> {
+        match self.theme_trial.take() {
+            Some(ThemeTrial { previous: Some(id), .. }) => self.apply_theme(&id, false),
+            Some(ThemeTrial { previous: None, .. }) => {
+                let _ = theme::activate(&self.settings.app_theme);
+                Task::none()
+            }
+            None => Task::none(),
+        }
+    }
+
+    /// Hands the active theme's font files to the renderer (title fonts
+    /// show at once; the text font is taken at start).
+    fn load_theme_fonts(&self) -> Task<Message> {
+        Task::batch(theme::active().font_files.iter().filter_map(|file| std::fs::read(file).ok()).map(|bytes| iced::font::load(bytes).map(|_| Message::FontLoaded)))
+    }
+
+    /// Was the active theme's file written since it was loaded?
+    fn theme_file_changed(&mut self) -> bool {
+        let stamp = theme_stamp(&theme::active());
+        let changed = stamp != self.theme_stamp;
+        self.theme_stamp = stamp;
+        changed
+    }
+
     pub fn theme(&self) -> Theme {
         theme::from_mode(self.effective_theme())
     }
@@ -512,6 +642,13 @@ impl App {
             self.widgets_page.subscription(matches!(self.page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsStacks)).map(Message::Widgets),
             self.developers_page.subscription(self.page == Page::Developers).map(Message::Developers),
             iced::time::every(crate::telemetry::EVERY).map(|_| Message::Record),
+            // Only while "Keep this theme?" is counting down.
+            if self.theme_trial.is_some() { iced::time::every(Duration::from_secs(1)).map(|_| Message::TrialTick) } else { Subscription::none() },
+            // Only when the theme has an animated picture.
+            match theme::active().animated() {
+                Some(fps) => iced::time::every(Duration::from_secs_f32(1.0 / fps)).map(|_| Message::LayerTick),
+                None => Subscription::none(),
+            },
             Subscription::run(|| crate::instance::requests().map(Message::OtherLaunch)),
             iced::event::listen_with(|event, status, _window| match event {
                 iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape), .. }) if status == iced::event::Status::Ignored => Some(Message::Escape),
@@ -591,7 +728,7 @@ impl App {
                         None
                     },
                     text_color: color,
-                    border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 4.0.into() },
+                    border: Border { color: Color::TRANSPARENT, width: 0.0, radius: crate::theme::radius_control().into() },
                     shadow: Shadow::default(),
                     snap: false,
                 }
@@ -611,11 +748,12 @@ impl App {
         let t = theme::tokens(self.effective_theme());
         crate::ui::set_tokens(t);
         let width = Width::of(size.width);
-        let rail_width = match width {
-            Width::Wide => 200.0,
-            Width::Medium => 64.0,
-            Width::Narrow => 0.0,
-        };
+        // Where the theme puts the navigation. A narrow window folds it into
+        // the top bar whatever the theme says, so every page stays reachable.
+        let active = theme::active();
+        let lay = active.layout;
+        let nav = crate::layout::Nav::of(lay, width);
+        let rail_width = nav.side_width(lay);
         let content_width = (size.width - rail_width).max(0.0);
 
         let (title, header, body) = match self.page {
@@ -638,17 +776,35 @@ impl App {
             Page::WidgetsLayout => ("Arrange", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Layout, t).map(Message::Widgets)),
             Page::WidgetsAdd => ("Add a widget", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Add, t).map(Message::Widgets)),
             Page::WidgetsBrowse => ("Looks", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Browse, t).map(Message::Widgets)),
+            Page::Appearance => (
+                "Appearance",
+                self.appearance_page.header(&self.settings, t).map(Message::Appearance),
+                self.appearance_page.body(&self.settings, self.effective_theme() != paperloom_common::ThemeMode::Light, t).map(Message::Appearance),
+            ),
             Page::Mcp => ("MCP", self.mcp_page.header().map(Message::Mcp), self.mcp_page.body(t).map(Message::Mcp)),
             Page::Usage => ("Usage", self.usage_page.header().map(Message::Usage), self.usage_page.body(&self.settings, t, &self.recorder.history).map(Message::Usage)),
         };
 
-        let search_box = text_input("Search Paperloom & online wallpapers…", &self.search)
-            .on_input(Message::SearchChanged)
-            .on_submit(Message::SearchSubmitted)
-            .padding(8)
-            .width(if width == Width::Narrow { Length::Fill } else { Length::Fixed((content_width * 0.4).clamp(160.0, 380.0)) });
+        let search_box: Element<'_, Message> = if lay.search {
+            text_input("Search Paperloom & online wallpapers…", &self.search)
+                .on_input(Message::SearchChanged)
+                .on_submit(Message::SearchSubmitted)
+                .padding(8)
+                .width(if width == Width::Narrow { Length::Fill } else { Length::Fixed((content_width * 0.4).clamp(160.0, 380.0)) })
+                .into()
+        } else {
+            Space::new().into()
+        };
 
-        let title_text = text(title).font(theme::DISPLAY_FONT).size(if width == Width::Narrow { 18 } else { 22 }).color(t.foreground).wrapping(text::Wrapping::None);
+        let bar_part = theme::part("top_bar");
+        let title_color = bar_part.foreground.unwrap_or(t.foreground);
+        let title_label: Element<'_, Message> = if lay.title {
+            text(title).font(theme::display_font()).size(if width == Width::Narrow { 18 } else { 22 }).color(title_color).wrapping(text::Wrapping::None).into()
+        } else {
+            Space::new().into()
+        };
+        // With no navigation showing, the menu button is the way to every page.
+        let title_text: Element<'_, Message> = if nav == crate::layout::Nav::MenuOnly { row![menu_button(t), title_label].spacing(6).align_y(Alignment::Center).into() } else { title_label };
 
         // Everything in the bar wraps onto further lines rather than
         // squeezing: buttons keep their full labels at any width.
@@ -707,12 +863,15 @@ impl App {
             .padding(if width == Width::Narrow { [10, 12] } else { [16, 24] })
             .width(Length::Fill)
             .style(move |_theme| container::Style {
-                background: Some(Background::Color(t.surface)),
-                border: Border { color: t.border, width: 0.0, radius: 0.0.into() },
-                shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.2), offset: iced::Vector::new(0.0, 2.0), blur_radius: 10.0 },
+                background: Some(Background::Color(bar_part.background.unwrap_or(t.surface))),
+                text_color: bar_part.foreground,
+                border: Border { color: bar_part.border.unwrap_or(t.border), width: bar_part.border_width.unwrap_or(0.0), radius: bar_part.radius.unwrap_or(0.0).into() },
+                shadow: crate::theme::shadow(0.2, 0.0, 2.0, 10.0),
                 ..container::Style::default()
             });
 
+        // A theme may keep the page from growing past a width (centred).
+        let body: Element<'_, Message> = if lay.content_max_width > 0.0 { container(container(body).max_width(lay.content_max_width).height(Length::Fill)).center_x(Length::Fill).height(Length::Fill).into() } else { body };
         let body = container(body)
             .padding(if width == Width::Narrow { [6, 10] } else { [8, 24] })
             .width(Length::Fill)
@@ -726,7 +885,7 @@ impl App {
             stack![
                 body,
                 mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
-                    background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.25))),
+                    background: Some(Background::Color(Color { a: theme::overlay().a * 0.5, ..theme::overlay() })),
                     ..container::Style::default()
                 }))
                 .on_press(Message::SearchClosed),
@@ -744,21 +903,38 @@ impl App {
             Some(banner) => column![banner, top_bar].into(),
             None => top_bar.into(),
         };
+        // A navigation bar across the top or the bottom (themes that ask for one).
+        let nav_bar = nav.bar().map(|labels| self.nav_bar(labels, t));
+        let (bar_above, bar_below) = match (nav_bar, lay.nav) {
+            (Some(bar), paperloom_theme::Nav::Bottom) => (None, Some(bar)),
+            (bar, _) => (bar, None),
+        };
         let content: Element<'_, Message> = if size.height < MIN_BODY_HEIGHT + 120.0 {
             scrollable(column![top_bar, container(body).height(Length::Fixed(MIN_BODY_HEIGHT))]).height(Length::Fill).into()
         } else {
             column![top_bar, body].width(Length::Fill).height(Length::Fill).into()
         };
+        let mut stacked = column![].width(Length::Fill).height(Length::Fill);
+        if let Some(bar) = bar_above {
+            stacked = stacked.push(bar);
+        }
+        stacked = stacked.push(container(content).width(Length::Fill).height(Length::Fill));
+        if let Some(bar) = bar_below {
+            stacked = stacked.push(bar);
+        }
 
         let mut layout = row![];
-        if width != Width::Narrow {
-            layout = layout.push(self.sidebar(width, rail_width, t));
+        let sidebar = nav.side().map(|tree| self.sidebar(if tree { Width::Wide } else { Width::Medium }, rail_width, t));
+        let on_right = lay.nav == paperloom_theme::Nav::Right;
+        match (sidebar, on_right) {
+            (Some(sidebar), false) => layout = layout.push(sidebar).push(stacked),
+            (Some(sidebar), true) => layout = layout.push(stacked).push(sidebar),
+            (None, _) => layout = layout.push(stacked),
         }
-        let root: Element<'_, Message> = container(layout.push(container(content).width(Length::Fill).height(Length::Fill)))
-            .style(move |_theme| container::Style { background: Some(Background::Color(t.background)), ..container::Style::default() })
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into();
+        // Behind everything: the background colour or the theme's gradient,
+        // its picture, then its picture layers; the pages go on top.
+        let page_name = crate::layout::page_group(self.page);
+        let root: Element<'_, Message> = crate::layout::backdrop(&active, t, page_name, self.layer_frame, layout.into());
         // Pop-ups and screens cover the whole window, sidebar and top bar included.
         let reset = self.lock_reset.as_ref().map(|state| state.view(t).map(Message::LockReset));
         let overlay: Option<Element<'_, Message>> = if reset.is_some() {
@@ -771,6 +947,7 @@ impl App {
                 self.online_page.overlay(t, &in_library).map(|o| o.map(Message::Online))
             }
             Page::Settings => self.settings_page.overlay(&self.settings, t).map(|o| o.map(Message::Settings)),
+            Page::Appearance => self.appearance_page.overlay(t).map(|o| o.map(Message::Appearance)),
             Page::Widgets | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsBrowse | Page::WidgetsStacks => self.widgets_page.overlay(t).map(|o| o.map(Message::Widgets)),
             _ => None,
             }
@@ -779,16 +956,21 @@ impl App {
             Some(overlay) => stack![root, overlay].into(),
             None => root,
         };
-        // Narrow windows: the whole sidebar (every page, with its sub-pages) slides over the page.
-        if self.menu_open && width != Width::Wide {
-            let drawer = row![
-                opaque(self.sidebar(Width::Wide, 260.0_f32.min(size.width * 0.85), t)),
-                mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
-                    background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
-                    ..container::Style::default()
-                }))
-                .on_press(Message::ToggleMenu),
-            ];
+        // Pictures the theme puts in front of everything (they never take clicks).
+        let shown = crate::layout::front_layers(&active, page_name, self.layer_frame, shown);
+        let shown: Element<'_, Message> = match self.theme_trial.as_ref() {
+            Some(trial) => stack![shown, crate::pages::appearance::keep_question(trial.seconds_left, t).map(Message::Appearance)].into(),
+            None => shown,
+        };
+        // No full navigation showing: the whole tree (every page, with its sub-pages) slides over the page.
+        if self.menu_open && nav.side() != Some(true) {
+            let tree = opaque(self.sidebar(Width::Wide, 260.0_f32.min(size.width * 0.85), t));
+            let rest = mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
+                background: Some(Background::Color(theme::overlay())),
+                ..container::Style::default()
+            }))
+            .on_press(Message::ToggleMenu);
+            let drawer = if on_right { row![rest, tree] } else { row![tree, rest] };
             return stack![shown, drawer].into();
         }
         shown
@@ -814,7 +996,7 @@ impl App {
                         .style(move |_theme, status| button::Style {
                             background: Some(Background::Color(if matches!(status, button::Status::Hovered | button::Status::Pressed) { t.surface } else { t.background })),
                             text_color: t.foreground,
-                            border: Border { radius: 4.0.into(), ..Border::default() },
+                            border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
                             shadow: Shadow::default(),
                             snap: false,
                         })
@@ -838,7 +1020,7 @@ impl App {
         match page {
             Page::Online => matches!(self.page, Page::Online | Page::Downloads | Page::Sources),
             Page::Widgets => matches!(self.page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsStacks),
-            Page::Settings => matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers | Page::Mcp),
+            Page::Settings => matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers | Page::Mcp | Page::Appearance),
             other => self.page == other,
         }
     }
@@ -858,7 +1040,7 @@ impl App {
                 .style(move |_theme, status| button::Style {
                     background: Some(Background::Color(if matches!(status, button::Status::Hovered | button::Status::Pressed) { t.primary_hover } else { t.primary })),
                     text_color: t.background,
-                    border: Border { radius: 4.0.into(), ..Border::default() },
+                    border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
                     shadow: Shadow::default(),
                     snap: false,
                 })
@@ -874,7 +1056,7 @@ impl App {
         }
         let active = self.page == Page::Mcp;
         let dot = container(Space::new().width(8).height(8))
-            .style(move |_theme| container::Style { background: Some(Background::Color(t.success)), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default() });
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.success)), border: Border { radius: crate::theme::radius_control().into(), ..Border::default() }, ..container::Style::default() });
         Some(
             button(row![dot, crate::ui::label("MCP on").size(13)].spacing(7).align_y(Alignment::Center))
                 .padding([7, 11])
@@ -884,7 +1066,7 @@ impl App {
                     button::Style {
                         background: Some(Background::Color(if active { Color { a: 0.12, ..t.primary } } else if hovered { t.muted } else { Color::TRANSPARENT })),
                         text_color: if active { t.primary } else { t.foreground },
-                        border: Border { color: Color { a: 0.55, ..t.success }, width: 1.0, radius: 4.0.into() },
+                        border: Border { color: Color { a: 0.55, ..t.success }, width: 1.0, radius: crate::theme::radius_control().into() },
                         shadow: Shadow::default(),
                         snap: false,
                     }
@@ -901,7 +1083,7 @@ impl App {
         let icon_color = if active { t.primary } else { t.muted_foreground };
         let mut content = row![
             svg(icon).width(15).height(15).style(move |_theme, _status| svg::Style { color: Some(icon_color) }),
-            text(label).font(theme::BODY_FONT).size(13).color(color).wrapping(text::Wrapping::None),
+            text(label).font(theme::body_font()).size(13).color(color).wrapping(text::Wrapping::None),
         ]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -925,7 +1107,7 @@ impl App {
                         None
                     },
                     text_color: color,
-                    border: Border { radius: 4.0.into(), ..Border::default() },
+                    border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
                     shadow: Shadow::default(),
                     snap: false,
                 }
@@ -944,7 +1126,7 @@ impl App {
             .on_press(Message::ToggleGroup(group))
             .style(|_theme, _status| button::Style::default());
         let label_color = if active { t.primary } else { t.foreground };
-        let mut line = row![svg(icon).width(18).height(18).style(move |_theme, _status| svg::Style { color: Some(color) }), text(label).font(theme::BODY_FONT).size(14).color(label_color).wrapping(text::Wrapping::None)]
+        let mut line = row![svg(icon).width(18).height(18).style(move |_theme, _status| svg::Style { color: Some(color) }), text(label).font(theme::body_font()).size(14).color(label_color).wrapping(text::Wrapping::None)]
             .spacing(10)
             .align_y(Alignment::Center);
         if let Some(badge) = badge {
@@ -956,7 +1138,7 @@ impl App {
             button::Style {
                 background: if hovered { Some(Background::Color(t.muted)) } else { None },
                 text_color: label_color,
-                border: Border { radius: 4.0.into(), ..Border::default() },
+                border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
                 shadow: Shadow::default(),
                 snap: false,
             }
@@ -1087,7 +1269,7 @@ impl App {
             "Settings",
             Group::Settings,
             go_page(Page::Settings),
-            matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers | Page::Mcp),
+            matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers | Page::Mcp | Page::Appearance),
             None,
             t,
         ));
@@ -1096,6 +1278,7 @@ impl App {
                 self.tree_row(icons::dashboard(), "Overview".into(), 1, self.page == Page::Settings, None, go_page(Page::Settings), t),
                 self.tree_row(icons::activity(), "Usage".into(), 1, self.page == Page::Usage, None, go_page(Page::Usage), t),
                 self.tree_row(icons::refresh(), "Updates".into(), 1, self.page == Page::Updates, update.then(|| "new".to_string()), go_page(Page::Updates), t),
+                self.tree_row(icons::layers(), "Appearance".into(), 1, self.page == Page::Appearance, None, go_page(Page::Appearance), t),
                 self.tree_row(icons::terminal(), "MCP".into(), 1, self.page == Page::Mcp, self.mcp_page.running().then(|| "on".to_string()), go_page(Page::Mcp), t),
             ];
             if self.settings.developer_mode {
@@ -1120,7 +1303,7 @@ impl App {
             rail.into()
         };
         let brand: Element<'_, Message> = if labels {
-            text("Paperloom").font(theme::DISPLAY_FONT).size(20).color(t.primary).wrapping(text::Wrapping::None).into()
+            text("Paperloom").font(theme::display_font()).size(20).color(t.primary).wrapping(text::Wrapping::None).into()
         } else {
             container(menu_button(t)).center_x(Length::Fill).into()
         };
@@ -1132,14 +1315,55 @@ impl App {
         )
             .width(Length::Fixed(rail_width))
             .height(Length::Fill)
-            .style(move |_theme| container::Style {
-                background: Some(Background::Color(t.surface)),
-                border: Border { color: t.border, width: 1.0, radius: 0.0.into() },
-                shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.25), offset: iced::Vector::new(2.0, 0.0), blur_radius: 12.0 },
-                ..container::Style::default()
+            .style(move |_theme| {
+                let part = theme::part("nav");
+                container::Style {
+                    background: Some(Background::Color(part.background.unwrap_or(t.surface))),
+                    text_color: part.foreground,
+                    border: Border { color: part.border.unwrap_or(t.border), width: part.border_width.unwrap_or(theme::border_width()), radius: part.radius.unwrap_or(0.0).into() },
+                    shadow: crate::theme::shadow(0.25, 2.0, 0.0, 12.0),
+                    ..container::Style::default()
+                }
             })
             .into()
     }
+
+    /// The navigation as a bar across the window (themes with it on top or
+    /// at the bottom): the brand, the four groups, and the menu button for
+    /// the whole tree.
+    fn nav_bar(&self, labels: bool, t: theme::Tokens) -> Element<'_, Message> {
+        let mut bar = row![menu_button(t)].spacing(4).align_y(Alignment::Center);
+        if labels {
+            bar = bar.push(text("Paperloom").font(theme::display_font()).size(18).color(t.primary).wrapping(text::Wrapping::None));
+            bar = bar.push(Space::new().width(12));
+        }
+        for (icon, label, page) in nav_pages() {
+            bar = bar.push(nav_item(icon, label, page, self.is_active(page), self.has_badge(page), labels, t));
+        }
+        container(bar.wrap().vertical_spacing(4))
+            .padding([6, 12])
+            .width(Length::Fill)
+            .style(move |_theme| {
+                let part = theme::part("nav");
+                container::Style {
+                    background: Some(Background::Color(part.background.unwrap_or(t.surface))),
+                    text_color: part.foreground,
+                    border: Border { color: part.border.unwrap_or(t.border), width: part.border_width.unwrap_or(theme::border_width()), radius: part.radius.unwrap_or(0.0).into() },
+                    ..container::Style::default()
+                }
+            })
+            .into()
+    }
+
+    /// Size of everything, from the theme.
+    pub fn scale_factor(&self) -> f32 {
+        theme::active().shape.scale
+    }
+}
+
+/// When the theme's own file was last written (`None` for a built-in one).
+fn theme_stamp(active: &theme::Active) -> Option<std::time::SystemTime> {
+    active.listed.dir().and_then(|dir| std::fs::metadata(dir.join("theme.toml")).ok()).and_then(|meta| meta.modified().ok())
 }
 
 /// Three bars: opens the full sidebar over the page (the rail and the top bar can only show the four
@@ -1152,7 +1376,7 @@ fn menu_button<'a>(t: theme::Tokens) -> Element<'a, Message> {
         .style(move |_theme, status| button::Style {
             background: matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(t.muted)),
             text_color: t.foreground,
-            border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 4.0.into() },
+            border: Border { color: Color::TRANSPARENT, width: 0.0, radius: crate::theme::radius_control().into() },
             shadow: Shadow::default(),
             snap: false,
         })
@@ -1181,7 +1405,7 @@ fn nav_item<'a>(icon: svg::Handle, label: &'static str, page: Page, active: bool
         .spacing(10)
         .align_y(Alignment::Center);
     if with_label {
-        content = content.push(text(label).font(theme::BODY_FONT).size(14).color(text_color).wrapping(text::Wrapping::None));
+        content = content.push(text(label).font(theme::body_font()).size(14).color(text_color).wrapping(text::Wrapping::None));
     }
     if badge {
         if with_label {
@@ -1189,13 +1413,12 @@ fn nav_item<'a>(icon: svg::Handle, label: &'static str, page: Page, active: bool
         }
         content = content.push(
             container(Space::new().width(8).height(8))
-                .style(move |_theme| container::Style { background: Some(Background::Color(t.primary)), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default() }),
+                .style(move |_theme| container::Style { background: Some(Background::Color(t.primary)), border: Border { radius: crate::theme::radius_control().into(), ..Border::default() }, ..container::Style::default() }),
         );
     }
 
     button(content)
         .padding([10, 12])
-        .width(if with_label { Length::Fill } else { Length::Shrink })
         .on_press(Message::SwitchPage(page))
         .style(move |_theme, status| {
             let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
@@ -1209,7 +1432,7 @@ fn nav_item<'a>(icon: svg::Handle, label: &'static str, page: Page, active: bool
             button::Style {
                 background,
                 text_color,
-                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 4.0.into() },
+                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: crate::theme::radius_control().into() },
                 shadow: Shadow::default(),
                 snap: false,
             }
@@ -1228,6 +1451,7 @@ fn page_named(name: &str) -> Option<Page> {
         "updates" => Some(Page::Updates),
         "usage" => Some(Page::Usage),
         "mcp" => Some(Page::Mcp),
+        "appearance" | "themes" => Some(Page::Appearance),
         "widgets" => Some(Page::Widgets),
         "layout" => Some(Page::WidgetsLayout),
         "stacks" => Some(Page::WidgetsStacks),

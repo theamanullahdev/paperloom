@@ -65,7 +65,7 @@ pub fn run(at: Option<(i32, i32)>) -> iced::Result {
         .theme(Widget::theme)
         .style(|_widget, theme| iced::theme::Style { background_color: iced::Color::TRANSPARENT, text_color: theme.palette().text })
         .subscription(Widget::subscription)
-        .default_font(theme::BODY_FONT)
+        .default_font(theme::body_font())
         .font(include_bytes!("../assets/fonts/IBMPlexSans.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/BricolageGrotesque.ttf").as_slice())
         .window(iced::window::Settings {
@@ -390,7 +390,7 @@ impl Widget {
         // --- Header
         let header = row![
             svg(icons::film()).width(20).height(20).style(move |_theme, _status| svg::Style { color: Some(t.primary) }),
-            text("Paperloom").font(theme::DISPLAY_FONT).size(18).color(t.primary),
+            text("Paperloom").font(theme::display_font()).size(18).color(t.primary),
             Space::new().width(Length::Fill),
             button(text("✕").size(14).color(t.muted_foreground)).padding([2, 8]).style(crate::ui::ghost).on_press(Message::Close),
         ]
@@ -423,7 +423,7 @@ impl Widget {
         };
         let now_playing = container(
             column![
-                container(poster).clip(true).style(move |_theme| container::Style { border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() }),
+                container(poster).clip(true).style(move |_theme| container::Style { border: Border { radius: crate::theme::radius_card().into(), ..Border::default() }, ..container::Style::default() }),
                 text(name).size(15).color(t.foreground),
                 text(status).size(12).color(status_color),
             ]
@@ -491,7 +491,7 @@ impl Widget {
 
         let card = container(body).width(Length::Fill).height(Length::Fill).style(move |_theme| container::Style {
             background: Some(Background::Color(t.background)),
-            border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_popup().into() },
             shadow: Shadow::default(),
             ..container::Style::default()
         });
@@ -515,7 +515,7 @@ fn section<'a>(title: &'static str, content: Element<'a, Message>, t: theme::Tok
         .width(Length::Fill)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_card().into() },
             ..container::Style::default()
         })
         .into()

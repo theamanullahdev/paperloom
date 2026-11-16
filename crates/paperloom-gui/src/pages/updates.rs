@@ -318,7 +318,7 @@ impl State {
         let top = card(
             row![
                 column![
-                    iced::widget::mouse_area(text(format!("Paperloom {}", Version::current())).font(theme::DISPLAY_FONT).size(18).color(t.foreground)).on_press(Message::VersionTapped),
+                    iced::widget::mouse_area(text(format!("Paperloom {}", Version::current())).font(theme::display_font()).size(18).color(t.foreground)).on_press(Message::VersionTapped),
                     text(status).size(13).color(color),
                 ]
                 .spacing(2),
@@ -413,7 +413,7 @@ impl State {
             .style(move |_theme, _status| button::Style {
                 background: Some(Background::Color(if active { t.muted } else { t.surface })),
                 text_color: t.foreground,
-                border: Border { color: if active { t.primary } else { t.border }, width: 1.0, radius: 4.0.into() },
+                border: Border { color: if active { t.primary } else { t.border }, width: 1.0, radius: crate::theme::radius_control().into() },
                 ..button::Style::default()
             })
             .on_press(Message::Select(release.tag.clone()))
@@ -556,7 +556,7 @@ impl State {
                     )
                     .padding(10)
                     .width(Length::Fill)
-                    .style(move |_theme| container::Style { border: Border { color: t.primary, width: 1.0, radius: 4.0.into() }, ..container::Style::default() }),
+                    .style(move |_theme| container::Style { border: Border { color: t.primary, width: 1.0, radius: crate::theme::radius_control().into() }, ..container::Style::default() }),
                 );
             }
             body = body.push(text("Installers for this computer").size(13).color(t.muted_foreground));
@@ -573,7 +573,7 @@ impl State {
         if !release.notes.trim().is_empty() {
             body = body.push(text("Release notes").size(13).color(t.muted_foreground));
             body = body.push(container(text(release.notes.clone()).size(13).color(t.foreground)).padding(10).width(Length::Fill).style(move |_theme| {
-                container::Style { background: Some(Background::Color(t.muted)), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default() }
+                container::Style { background: Some(Background::Color(t.muted)), border: Border { radius: crate::theme::radius_control().into(), ..Border::default() }, ..container::Style::default() }
             }));
         }
         card(body.into(), t)
@@ -599,7 +599,7 @@ impl State {
         let bar = progress_bar(0.0..=1.0, fraction).girth(6).style(move |_theme| progress_bar::Style {
             background: Background::Color(t.muted),
             bar: Background::Color(if s.phase == Phase::Failed { t.destructive } else { t.primary }),
-            border: Border { radius: 3.0.into(), ..Border::default() },
+            border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
         });
 
         let rate = self.speed.map(|(_, _, rate)| rate).unwrap_or(0.0);
@@ -728,14 +728,14 @@ fn asset_row<'a>(version: &str, asset: &'a update::Asset, matches_install: bool,
     .padding(10)
     .width(Length::Fill)
     .style(move |_theme| container::Style {
-        border: Border { color: if matches_install { t.primary } else { t.border }, width: 1.0, radius: 4.0.into() },
+        border: Border { color: if matches_install { t.primary } else { t.border }, width: 1.0, radius: crate::theme::radius_control().into() },
         ..container::Style::default()
     })
     .into()
 }
 
 fn heading<'a>(label: &str, t: theme::Tokens) -> Element<'a, Message> {
-    text(label.to_string()).font(theme::BODY_FONT).size(15).color(t.foreground).into()
+    text(label.to_string()).font(theme::body_font()).size(15).color(t.foreground).into()
 }
 
 fn detail<'a>(label: &'static str, value: String, t: theme::Tokens) -> Element<'a, Message> {
@@ -748,7 +748,7 @@ fn card<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Mess
         .width(Length::Fill)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_card().into() },
             ..container::Style::default()
         })
         .into()

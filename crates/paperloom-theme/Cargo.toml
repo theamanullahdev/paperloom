@@ -1,0 +1,10 @@
+[package]
+name = "paperloom-theme"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Paperloom's app themes: the theme file format, its checker and the built-in themes."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "1"

@@ -52,10 +52,39 @@ fn base(background: Option<Color>, text_color: Color, border: Option<(Color, f32
     button::Style {
         background: background.map(Background::Color),
         text_color,
-        border: Border { color: border.map_or(Color::TRANSPARENT, |(c, _)| c), width: border.map_or(0.0, |(_, w)| w), radius: 4.0.into() },
+        border: Border { color: border.map_or(Color::TRANSPARENT, |(c, _)| c), width: border.map_or(0.0, |(_, w)| w), radius: crate::theme::radius_control().into() },
         shadow: Shadow::default(),
         snap: false,
     }
+}
+
+/// Lays a theme's override for one kind of button over its normal style.
+/// Pointing at it or pressing it shifts the theme's colour a little, so the
+/// button still answers the mouse.
+fn themed(mut style: button::Style, status: button::Status, part: &str) -> button::Style {
+    let part = theme::part(part);
+    if let Some(background) = part.background {
+        let toward = if luminance(background) > 0.5 { Color::BLACK } else { Color::WHITE };
+        let amount = match status {
+            button::Status::Hovered => 0.10,
+            button::Status::Pressed => 0.18,
+            _ => 0.0,
+        };
+        style.background = Some(Background::Color(Color { a: background.a, ..mix(background, toward, amount) }));
+    }
+    if let Some(foreground) = part.foreground {
+        style.text_color = foreground;
+    }
+    if let Some(border) = part.border {
+        style.border.color = border;
+        style.border.width = part.border_width.unwrap_or(theme::border_width().max(1.0));
+    } else if let Some(width) = part.border_width {
+        style.border.width = width;
+    }
+    if let Some(radius) = part.radius {
+        style.border.radius = radius.into();
+    }
+    fade(style, status)
 }
 
 /// Text/icon colour that reads on top of the accent colour.
@@ -76,7 +105,7 @@ pub fn primary(_theme: &iced::Theme, status: button::Status) -> button::Style {
         button::Status::Pressed => mix(t.primary, Color::BLACK, 0.18),
         _ => t.primary,
     };
-    fade(base(Some(background), on_accent, None), status)
+    themed(base(Some(background), on_accent, None), status, "button_primary")
 }
 
 /// A quiet button: raised panel with a hairline border.
@@ -88,7 +117,7 @@ pub fn secondary(_theme: &iced::Theme, status: button::Status) -> button::Style 
         _ => t.muted,
     };
     let border = if matches!(status, button::Status::Hovered | button::Status::Pressed) { Color { a: 0.5, ..t.primary } } else { t.border };
-    fade(base(Some(background), t.foreground, Some((border, 1.0))), status)
+    themed(base(Some(background), t.foreground, Some((border, theme::border_width()))), status, "button_secondary")
 }
 
 /// Removing or deleting: a tinted red, not a loud one.
@@ -99,7 +128,7 @@ pub fn danger(_theme: &iced::Theme, status: button::Status) -> button::Style {
         button::Status::Pressed => 0.40,
         _ => 0.16,
     };
-    fade(base(Some(Color { a: strength, ..t.destructive }), t.destructive, Some((Color { a: 0.45, ..t.destructive }, 1.0))), status)
+    themed(base(Some(Color { a: strength, ..t.destructive }), t.destructive, Some((Color { a: 0.45, ..t.destructive }, theme::border_width()))), status, "button_danger")
 }
 
 /// A text-only button (no box until hovered).
@@ -110,7 +139,7 @@ pub fn ghost(_theme: &iced::Theme, status: button::Status) -> button::Style {
         button::Status::Pressed => (Some(mix(t.muted, t.foreground, 0.10)), t.foreground),
         _ => (None, t.muted_foreground),
     };
-    fade(base(background, text_color, None), status)
+    themed(base(background, text_color, None), status, "button_ghost")
 }
 
 /// Text for a button or chip: never wrapped mid-label. A crowded row
@@ -151,15 +180,17 @@ pub fn scroll_page<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) ->
 
 /// A pop-up card on a dimmed backdrop; clicking the backdrop sends `on_close`.
 pub fn modal<'a, Message: Clone + 'a>(content: impl Into<Element<'a, Message>>, width: f32, on_close: Message, t: theme::Tokens) -> Element<'a, Message> {
+    let part = theme::part("modal");
     let card = container(scrollable(container(content).padding(iced::Padding { right: 6.0, ..iced::Padding::ZERO }))).padding(20).max_width(width).max_height(660.0).style(move |_theme| container::Style {
-        background: Some(Background::Color(t.surface)),
-        border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
-        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 8.0), blur_radius: 28.0 },
+        background: Some(Background::Color(part.background.unwrap_or(t.surface))),
+        text_color: part.foreground,
+        border: Border { color: part.border.unwrap_or(t.border), width: part.border_width.unwrap_or(theme::border_width()), radius: part.radius.unwrap_or(theme::radius_popup()).into() },
+        shadow: crate::theme::shadow(0.4, 0.0, 8.0, 28.0),
         ..container::Style::default()
     });
     stack![
         mouse_area(container(Space::new()).width(iced::Length::Fill).height(iced::Length::Fill).style(|_theme| container::Style {
-            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
+            background: Some(Background::Color(theme::overlay())),
             ..container::Style::default()
         }))
         .on_press(on_close),
@@ -178,24 +209,26 @@ pub fn rule<'a, Message: 'a>(t: theme::Tokens) -> Element<'a, Message> {
 /// For anything with real content (a wallpaper's actions, sharing); small
 /// questions use `modal`.
 pub fn screen<'a, Message: Clone + 'a>(title: impl text::IntoFragment<'a>, subtitle: Option<String>, body: Element<'a, Message>, on_close: Message, t: theme::Tokens) -> Element<'a, Message> {
-    let mut heading = column![text(title).font(theme::DISPLAY_FONT).size(20).color(t.foreground).wrapping(text::Wrapping::None)].spacing(2);
+    let mut heading = column![text(title).font(theme::display_font()).size(20).color(t.foreground).wrapping(text::Wrapping::None)].spacing(2);
     if let Some(subtitle) = subtitle {
         heading = heading.push(text(subtitle).size(12).color(t.muted_foreground).wrapping(text::Wrapping::None));
     }
+    let screen_part = theme::part("screen");
     let bar = row![heading.width(iced::Length::Fill), button(label("Close")).style(secondary).padding([6, 14]).on_press(on_close.clone())].spacing(12).align_y(iced::Alignment::Center);
     let panel = container(column![container(bar).padding([14, 20]), rule(t), container(body).padding(20).width(iced::Length::Fill).height(iced::Length::Fill)])
         .width(iced::Length::Fill)
         .height(iced::Length::Fill)
         .clip(true)
         .style(move |_theme| container::Style {
-            background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
-            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45), offset: iced::Vector::new(0.0, 8.0), blur_radius: 32.0 },
+            background: Some(Background::Color(screen_part.background.unwrap_or(t.surface))),
+            text_color: screen_part.foreground,
+            border: Border { color: screen_part.border.unwrap_or(t.border), width: screen_part.border_width.unwrap_or(theme::border_width()), radius: screen_part.radius.unwrap_or(theme::radius_popup()).into() },
+            shadow: crate::theme::shadow(0.45, 0.0, 8.0, 32.0),
             ..container::Style::default()
         });
     stack![
         mouse_area(container(Space::new()).width(iced::Length::Fill).height(iced::Length::Fill).style(|_theme| container::Style {
-            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.55))),
+            background: Some(Background::Color(theme::overlay())),
             ..container::Style::default()
         }))
         .on_press(on_close),
@@ -257,7 +290,7 @@ pub fn segment<'a, Message: Clone + 'a>(content: Element<'a, Message>, active: b
                     None
                 },
                 text_color: if active { t.primary } else { t.foreground },
-                border: Border { color: if active { t.border } else { Color::TRANSPARENT }, width: 1.0, radius: 4.0.into() },
+                border: Border { color: if active { t.border } else { Color::TRANSPARENT }, width: 1.0, radius: crate::theme::radius_control().into() },
                 shadow: Shadow::default(),
                 snap: false,
             }
@@ -271,7 +304,7 @@ pub fn segment_bar<'a, Message: 'a>(content: Row<'a, Message>, t: theme::Tokens)
         .padding(3)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.muted)),
-            border: Border { radius: 4.0.into(), ..Border::default() },
+            border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
             ..container::Style::default()
         })
         .into()
@@ -284,7 +317,7 @@ pub fn check_chip<'a, Message: 'a>(picked: bool, t: theme::Tokens) -> Element<'a
         .height(22)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(if picked { t.primary } else { Color { a: 0.6, ..t.surface } })),
-            border: Border { color: if picked { t.primary } else { t.muted_foreground }, width: 1.5, radius: 4.0.into() },
+            border: Border { color: if picked { t.primary } else { t.muted_foreground }, width: 1.5, radius: crate::theme::radius_control().into() },
             ..container::Style::default()
         })
         .into()

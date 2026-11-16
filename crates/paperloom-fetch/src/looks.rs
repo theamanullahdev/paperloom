@@ -20,7 +20,7 @@ const BASES: &[&str] = &["https://raw.githubusercontent.com/theamanullahdev/pape
 const FORMAT: u32 = 1;
 
 /// A look in one install can't be bigger than this (fonts are the heavy part).
-const MAX_PACK_BYTES: u64 = 12 * 1024 * 1024;
+pub(crate) const MAX_PACK_BYTES: u64 = 12 * 1024 * 1024;
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct Index {
@@ -117,7 +117,7 @@ pub fn fetch_stack_preview(base: &str, pack: &Pack) -> Result<Vec<u8>, String> {
 
 /// A path a look may contain: relative, inside its folder, and a kind of file a
 /// look can use.
-fn safe_path(path: &str) -> bool {
+pub(crate) fn safe_path(path: &str) -> bool {
     let allowed = Path::new(path).extension().and_then(|extension| extension.to_str()).is_some_and(|extension| {
         ["toml", "ttf", "otf", "png", "txt"].iter().any(|allowed| allowed.eq_ignore_ascii_case(extension))
     });
@@ -136,7 +136,7 @@ pub fn install_stack(base: &str, pack: &Pack, stacks_dir: &Path) -> Result<(), S
 }
 
 /// The shared part: `url` is the pack's folder in the catalogue, `main` the file it must have.
-fn install_from(url: &str, pack: &Pack, skins_dir: &Path, main: &str) -> Result<(), String> {
+pub(crate) fn install_from(url: &str, pack: &Pack, skins_dir: &Path, main: &str) -> Result<(), String> {
     if pack.folder.is_empty() || !pack.folder.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err("this look has an unsafe folder name".into());
     }

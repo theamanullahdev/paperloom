@@ -18,6 +18,8 @@ mod pexels;
 mod pixabay;
 mod queue;
 pub mod share;
+/// The online library of app themes, and theme files (`.paperloomtheme`).
+pub mod themes;
 mod stats;
 mod source;
 mod thumbs;

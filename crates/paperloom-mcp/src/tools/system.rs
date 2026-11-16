@@ -10,6 +10,7 @@ use crate::args;
 /// Settings an agent never changes: the Hidden password, the sources (they
 /// hold API keys), developer mode and where the library lives on disk.
 const LOCKED: [&str; 4] = ["hidden_lock", "sources", "developer_mode", "library_folder"];
+// (The app theme has its own tools: apply_theme and reset_theme.)
 
 pub fn tools() -> Vec<Tool> {
     vec![

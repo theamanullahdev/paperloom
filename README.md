@@ -29,6 +29,7 @@ Open the app, import an MP4 (or download one from the built-in online library), 
 - **Rotation and schedule:** change the wallpaper on an interval or by a weekly schedule, even with the window closed.
 - **Pauses by itself:** fullscreen app, locked screen, low battery, covered desktop, chosen apps, or no input for a while.
 - **Control:** tray menu, global keyboard shortcuts, and `paperloom-gui next|pause|resume|mute|stop|status|set <name>` from a terminal.
+- **Themes:** Settings → Appearance changes how Paperloom's own window looks: colours for light and dark, fonts, corner shapes, size, where the navigation sits (left, right, top or bottom), a backdrop, picture layers (animated ones too) and the look of single parts such as buttons and pop-ups. Pick a built-in theme, download one from the online library, import one, or edit one in the app.
 - **AI agents (MCP):** switch MCP on (Settings → MCP) and an agent on your computer (Claude Code, OpenCode, Cursor, a browser agent, or anything that can make a web request) can do what the window does: set and change the wallpaper, import files and links, manage collections, search and download, place widgets. It runs only while switched on.
 - **Updates:** inside the app, any release (older ones too) can be downloaded and installed.
 - **Developer mode:** Settings → Advanced adds a Developers page with live engine status, copyable diagnostics, logs, test actions, and **Run all tests**, which checks everything on a computer and writes one report.
@@ -120,6 +121,19 @@ On Fedora, replace `\.deb` with `\.rpm` and the last line with `sudo dnf install
 - **macOS:** open **System Settings → Privacy & Security** and click **Open Anyway** next to Paperloom, or run `xattr -dr com.apple.quarantine /Applications/Paperloom.app`.
 
 Linux requirements: the `.deb`/`.rpm` need the system's libmpv (`libmpv2` on Ubuntu 24.04 / Mint 22; `mpv-libs` on Fedora), which the package manager installs automatically. Ubuntu 22.04 / Mint 21 ship an mpv that's too old (client API v1).
+
+## Themes
+
+**Settings → Appearance** is one workspace: themes on the left, the chosen one on the right.
+
+- **On this computer** lists the built-in themes and every theme you downloaded, imported or made. **Download** is the online library; a downloaded theme appears in On this computer.
+- **Import a theme** takes a `.paperloomtheme` file or a `theme.toml`; **Import a folder** takes a theme folder. **Save as a file** turns one of your themes into a `.paperloomtheme` to pass on.
+- **Edit** opens the theme's file as a form: colour fields, sliders, choices, picture layers, and a Raw file tab with the text itself. Editing a built-in theme edits a copy. **Preview** shows the draft on the whole window for ten seconds.
+- A theme that moves things asks **Keep this theme?** and goes back by itself after ten seconds. `paperloom-gui --default-theme` starts with Paperloom's own look.
+
+A theme is a folder with a `theme.toml` and, if it wants, `fonts/` and `images/`. Everything in the file is optional; what a theme leaves out keeps Paperloom's default. The format is described in [`crates/paperloom-theme/src/schema.rs`](./crates/paperloom-theme/src/schema.rs), and an AI agent can read it (`get_theme_schema`), write a theme, check it and apply it through MCP.
+
+To add a theme to the online library: make `themes/<id>/theme.toml` (plus a `preview.png` thumbnail of at most 300 KB), run `python3 scripts/build-themes-index.py`, and commit.
 
 ## Use it with an AI agent (MCP)
 

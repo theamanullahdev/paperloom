@@ -1,0 +1,32 @@
+id = "contrast"
+name = "High contrast"
+author = "Paperloom"
+description = "Pure black and white with a strong yellow accent and thicker outlines."
+
+[colors.dark]
+background = "#000000"
+surface = "#000000"
+muted = "#1A1A1A"
+border = "#FFFFFF"
+foreground = "#FFFFFF"
+muted_foreground = "#E0E0E0"
+primary = "#FFD60A"
+primary_hover = "#FFE55C"
+success = "#5CFF8A"
+destructive = "#FF6B6B"
+
+[colors.light]
+background = "#FFFFFF"
+surface = "#FFFFFF"
+muted = "#EDEDED"
+border = "#000000"
+foreground = "#000000"
+muted_foreground = "#222222"
+primary = "#0B3D91"
+primary_hover = "#1250BD"
+success = "#006B2D"
+destructive = "#B00020"
+
+[shape]
+border_width = 2
+shadow = 0

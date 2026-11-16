@@ -190,7 +190,7 @@ impl State {
                 .width(Length::Fill)
                 .style(move |_theme| container::Style {
                     background: chosen.then_some(Background::Color(t.muted)),
-                    border: Border { radius: 6.0.into(), ..Border::default() },
+                    border: Border { radius: crate::theme::radius_card().into(), ..Border::default() },
                     ..container::Style::default()
                 })
                 .into()
@@ -229,7 +229,7 @@ impl State {
         for placed in self.widgets.placed.iter().filter(|placed| placed.stack == 0) {
             list = list.push(line(selected == Some(placed.id), self.desktop_row(placed, 0, t)));
         }
-        container(list).padding(14).width(Length::Fill).style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.border, width: 1.0, radius: 8.0.into() }, ..container::Style::default() }).into()
+        container(list).padding(14).width(Length::Fill).style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_popup().into() }, ..container::Style::default() }).into()
     }
 
     /// One widget in the desktop list.

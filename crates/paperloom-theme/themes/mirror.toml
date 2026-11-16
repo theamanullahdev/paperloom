@@ -1,0 +1,7 @@
+id = "mirror"
+name = "Mirror"
+author = "Paperloom"
+description = "The default colours with the navigation on the right."
+
+[layout]
+nav = "right"

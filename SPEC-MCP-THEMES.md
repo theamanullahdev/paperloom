@@ -49,6 +49,8 @@ Anyone with an agent (Claude Code, OpenCode, Cursor, …) can do from chat what 
 
 ## Pass 2 — Themes and the Appearance page
 
+**Built (see AGENTS.md "App themes").** Differences from the plan below: `.paperloomtheme` is a text bundle in the share-code style, not a zip (no new dependency); density is one whole-UI `scale`; restylable parts are nav, top_bar, the four buttons, modal, screen and popup (cards follow the general colours and `card_radius`); a theme's text font applies after a restart. Still open: the live headless preview in the editor, an icon-pack override, per-part padding.
+
 ### Principle
 The default look stays exactly as it is. It is rewritten as a built-in theme in the new format (a test checks the built-in "Paperloom" theme produces the same tokens as today's `theme.rs`). Everything after that is data, not code: no scripting, no web view, a validated declarative file, the same philosophy as looks/skins.
 

@@ -191,7 +191,7 @@ fn job_row<'a>(job: Job, bytes_per_second: f64, dragging: Option<&str>, t: theme
     let bar = progress_bar(0.0..=1.0, fraction).girth(6).style(move |_theme| progress_bar::Style {
         background: Background::Color(t.muted),
         bar: Background::Color(if job.status == Status::Failed { t.destructive } else { t.primary }),
-        border: Border { radius: 3.0.into(), ..Border::default() },
+        border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
     });
 
     let mut progress_line = match job.bytes_total {
@@ -273,7 +273,7 @@ fn job_row<'a>(job: Job, bytes_per_second: f64, dragging: Option<&str>, t: theme
         border: Border {
             color: if being_dragged { t.primary } else { t.border },
             width: if being_dragged { 2.0 } else { 1.0 },
-            radius: 6.0.into(),
+            radius: crate::theme::radius_card().into(),
         },
         ..container::Style::default()
     }))

@@ -2915,6 +2915,7 @@ version = "0.42.0"
 dependencies = [
  "flate2",
  "paperloom-common",
+ "paperloom-theme",
  "serde",
  "serde_json",
  "sha2",
@@ -2931,9 +2932,11 @@ dependencies = [
  "paperloom-common",
  "paperloom-fetch",
  "paperloom-skin",
+ "paperloom-theme",
  "rfd",
  "sysinfo",
  "tiny-skia",
+ "toml",
  "winresource",
 ]
 
@@ -2943,8 +2946,10 @@ version = "0.42.0"
 dependencies = [
  "paperloom-common",
  "paperloom-fetch",
+ "paperloom-theme",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -2957,6 +2962,14 @@ dependencies = [
  "tiny-skia",
  "toml",
  "zip",
+]
+
+[[package]]
+name = "paperloom-theme"
+version = "0.42.0"
+dependencies = [
+ "serde",
+ "toml",
 ]
 
 [[package]]

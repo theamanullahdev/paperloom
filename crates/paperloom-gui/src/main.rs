@@ -14,6 +14,7 @@ mod desktop_colors;
 mod engine_client;
 mod icons;
 mod instance;
+mod layout;
 mod lock_reset;
 mod optimizer;
 mod pages;
@@ -76,6 +77,17 @@ pub fn main() -> iced::Result {
     std::thread::spawn(paperloom_fetch::delta::cleanup);
     let args: Vec<String> = std::env::args().collect();
     let value_of = |flag: &str| args.iter().position(|arg| arg == flag).and_then(|at| args.get(at + 1)).cloned();
+
+    // `--default-theme`: back to Paperloom's own look, whatever theme was in use.
+    if args.iter().any(|arg| arg == "--default-theme") {
+        let mut settings = paperloom_common::load();
+        settings.app_theme.clear();
+        let _ = paperloom_common::save(&settings);
+    }
+    // The chosen theme; one that is gone or broken leaves Paperloom's own in place.
+    if let Err(why) = theme::activate(&paperloom_common::load().app_theme) {
+        paperloom_common::log::warn(&why);
+    }
 
     // `--widget [--at X Y]`: the tray's themed pop-up, not the app. Launching
     // it again while it's open closes it (clicking the tray icon twice).
@@ -144,15 +156,22 @@ pub fn main() -> iced::Result {
         return Ok(());
     }
 
-    iced::application(app::App::new, app::App::update, app::App::view)
+    let mut application = iced::application(app::App::new, app::App::update, app::App::view)
         .title("Paperloom")
         .theme(app::App::theme)
         .subscription(app::App::subscription)
-        .default_font(theme::BODY_FONT)
+        .scale_factor(app::App::scale_factor)
+        .default_font(theme::body_font())
         .font(include_bytes!("../assets/fonts/IBMPlexSans.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/BricolageGrotesque.ttf").as_slice())
-        .window(window_settings())
-        .run()
+        .window(window_settings());
+    // Fonts the theme brings along.
+    for file in &theme::active().font_files {
+        if let Ok(bytes) = std::fs::read(file) {
+            application = application.font(bytes);
+        }
+    }
+    application.run()
 }
 
 /// The window's own icon (title bar, Alt+Tab, Windows taskbar), and — on

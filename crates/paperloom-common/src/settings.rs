@@ -241,6 +241,8 @@ pub struct Settings {
     /// Also put a still frame of the wallpaper on the lock screen (where the
     /// system allows it).
     pub lock_screen_still: bool,
+    /// The app theme in use (a theme's id); empty = Paperloom's own.
+    pub app_theme: String,
 }
 
 /// The Library page's view: grid of cards or list of rows, in three sizes.
@@ -335,6 +337,7 @@ impl Default for Settings {
             hidden_lock: None,
             screen_target: ScreenTarget::All,
             lock_screen_still: false,
+            app_theme: String::new(),
         }
     }
 }

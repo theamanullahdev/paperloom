@@ -167,6 +167,8 @@ pub enum Message {
     Toggle(SettingId, bool),
     ImportModeSelected(ImportMode),
     ThemeSelected(ThemeMode),
+    /// Opens the Appearance page (the app switches pages).
+    OpenAppearance,
     LowBatteryChanged(u8),
     PauseAppsChanged(String),
     ScreenTargetSelected(paperloom_common::ScreenTarget),
@@ -383,7 +385,7 @@ impl State {
                 self.flash(SettingId::LowBatteryPercent);
                 let _ = paperloom_common::save(settings);
             }
-            Message::OpenUpdates | Message::OpenUsage => {}
+            Message::OpenUpdates | Message::OpenUsage | Message::OpenAppearance => {}
             Message::ChooseLibraryFolder => {
                 let start = paperloom_common::wallpapers_dir();
                 if let Some(folder) = rfd::FileDialog::new().set_title("Folder for your wallpapers").set_directory(&start).pick_folder() {
@@ -462,11 +464,11 @@ impl State {
         let can_save = !capture.text.is_empty() && capture.problem.is_none();
         let card = container(
             column![
-                text(title).font(theme::DISPLAY_FONT).size(18).color(t.foreground),
+                text(title).font(theme::display_font()).size(18).color(t.foreground),
                 text(format!("Now: {}", if current.trim().is_empty() { "not set" } else { current.as_str() })).size(12).color(t.muted_foreground),
                 container(text(shown).size(22).color(t.foreground)).padding([14, 18]).width(Length::Fill).style(move |_theme| container::Style {
                     background: Some(Background::Color(t.muted)),
-                    border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
+                    border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_card().into() },
                     ..container::Style::default()
                 }),
                 verdict,
@@ -486,7 +488,7 @@ impl State {
         .width(Length::Fixed(440.0))
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_popup().into() },
             ..container::Style::default()
         });
         let backdrop = iced::widget::mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_theme| container::Style {
@@ -509,7 +511,7 @@ impl State {
                 .width(Length::Fill)
                 .style(move |_theme| container::Style {
                     background: (fade > 0.0).then_some(Background::Color(iced::Color { a: fade * 0.18, ..t.primary })),
-                    border: Border { color: iced::Color { a: fade, ..t.primary }, width: if fade > 0.0 { 1.0 } else { 0.0 }, radius: 4.0.into() },
+                    border: Border { color: iced::Color { a: fade, ..t.primary }, width: if fade > 0.0 { 1.0 } else { 0.0 }, radius: crate::theme::radius_control().into() },
                     ..container::Style::default()
                 })
                 .into()
@@ -577,15 +579,16 @@ impl State {
 
         let appearance = card(
             "Appearance",
-            "How Paperloom's own window looks.",
+            "How Paperloom's own window looks: themes, colours, fonts, where the navigation sits.",
             item(
                 SettingId::Theme,
                 column![
-                    text("Theme").size(13),
+                    text("Light or dark").size(13),
                     crate::ui::segmented(
                         THEME_OPTIONS.iter().map(|mode| (mode.to_string(), settings.theme == *mode, Message::ThemeSelected(*mode))).collect(),
                         t,
                     ),
+                    button(crate::ui::label("Themes and appearance →").size(13)).style(crate::ui::secondary).padding([7, 12]).on_press(Message::OpenAppearance),
                 ]
                 .spacing(8)
                 .into(),
@@ -973,7 +976,7 @@ pub(crate) fn overview<'a, M: 'a>(stats: &Stats, t: theme::Tokens) -> Element<'a
         container(
             column![
                 text(label).size(12).color(t.muted_foreground),
-                text(value).font(theme::DISPLAY_FONT).size(24).color(t.foreground).wrapping(text::Wrapping::WordOrGlyph),
+                text(value).font(theme::display_font()).size(24).color(t.foreground).wrapping(text::Wrapping::WordOrGlyph),
                 text(note).size(12).color(t.muted_foreground),
             ]
             .spacing(4),
@@ -1018,7 +1021,7 @@ pub(crate) fn storage_chart<'a, M: 'a>(stats: &Stats, t: theme::Tokens) -> Eleme
     let bar: Element<'a, M> = if total == 0 {
         container(Space::new()).width(Length::Fill).height(14).style(move |_theme| container::Style {
             background: Some(Background::Color(t.muted)),
-            border: Border { radius: 4.0.into(), ..Border::default() },
+            border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
             ..container::Style::default()
         })
         .into()
@@ -1034,7 +1037,7 @@ pub(crate) fn storage_chart<'a, M: 'a>(stats: &Stats, t: theme::Tokens) -> Eleme
                 .into()
         });
         container(row(segments).spacing(2)).clip(true).style(move |_theme| container::Style {
-            border: Border { radius: 4.0.into(), ..Border::default() },
+            border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
             ..container::Style::default()
         })
         .into()
@@ -1045,7 +1048,7 @@ pub(crate) fn storage_chart<'a, M: 'a>(stats: &Stats, t: theme::Tokens) -> Eleme
         row![
             container(Space::new()).width(10).height(10).style(move |_theme| container::Style {
                 background: Some(Background::Color(color)),
-                border: Border { radius: 3.0.into(), ..Border::default() },
+                border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
                 ..container::Style::default()
             }),
             text(format!("{label}  {}", bytes(*size))).size(12).color(t.foreground),
@@ -1060,7 +1063,7 @@ pub(crate) fn storage_chart<'a, M: 'a>(stats: &Stats, t: theme::Tokens) -> Eleme
 
     container(
         column![
-            row![text("Storage").font(theme::BODY_FONT).size(15).color(t.foreground), Space::new().width(Length::Fill), text(bytes(total)).size(13).color(t.muted_foreground)],
+            row![text("Storage").font(theme::body_font()).size(15).color(t.foreground), Space::new().width(Length::Fill), text(bytes(total)).size(13).color(t.muted_foreground)],
             bar,
             legend,
         ]
@@ -1089,7 +1092,7 @@ fn battery_gauge<'a>(percent: u8, enabled: bool, t: theme::Tokens) -> Element<'a
     ];
     row![
         container(body).padding(2).height(18).width(Length::Fill).clip(true).style(move |_theme| container::Style {
-            border: Border { color: t.muted_foreground, width: 1.5, radius: 4.0.into() },
+            border: Border { color: t.muted_foreground, width: 1.5, radius: crate::theme::radius_control().into() },
             ..container::Style::default()
         }),
         container(Space::new()).width(4).height(8).style(move |_theme| container::Style {
@@ -1136,15 +1139,15 @@ fn scroll_to(id: SettingId) -> Task<Message> {
 pub(crate) fn tile_style(t: theme::Tokens) -> container::Style {
     container::Style {
         background: Some(Background::Color(t.surface)),
-        border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
-        shadow: iced::Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.12), offset: iced::Vector::new(0.0, 2.0), blur_radius: 8.0 },
+        border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_card().into() },
+        shadow: crate::theme::shadow(0.12, 0.0, 2.0, 8.0),
         ..container::Style::default()
     }
 }
 
 /// A topic card: title, one line on what it's for, then its settings.
 fn card<'a>(title: &'static str, about: &'static str, content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Message> {
-    let mut column = column![text(title).font(theme::BODY_FONT).size(16).color(t.foreground)].spacing(4);
+    let mut column = column![text(title).font(theme::body_font()).size(16).color(t.foreground)].spacing(4);
     if !about.is_empty() {
         column = column.push(text(about).size(12).color(t.muted_foreground));
     }

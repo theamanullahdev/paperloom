@@ -1,3 +1,4 @@
+pub mod appearance;
 pub mod auto_groups;
 pub mod charts;
 pub mod developers;

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use iced::widget::{button, column, container, grid, image, mouse_area, row, stack, svg, text, Space};
-use iced::{Background, Border, Element, Length, Shadow, Subscription, Task};
+use iced::{Background, Border, Element, Length, Subscription, Task};
 
 use paperloom_common::Settings;
 use paperloom_fetch::{Cursor, FetchError, Job, OnlineItem, Page, Queue, Status};
@@ -574,14 +574,14 @@ impl State {
                 container(picture)
                     .width(Length::Fill)
                     .height(Length::Fill)
-                    .style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), border: Border { color: t.border, width: 1.0, radius: 6.0.into() }, ..container::Style::default() })
+                    .style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_card().into() }, ..container::Style::default() })
                     .into()
             }))
             .width(Length::FillPortion(6))
             .height(Length::Fill)
         };
         let right = column![
-            text(item.title.clone()).font(theme::DISPLAY_FONT).size(22).color(t.foreground),
+            text(item.title.clone()).font(theme::display_font()).size(22).color(t.foreground),
             text(format!("{} · {}", item.source_name, qualities)).size(13).color(t.muted_foreground),
             crate::ui::rule(t),
             download,
@@ -667,7 +667,7 @@ fn card<'a>(item: &'a OnlineItem, thumb: Option<&'a PathBuf>, job: Option<&Job>,
     let badge_text = if item.has_4k() { format!("4K · {}", item.source_name) } else { format!("HD · {}", item.source_name) };
     let badge: Element<'a, Message> = container(container(text(badge_text).size(11).color(iced::Color::WHITE)).padding([2, 6]).style(|_theme| container::Style {
         background: Some(Background::Color(iced::Color { a: 0.6, ..iced::Color::BLACK })),
-        border: Border { radius: 4.0.into(), ..Border::default() },
+        border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
         ..container::Style::default()
     }))
     .padding(6)
@@ -705,8 +705,8 @@ fn card<'a>(item: &'a OnlineItem, thumb: Option<&'a PathBuf>, job: Option<&Job>,
     container(column![image_area, chrome].width(Length::Fill).height(Length::Fill))
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
-            shadow: Shadow { color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.15), offset: iced::Vector::new(0.0, 2.0), blur_radius: 8.0 },
+            border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_card().into() },
+            shadow: crate::theme::shadow(0.15, 0.0, 2.0, 8.0),
             ..container::Style::default()
         })
         .clip(true)

@@ -1,0 +1,5 @@
+# The look Paperloom ships with. Every value a theme leaves out comes from here.
+id = "paperloom"
+name = "Paperloom"
+author = "Paperloom"
+description = "Warm cream and terracotta in the light, brown-black and orange in the dark."

@@ -5,6 +5,7 @@ mod collections;
 pub mod library;
 mod online;
 mod system;
+mod themes;
 mod wallpaper;
 mod widgets;
 
@@ -41,6 +42,7 @@ pub fn all() -> Vec<Tool> {
     tools.extend(collections::tools());
     tools.extend(online::tools());
     tools.extend(widgets::tools());
+    tools.extend(themes::tools());
     tools.extend(system::tools());
     tools
 }

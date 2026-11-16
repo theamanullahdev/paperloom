@@ -1,0 +1,30 @@
+id = "fireflies"
+name = "Fireflies"
+author = "Paperloom"
+description = "A warm night with fireflies drifting in the corner of the window."
+
+[colors.dark]
+background = "#12140F"
+surface = "#1B1E17"
+muted = "#252A1F"
+border = "#FFFFFF12"
+foreground = "#F1F0E4"
+muted_foreground = "#A5A78F"
+primary = "#F2C14E"
+primary_hover = "#F7D685"
+success = "#9BD17A"
+
+[shape]
+card_radius = 10
+popup_radius = 14
+
+[backdrop]
+gradient = ["#12140F", "#1D2416"]
+angle = 90
+
+[[layer]]
+frames = ["images/fly-01.png", "images/fly-02.png", "images/fly-03.png", "images/fly-04.png", "images/fly-05.png", "images/fly-06.png", "images/fly-07.png", "images/fly-08.png", "images/fly-09.png", "images/fly-10.png", "images/fly-11.png", "images/fly-12.png"]
+fps = 8
+anchor = "bottom-right"
+opacity = 0.9
+front = true

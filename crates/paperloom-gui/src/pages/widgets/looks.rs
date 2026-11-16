@@ -171,7 +171,7 @@ impl State {
             .style(move |_theme, status| button::Style {
                 background: matches!(status, button::Status::Hovered).then_some(Background::Color(t.muted)),
                 text_color: t.foreground,
-                border: Border { radius: 6.0.into(), ..Border::default() },
+                border: Border { radius: crate::theme::radius_card().into(), ..Border::default() },
                 ..button::Style::default()
             })
             .on_press(Message::OpenPack(name.clone())),
@@ -191,7 +191,7 @@ impl State {
         container(body)
             .padding(10)
             .width(Length::Fill)
-            .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.border, width: 1.0, radius: 8.0.into() }, ..container::Style::default() })
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_popup().into() }, ..container::Style::default() })
             .into()
     }
 

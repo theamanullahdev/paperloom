@@ -10,7 +10,7 @@
 //! Enter searches online. Escape closes it.
 
 use iced::widget::{button, column, container, row, scrollable, text, Space};
-use iced::{Alignment, Background, Border, Color, Element, Length, Shadow};
+use iced::{Alignment, Background, Border, Element, Length, Shadow};
 
 use crate::app::{Message, Page};
 use crate::pages::settings::{self, SettingId};
@@ -23,6 +23,7 @@ const PAGES: &[(Page, &str, &[&str])] = &[
     (Page::Downloads, "Downloads", &["downloads", "queue", "progress", "downloading"]),
     (Page::Sources, "Sources", &["sources", "sites", "api key", "pexels", "pixabay", "motionbgs", "custom source"]),
     (Page::Settings, "Settings", &["settings", "preferences", "options", "config"]),
+    (Page::Appearance, "Appearance", &["appearance", "theme", "themes", "colors", "colours", "look", "skin", "customize", "customise", "layout", "font", "dark mode", "light mode"]),
     (Page::Mcp, "MCP", &["mcp", "ai", "agent", "agents", "claude", "opencode", "cursor", "assistant", "automation", "api", "control"]),
     (Page::Updates, "Updates", &["updates", "update", "upgrade", "new version", "release", "version"]),
 ];
@@ -123,8 +124,8 @@ pub fn popup<'a>(results: Results<'a>, width: f32, t: theme::Tokens) -> Element<
         .max_height(440.0)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
-            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.35), offset: iced::Vector::new(0.0, 6.0), blur_radius: 24.0 },
+            border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_card().into() },
+            shadow: crate::theme::shadow(0.35, 0.0, 6.0, 24.0),
             ..container::Style::default()
         })
         .into()
@@ -149,7 +150,7 @@ fn result_row<'a>(title: String, kind: String, message: Message, primary: bool, 
     .style(move |_theme, status| button::Style {
         background: matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(t.muted)),
         text_color: t.foreground,
-        border: Border { radius: 4.0.into(), ..Border::default() },
+        border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
         shadow: Shadow::default(),
         snap: false,
     })

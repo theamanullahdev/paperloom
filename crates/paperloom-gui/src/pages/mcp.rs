@@ -250,7 +250,7 @@ impl State {
     fn main<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let Some(config) = self.config.as_ref().filter(|_| self.running) else {
             let steps = column![
-                text("How it works").font(theme::DISPLAY_FONT).size(18).color(t.foreground),
+                text("How it works").font(theme::display_font()).size(18).color(t.foreground),
                 text("1.  Turn on MCP.").size(14).color(t.foreground),
                 text("2.  Copy the connection details for your agent: Claude Code, OpenCode, Cursor, a browser agent, or any other.").size(14).color(t.foreground),
                 text("3.  Ask the agent in your own words: “download this video and set it as my wallpaper”, “make a collection of my rainy ones”, “put a clock in the top right corner”.").size(14).color(t.foreground),
@@ -280,7 +280,7 @@ impl State {
         let code = container(scrollable(container(text(snippet).size(12).font(Font::MONOSPACE).color(t.foreground)).padding(14).width(Length::Fill)).height(Length::Fill))
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(move |_theme| container::Style { background: Some(Background::Color(t.background)), border: Border { color: t.border, width: 1.0, radius: 4.0.into() }, ..container::Style::default() });
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.background)), border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_control().into() }, ..container::Style::default() });
 
         card(column![scrollable(tabs).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::hidden())), bar, code].spacing(12).height(Length::Fill).into(), t)
     }
@@ -291,7 +291,7 @@ fn card<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Mess
         .padding(18)
         .width(Length::Fill)
         .height(Length::Fill)
-        .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.border, width: 1.0, radius: 6.0.into() }, ..container::Style::default() })
+        .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_card().into() }, ..container::Style::default() })
         .into()
 }
 

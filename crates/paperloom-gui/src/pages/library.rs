@@ -828,7 +828,7 @@ impl State {
     /// window stays) or stop it and close Paperloom.
     fn stop_dialog<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let content = column![
-            text("Stop the wallpaper?").font(theme::DISPLAY_FONT).size(20).color(t.foreground),
+            text("Stop the wallpaper?").font(theme::display_font()).size(20).color(t.foreground),
             crate::ui::tile("Stop the wallpaper", "Your desktop goes back to its normal background. Paperloom stays open.", Message::StopWallpaper, false, t),
             crate::ui::tile("Stop it and close Paperloom", "The wallpaper stops and the app closes.", Message::StopAndQuit, true, t),
             button(crate::ui::label("Keep playing")).style(crate::ui::ghost).padding([8, 14]).on_press(Message::CancelStop),
@@ -840,7 +840,7 @@ impl State {
     /// What the Import button offers.
     fn import_menu_dialog<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let content = column![
-            text("Import wallpapers").font(theme::DISPLAY_FONT).size(20).color(t.foreground),
+            text("Import wallpapers").font(theme::display_font()).size(20).color(t.foreground),
             crate::ui::tile("From this computer", "Pick video or image files from your folders.", Message::ImportClicked, false, t),
             crate::ui::tile("From a share code or file", "A friend sent you a code or a .paperloomshare file.", Message::Share(super::share::Message::OpenImport), false, t),
             button(crate::ui::label("Close")).style(crate::ui::ghost).padding([8, 14]).on_press(Message::CloseImportMenu),
@@ -852,7 +852,7 @@ impl State {
     /// What the Share button offers.
     fn hub_dialog<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let content = column![
-            text("Share wallpapers").font(theme::DISPLAY_FONT).size(20).color(t.foreground),
+            text("Share wallpapers").font(theme::display_font()).size(20).color(t.foreground),
             crate::ui::tile("Import a share", "Paste a code or open a file a friend sent you.", Message::Share(super::share::Message::OpenImport), false, t),
             crate::ui::tile("Choose wallpapers to share", "Tick the wallpapers you want to send, then share them.", Message::HubSelect, false, t),
             crate::ui::tile("Share my whole library", "Everything downloaded from a website, as one code or file.", Message::ShareLibrary, false, t),
@@ -1064,7 +1064,7 @@ impl State {
         if self.selection.is_active() {
             let picked = self.selection.is_picked(entry.id);
             let framed = container(content).padding(2).style(move |_theme| container::Style {
-                border: Border { color: if picked { t.primary } else { Color::TRANSPARENT }, width: 2.0, radius: 8.0.into() },
+                border: Border { color: if picked { t.primary } else { Color::TRANSPARENT }, width: 2.0, radius: crate::theme::radius_popup().into() },
                 ..container::Style::default()
             });
             return mouse_area(framed).on_press(Message::Select(super::selection::Message::Toggle(entry.id))).into();
@@ -1085,7 +1085,7 @@ impl State {
             Some(percent) => container(
                 container(text(if percent == 0 { "Optimizing…".to_string() } else { format!("Optimizing {percent}%") }).size(11).color(Color::WHITE)).padding([2, 6]).style(|_theme| container::Style {
                     background: Some(Background::Color(Color { a: 0.6, ..Color::BLACK })),
-                    border: Border { radius: 4.0.into(), ..Border::default() },
+                    border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
                     ..container::Style::default()
                 }),
             )
@@ -1260,7 +1260,7 @@ impl State {
             let entries = self.visible(|entry| open.members.contains(&entry.id) && !entry.hidden);
             return column![
                 back,
-                row![text(open.name.clone()).font(theme::DISPLAY_FONT).size(20).color(t.foreground), Space::new().width(Length::Fill), save].spacing(12).align_y(Alignment::Center),
+                row![text(open.name.clone()).font(theme::display_font()).size(20).color(t.foreground), Space::new().width(Length::Fill), save].spacing(12).align_y(Alignment::Center),
                 self.wallpapers(entries, view, "Nothing here.", t),
             ]
             .spacing(12)
@@ -1298,7 +1298,7 @@ impl State {
             .align_y(Alignment::Center)
             .wrap()
             .into(),
-            _ => text(collection.name.clone()).font(theme::DISPLAY_FONT).size(20).color(t.foreground).into(),
+            _ => text(collection.name.clone()).font(theme::display_font()).size(20).color(t.foreground).into(),
         };
 
         let small = |label: &'static str, message: Message| button(crate::ui::label(label).size(12)).style(crate::ui::secondary).padding([4, 10]).on_press(message);
@@ -1358,7 +1358,7 @@ impl State {
         if self.lock.is_some() && !self.unlocked {
             return container(
                 column![
-                    text("The Hidden section is locked").font(theme::DISPLAY_FONT).size(20).color(t.foreground),
+                    text("The Hidden section is locked").font(theme::display_font()).size(20).color(t.foreground),
                     text("Enter your password to see what is hidden.").size(13).color(t.muted_foreground),
                     row![
                         text_input("Password", &self.unlock_text).secure(true).on_input(Message::UnlockText).on_submit(Message::Unlock).padding(8).width(Length::Fixed(260.0)),
@@ -1549,7 +1549,7 @@ fn surface<'a>(content: impl Into<Element<'a, Message>>, radius: f32, t: theme::
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
             border: Border { color: t.border, width: 1.0, radius: radius.into() },
-            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.12), offset: iced::Vector::new(0.0, 2.0), blur_radius: 6.0 },
+            shadow: crate::theme::shadow(0.12, 0.0, 2.0, 6.0),
             ..container::Style::default()
         })
         .into()
@@ -1561,7 +1561,7 @@ fn kebab<'a>(id: u64) -> Element<'a, Message> {
         .style(move |_theme, status| button::Style {
             background: Some(Background::Color(Color { a: if matches!(status, button::Status::Hovered | button::Status::Pressed) { 0.7 } else { 0.45 }, ..Color::BLACK })),
             text_color: Color::WHITE,
-            border: Border { radius: 4.0.into(), ..Border::default() },
+            border: Border { radius: crate::theme::radius_control().into(), ..Border::default() },
             shadow: Shadow::default(),
             snap: false,
         })

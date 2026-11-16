@@ -105,7 +105,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
-        let title = |label: &'static str| text(label).font(theme::DISPLAY_FONT).size(20).color(t.foreground);
+        let title = |label: &'static str| text(label).font(theme::display_font()).size(20).color(t.foreground);
         let body = |label: String| text(label).size(13).color(t.muted_foreground);
         let content: Element<'a, Message> = match &self.stage {
             Stage::Intro { note } => {

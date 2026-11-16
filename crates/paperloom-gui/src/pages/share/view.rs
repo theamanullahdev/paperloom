@@ -39,7 +39,7 @@ impl State {
         };
 
         let mut side = column![
-            text(format!("{count} wallpaper{}", if count == 1 { "" } else { "s" })).font(theme::DISPLAY_FONT).size(22).color(t.foreground),
+            text(format!("{count} wallpaper{}", if count == 1 { "" } else { "s" })).font(theme::display_font()).size(22).color(t.foreground),
             text("Your friend gets the same wallpapers from the same websites. Nothing from your computer is sent, only where each one comes from.").size(13).color(t.muted_foreground),
         ]
         .spacing(10);
@@ -69,7 +69,7 @@ impl State {
         let wall: Element<'a, Message> = match &import.share {
             None => container(
                 column![
-                    text("Paste a share code, or open a share file").font(theme::DISPLAY_FONT).size(20).color(t.foreground),
+                    text("Paste a share code, or open a share file").font(theme::display_font()).size(20).color(t.foreground),
                     text("You can also drop a .paperloomshare file anywhere on the window.").size(13).color(t.muted_foreground),
                 ]
                 .spacing(8)
@@ -117,7 +117,7 @@ impl State {
             let ticked = import.picked.iter().filter(|p| **p).count();
             let owned = import.states.iter().filter(|s| **s == ItemState::InLibrary).count();
             side = side.push(crate::ui::rule(t));
-            side = side.push(text(if share.name.is_empty() { format!("{total} wallpapers") } else { share.name.clone() }).font(theme::DISPLAY_FONT).size(20).color(t.foreground));
+            side = side.push(text(if share.name.is_empty() { format!("{total} wallpapers") } else { share.name.clone() }).font(theme::display_font()).size(20).color(t.foreground));
             let mut facts = format!("{total} wallpaper{}", if total == 1 { "" } else { "s" });
             if owned > 0 {
                 facts.push_str(&format!(" · you have {owned}"));
@@ -197,7 +197,7 @@ fn card<'a>(thumb: Option<&std::path::Path>, title: &str, note: &str, picked: Op
         .clip(true)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: if selected { t.primary } else { t.border }, width: if selected { 2.0 } else { 1.0 }, radius: 6.0.into() },
+            border: Border { color: if selected { t.primary } else { t.border }, width: if selected { 2.0 } else { 1.0 }, radius: crate::theme::radius_card().into() },
             text_color: Some(Color::WHITE),
             ..container::Style::default()
         })

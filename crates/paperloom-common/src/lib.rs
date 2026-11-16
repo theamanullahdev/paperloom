@@ -37,6 +37,7 @@ pub use library::{fingerprint, Collection, Library, LibraryEntry, Optimize, Orig
 pub use paths::rotation_file as paths_rotation_file;
 pub use paths::usage_history_file;
 pub use paths::skins_dir;
+pub use paths::themes_dir;
 pub use paths::stacks_dir;
 pub use paths::{widgets_file, widgets_status};
 pub use paths::widgets_lock;

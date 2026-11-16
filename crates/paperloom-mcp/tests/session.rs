@@ -210,6 +210,24 @@ fn an_agent_session_end_to_end() {
     assert!(call(port, &token, "set_rotation", json!({ "changes": { "interval_minute": 5 } }))["error"].as_str().unwrap().contains("interval_minute"));
     assert_eq!(call(port, &token, "set_rotation", json!({ "changes": { "interval_minutes": 5, "shuffle": true } }))["result"]["interval_minutes"], 5);
 
+    // --- Themes: an agent reads the format, writes a theme, checks it, installs and applies it.
+    assert!(call(port, &token, "get_theme_schema", json!({}))["result"]["schema"].as_str().unwrap().contains("[colors.dark]"));
+    assert_eq!(call(port, &token, "list_themes", json!({}))["result"]["in_use"], "paperloom");
+    let written = "id = \"agent-made\"\nname = \"Agent made\"\n[colors.dark]\nprimary = \"#22CC88\"\n[layout]\nnav = \"right\"\n";
+    assert_eq!(call(port, &token, "validate_theme", json!({ "toml": written }))["result"]["usable"], true);
+    let broken = call(port, &token, "validate_theme", json!({ "toml": "[colors.dark]\nprimary = \"green\"" }));
+    assert_eq!(broken["result"]["usable"], false);
+    assert!(broken["result"]["errors"][0].as_str().unwrap().contains("isn't a colour"));
+    let installed = call(port, &token, "install_theme", json!({ "toml": written, "apply": true }));
+    assert_eq!(installed["result"]["installed"], "agent-made", "{installed}");
+    let listed = call(port, &token, "list_themes", json!({}));
+    assert_eq!(listed["result"]["in_use"], "agent-made");
+    assert!(call(port, &token, "get_theme", json!({ "theme": "Agent made" }))["result"]["toml"].as_str().unwrap().contains("#22CC88"));
+    assert!(call(port, &token, "remove_theme", json!({ "theme": "paperloom", "confirm": true }))["error"].as_str().unwrap().contains("can't be removed"));
+    assert_eq!(call(port, &token, "remove_theme", json!({ "theme": "agent-made", "confirm": true }))["result"]["removed"], "agent-made");
+    assert_eq!(call(port, &token, "list_themes", json!({}))["result"]["in_use"], "paperloom", "removing the theme in use falls back to the default");
+    assert_eq!(call(port, &token, "reset_theme", json!({}))["result"]["in_use"], "paperloom");
+
     // --- Off again: the server ends and the port is free.
     assert_eq!(http(port, "POST", "/shutdown", &[("Authorization", &bearer)], "").0, 200);
     let mut server = server;

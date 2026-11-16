@@ -7,6 +7,7 @@ name: Apt repository
 #                    don't depend on the API's 60-requests-an-hour limit).
 #   /              — the download page (source: site/ on the default branch).
 #   /widgets       — the online library of widget looks (widgets/ on the default branch).
+#   /themes        — the online library of app themes (themes/ on the default branch).
 #   /apt           — a signed apt repository, so Ubuntu / Mint / Debian
 #                    users get updates through their normal `apt upgrade`.
 #
@@ -28,7 +29,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['site/**', 'widgets/**']
+    paths: ['site/**', 'widgets/**', 'themes/**']
 
 permissions:
   contents: write
@@ -48,6 +49,7 @@ jobs:
           sparse-checkout: |
             site
             widgets
+            themes
 
       - name: Check for the signing key
         id: key
@@ -142,6 +144,8 @@ jobs:
           cp -r src/site/. site/
           # The online library of widget looks (the app reads the repository first and this copy second).
           cp -r src/widgets site/widgets
+          # The online library of app themes, read the same way.
+          cp -r src/themes site/themes
 
       - name: Publish to gh-pages
         working-directory: site

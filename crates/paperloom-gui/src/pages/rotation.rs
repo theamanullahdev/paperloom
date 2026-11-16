@@ -202,12 +202,12 @@ fn rule_row<'a>(index: usize, rule: &'a Rule, choices: &[Choice], picked: Option
     )
     .padding(10)
     .width(Length::Fill)
-    .style(move |_theme| container::Style { border: Border { color: t.border, width: 1.0, radius: 4.0.into() }, ..container::Style::default() })
+    .style(move |_theme| container::Style { border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_control().into() }, ..container::Style::default() })
     .into()
 }
 
 fn heading<'a>(label: &str, t: theme::Tokens) -> Element<'a, Message> {
-    text(label.to_string()).font(theme::BODY_FONT).size(15).color(t.foreground).into()
+    text(label.to_string()).font(theme::body_font()).size(15).color(t.foreground).into()
 }
 
 fn card<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Message> {
@@ -216,7 +216,7 @@ fn card<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Mess
         .width(Length::Fill)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 6.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_card().into() },
             ..container::Style::default()
         })
         .into()

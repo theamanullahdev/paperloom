@@ -49,6 +49,11 @@ pub fn skins_dir() -> PathBuf {
     project_dirs().data_dir().join("skins")
 }
 
+/// Installed app themes (one folder each, with `theme.toml` and its fonts and pictures).
+pub fn themes_dir() -> PathBuf {
+    project_dirs().data_dir().join("themes")
+}
+
 /// Placed desktop widgets (see `widgets.rs`).
 pub fn widgets_file() -> PathBuf {
     project_dirs().config_dir().join("widgets.toml")

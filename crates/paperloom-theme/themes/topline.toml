@@ -1,0 +1,32 @@
+id = "topline"
+name = "Topline"
+author = "Paperloom"
+description = "Navigation as a bar across the top, squarer corners, a cooler palette."
+
+[colors.dark]
+background = "#14171A"
+surface = "#1C2126"
+muted = "#252B32"
+border = "#FFFFFF14"
+foreground = "#E8EDF2"
+muted_foreground = "#93A1AE"
+primary = "#4FD1C5"
+primary_hover = "#81E6D9"
+
+[colors.light]
+background = "#F4F7F9"
+surface = "#FFFFFF"
+muted = "#E9EEF2"
+border = "#D5DDE4"
+foreground = "#16202A"
+muted_foreground = "#5B6B7A"
+primary = "#0F766E"
+primary_hover = "#0D9488"
+
+[shape]
+control_radius = 2
+card_radius = 3
+popup_radius = 4
+
+[layout]
+nav = "top"

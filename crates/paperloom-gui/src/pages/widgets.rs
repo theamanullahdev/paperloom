@@ -900,7 +900,7 @@ impl State {
                 container(line)
                     .padding([10, 16])
                     .width(Length::Fill)
-                    .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.primary, width: 1.0, radius: 8.0.into() }, ..container::Style::default() }),
+                    .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.primary, width: 1.0, radius: crate::theme::radius_popup().into() }, ..container::Style::default() }),
             );
         }
         // Running, but nothing can be seen: say why, in words, where it can't be missed.
@@ -916,7 +916,7 @@ impl State {
                 )
                 .padding([10, 16])
                 .width(Length::Fill)
-                .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.destructive, width: 1.0, radius: 8.0.into() }, ..container::Style::default() }),
+                .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: t.destructive, width: 1.0, radius: crate::theme::radius_popup().into() }, ..container::Style::default() }),
             );
         }
         // Running but hidden on purpose (the wallpaper's pause rules): say which.
@@ -1230,12 +1230,12 @@ fn picture<'a, M: 'a>(handle: Option<&image::Handle>, t: theme::Tokens) -> Eleme
     let (w, h) = (CARD.0 as f32, CARD.1 as f32);
     match handle {
         Some(handle) => container(image(handle.clone()).width(Length::Fixed(w)).height(Length::Fixed(h)))
-            .style(|_theme| container::Style { border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() })
+            .style(|_theme| container::Style { border: Border { radius: crate::theme::radius_card().into(), ..Border::default() }, ..container::Style::default() })
             .into(),
         None => container(text("Drawing…").size(12).color(t.muted_foreground))
             .center_x(Length::Fixed(w))
             .center_y(Length::Fixed(h))
-            .style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() })
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), border: Border { radius: crate::theme::radius_card().into(), ..Border::default() }, ..container::Style::default() })
             .into(),
     }
 }
@@ -1262,13 +1262,13 @@ pub(super) fn card<'a, M: Clone + 'a>(handle: Option<&image::Handle>, name: Stri
             .padding(0)
             .style(move |_theme, status| button::Style {
                 background: Some(Background::Color(if matches!(status, button::Status::Hovered) { t.muted } else { t.surface })),
-                border: Border { color: if matches!(status, button::Status::Hovered) { t.primary } else { border }, width: if chosen { 2.0 } else { 1.0 }, radius: 8.0.into() },
+                border: Border { color: if matches!(status, button::Status::Hovered) { t.primary } else { border }, width: if chosen { 2.0 } else { 1.0 }, radius: crate::theme::radius_popup().into() },
                 ..button::Style::default()
             })
             .on_press(message)
             .into(),
         None => framed
-            .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: border, width: 1.0, radius: 8.0.into() }, ..container::Style::default() })
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.surface)), border: Border { color: border, width: 1.0, radius: crate::theme::radius_popup().into() }, ..container::Style::default() })
             .into(),
     }
 }
@@ -1292,7 +1292,7 @@ fn big_button<'a>(mark: &'static str, name: &'static str, detail: &'static str, 
     .padding(0)
     .style(move |_theme, status| button::Style {
         background: Some(Background::Color(if matches!(status, button::Status::Hovered) { t.muted } else { Color::TRANSPARENT })),
-        border: Border { color: if matches!(status, button::Status::Hovered) { t.primary } else { t.border }, width: 1.0, radius: 8.0.into() },
+        border: Border { color: if matches!(status, button::Status::Hovered) { t.primary } else { t.border }, width: 1.0, radius: crate::theme::radius_popup().into() },
         ..button::Style::default()
     })
     .on_press(message)
@@ -1318,7 +1318,7 @@ fn panel<'a>(content: Element<'a, Message>, t: theme::Tokens) -> Element<'a, Mes
         .width(Length::Fill)
         .style(move |_theme| container::Style {
             background: Some(Background::Color(t.surface)),
-            border: Border { color: t.border, width: 1.0, radius: 8.0.into() },
+            border: Border { color: t.border, width: 1.0, radius: crate::theme::radius_popup().into() },
             ..container::Style::default()
         })
         .into()

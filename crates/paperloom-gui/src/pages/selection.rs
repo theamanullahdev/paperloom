@@ -171,7 +171,7 @@ impl Selection {
             .width(Length::Fill)
             .style(move |_theme| container::Style {
                 background: Some(Background::Color(Color { a: 0.12, ..t.primary })),
-                border: Border { color: Color { a: 0.55, ..t.primary }, width: 1.0, radius: 6.0.into() },
+                border: Border { color: Color { a: 0.55, ..t.primary }, width: 1.0, radius: crate::theme::radius_card().into() },
                 ..container::Style::default()
             })
             .into()
@@ -183,7 +183,7 @@ impl Selection {
         let plural = if count == 1 { "" } else { "s" };
         let content: Element<'a, Message> = match self.dialog.as_ref()? {
             Dialog::Remove => column![
-                text(format!("Remove {count} wallpaper{plural}?")).font(theme::DISPLAY_FONT).size(18).color(t.foreground),
+                text(format!("Remove {count} wallpaper{plural}?")).font(theme::display_font()).size(18).color(t.foreground),
                 text("They leave Paperloom. Copies kept in the library folder are deleted; files you imported in place are left where they are.").size(13).color(t.muted_foreground),
                 row![
                     button(crate::ui::label("Remove")).style(crate::ui::danger).on_press(Message::ConfirmRemove),
@@ -219,7 +219,7 @@ impl Selection {
                     .into()
                 };
                 column![
-                    text(format!("Add {count} wallpaper{plural} to a collection")).font(theme::DISPLAY_FONT).size(18).color(t.foreground),
+                    text(format!("Add {count} wallpaper{plural} to a collection")).font(theme::display_font()).size(18).color(t.foreground),
                     list,
                     row![
                         text_input("New collection…", new_name).on_input(Message::NewName).on_submit(Message::CreateAndAdd).padding(6).width(Length::Fill),

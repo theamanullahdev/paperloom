@@ -272,7 +272,7 @@ fn sanitize(item: &mut Item, hosts: &[String]) -> bool {
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-fn base64url_encode(bytes: &[u8]) -> String {
+pub(crate) fn base64url_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 4 / 3 + 4);
     for chunk in bytes.chunks(3) {
         let n = chunk.iter().enumerate().fold(0u32, |acc, (i, b)| acc | (*b as u32) << (16 - 8 * i));
@@ -284,7 +284,7 @@ fn base64url_encode(bytes: &[u8]) -> String {
     out
 }
 
-fn base64url_decode(text: &str) -> Option<Vec<u8>> {
+pub(crate) fn base64url_decode(text: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(text.len() * 3 / 4);
     let mut acc = 0u32;
     let mut bits = 0;
