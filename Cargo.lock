@@ -2880,7 +2880,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-common"
-version = "0.42.0"
+version = "0.43.1"
 dependencies = [
  "directories",
  "libc",
@@ -2892,7 +2892,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-engine"
-version = "0.42.0"
+version = "0.43.1"
 dependencies = [
  "khronos-egl",
  "ksni",
@@ -2911,7 +2911,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-fetch"
-version = "0.42.0"
+version = "0.43.1"
 dependencies = [
  "flate2",
  "paperloom-common",
@@ -2925,7 +2925,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-gui"
-version = "0.42.0"
+version = "0.43.1"
 dependencies = [
  "iced",
  "image",
@@ -2942,7 +2942,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-mcp"
-version = "0.42.0"
+version = "0.43.1"
 dependencies = [
  "paperloom-common",
  "paperloom-fetch",
@@ -2954,7 +2954,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-skin"
-version = "0.42.0"
+version = "0.43.1"
 dependencies = [
  "chrono",
  "cosmic-text",
@@ -2966,7 +2966,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-theme"
-version = "0.42.0"
+version = "0.43.1"
 dependencies = [
  "serde",
  "toml",
@@ -2974,7 +2974,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-widgets"
-version = "0.42.0"
+version = "0.43.1"
 dependencies = [
  "chrono",
  "libc",
