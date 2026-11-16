@@ -2939,7 +2939,7 @@ dependencies = [
 
 [[package]]
 name = "paperloom-mcp"
-version = "0.40.3"
+version = "0.41.0"
 dependencies = [
  "paperloom-common",
  "paperloom-fetch",
