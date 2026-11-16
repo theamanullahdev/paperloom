@@ -42,6 +42,9 @@
         <File Source="$(var.Stage)\paperloom-widgets.exe" KeyPath="yes" />
       </Component>
       <Component>
+        <File Source="$(var.Stage)\paperloom-mcp.exe" KeyPath="yes" />
+      </Component>
+      <Component>
         <File Source="$(var.Stage)\libmpv-2.dll" KeyPath="yes" />
       </Component>
       <Component>

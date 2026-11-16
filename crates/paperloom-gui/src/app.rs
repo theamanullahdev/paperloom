@@ -7,7 +7,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Size, 
 
 use paperloom_common::Settings;
 
-use crate::pages::{developers, downloads, library, online, settings, sources, updates, usage, widgets};
+use crate::pages::{developers, downloads, library, mcp, online, settings, sources, updates, usage, widgets};
 use crate::ui::Width;
 use crate::{icons, search, theme};
 
@@ -25,6 +25,9 @@ pub struct App {
     usage_page: usage::State,
     widgets_page: widgets::State,
     developers_page: developers::State,
+    mcp_page: mcp::State,
+    /// Counts `Record` ticks, for the things checked less often than that.
+    ticks: u32,
     /// Short usage history so the graphs are already filled when opened.
     recorder: crate::telemetry::Recorder,
     /// Which sidebar groups are open (the tree is collapsible).
@@ -56,6 +59,7 @@ pub(crate) enum Page {
     Updates,
     Usage,
     Developers,
+    Mcp,
     Widgets,
     WidgetsBrowse,
     WidgetsAdd,
@@ -94,6 +98,7 @@ pub enum Message {
     Usage(usage::Message),
     Widgets(widgets::Message),
     Developers(developers::Message),
+    Mcp(mcp::Message),
     /// Another launch of Paperloom (tray click, app menu…) asked this
     /// window for something: "SHOW", "PAGE usage", "TRAY-SETTINGS".
     OtherLaunch(String),
@@ -136,6 +141,8 @@ impl App {
             usage_page: usage::State::new(),
             widgets_page: widgets::State::new(),
             developers_page: developers::State::new(),
+            mcp_page: mcp::State::new(),
+            ticks: 0,
             lock_reset: None,
             recorder: crate::telemetry::Recorder::new(),
             expanded: HashSet::from([Group::Library, Group::Online, Group::Settings]),
@@ -335,6 +342,7 @@ impl App {
                 Task::none()
             }
             Message::Developers(msg) => self.developers_page.update(&self.settings, msg).map(Message::Developers),
+            Message::Mcp(msg) => self.mcp_page.update(msg).map(Message::Mcp),
             Message::Widgets(widgets::Message::Browse) => self.update(Message::SwitchPage(Page::WidgetsBrowse)),
             Message::Widgets(widgets::Message::AddWidgets) => self.update(Message::SwitchPage(Page::WidgetsAdd)),
             Message::Widgets(widgets::Message::ShowStacks) => self.update(Message::SwitchPage(Page::WidgetsStacks)),
@@ -368,7 +376,7 @@ impl App {
                     Page::Online | Page::Downloads | Page::Sources => {
                         self.expanded.insert(Group::Online);
                     }
-                    Page::Settings | Page::Updates | Page::Usage | Page::Developers => {
+                    Page::Settings | Page::Updates | Page::Usage | Page::Developers | Page::Mcp => {
                         self.expanded.insert(Group::Settings);
                     }
                     Page::Library => {
@@ -386,6 +394,9 @@ impl App {
                 }
                 if page == Page::Developers {
                     return self.developers_page.open().map(Message::Developers);
+                }
+                if page == Page::Mcp {
+                    return self.mcp_page.open().map(Message::Mcp);
                 }
                 if page == Page::Settings {
                     self.settings_page.refresh(self.library_page.library());
@@ -441,6 +452,21 @@ impl App {
             }
             Message::Record => {
                 self.recorder.tick();
+                self.ticks = self.ticks.wrapping_add(1);
+                // Only while MCP is switched on: an agent may have changed the
+                // library or a setting, so follow the files (two small reads),
+                // and now and then see that the server is still there.
+                if self.mcp_page.running() {
+                    self.library_page.sync_from_disk();
+                    let saved = paperloom_common::load();
+                    if saved != self.settings {
+                        self.settings = saved;
+                        self.library_page.set_lock(self.settings.hidden_lock.clone());
+                    }
+                    if self.ticks.is_multiple_of(5) {
+                        self.mcp_page.check();
+                    }
+                }
                 Task::none()
             }
             Message::DownloadsTick => {
@@ -612,6 +638,7 @@ impl App {
             Page::WidgetsLayout => ("Arrange", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Layout, t).map(Message::Widgets)),
             Page::WidgetsAdd => ("Add a widget", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Add, t).map(Message::Widgets)),
             Page::WidgetsBrowse => ("Looks", self.widgets_page.header(t).map(Message::Widgets), self.widgets_page.body(widgets::Mode::Browse, t).map(Message::Widgets)),
+            Page::Mcp => ("MCP", self.mcp_page.header().map(Message::Mcp), self.mcp_page.body(t).map(Message::Mcp)),
             Page::Usage => ("Usage", self.usage_page.header().map(Message::Usage), self.usage_page.body(&self.settings, t, &self.recorder.history).map(Message::Usage)),
         };
 
@@ -633,6 +660,9 @@ impl App {
             if let Some(update) = self.update_button(t) {
                 nav = nav.push(update);
             }
+            if let Some(mcp) = self.mcp_button(t) {
+                nav = nav.push(mcp);
+            }
             nav = nav.push(self.downloads_button(t));
             column![
                 nav.wrap().vertical_spacing(4),
@@ -647,6 +677,9 @@ impl App {
             let mut actions = row![header].spacing(10).align_y(Alignment::Center);
             if let Some(update) = self.update_button(t) {
                 actions = actions.push(update);
+            }
+            if let Some(mcp) = self.mcp_button(t) {
+                actions = actions.push(mcp);
             }
             actions = actions.push(self.downloads_button(t));
             if content_width >= 1060.0 {
@@ -664,6 +697,9 @@ impl App {
             let mut bar = row![title_text, search_box, header].spacing(12).align_y(Alignment::Center);
             if let Some(update) = self.update_button(t) {
                 bar = bar.push(update);
+            }
+            if let Some(mcp) = self.mcp_button(t) {
+                bar = bar.push(mcp);
             }
             bar.push(self.downloads_button(t)).wrap().vertical_spacing(10).into()
         };
@@ -802,7 +838,7 @@ impl App {
         match page {
             Page::Online => matches!(self.page, Page::Online | Page::Downloads | Page::Sources),
             Page::Widgets => matches!(self.page, Page::Widgets | Page::WidgetsBrowse | Page::WidgetsAdd | Page::WidgetsLayout | Page::WidgetsStacks),
-            Page::Settings => matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers),
+            Page::Settings => matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers | Page::Mcp),
             other => self.page == other,
         }
     }
@@ -825,6 +861,33 @@ impl App {
                     border: Border { radius: 4.0.into(), ..Border::default() },
                     shadow: Shadow::default(),
                     snap: false,
+                })
+                .into(),
+        )
+    }
+
+    /// "MCP on" in the top bar on every page while an agent can reach
+    /// Paperloom, so that is never a hidden state; it opens the MCP page.
+    fn mcp_button(&self, t: theme::Tokens) -> Option<Element<'_, Message>> {
+        if !self.mcp_page.running() {
+            return None;
+        }
+        let active = self.page == Page::Mcp;
+        let dot = container(Space::new().width(8).height(8))
+            .style(move |_theme| container::Style { background: Some(Background::Color(t.success)), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default() });
+        Some(
+            button(row![dot, crate::ui::label("MCP on").size(13)].spacing(7).align_y(Alignment::Center))
+                .padding([7, 11])
+                .on_press(Message::SwitchPage(Page::Mcp))
+                .style(move |_theme, status| {
+                    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    button::Style {
+                        background: Some(Background::Color(if active { Color { a: 0.12, ..t.primary } } else if hovered { t.muted } else { Color::TRANSPARENT })),
+                        text_color: if active { t.primary } else { t.foreground },
+                        border: Border { color: Color { a: 0.55, ..t.success }, width: 1.0, radius: 4.0.into() },
+                        shadow: Shadow::default(),
+                        snap: false,
+                    }
                 })
                 .into(),
         )
@@ -1024,7 +1087,7 @@ impl App {
             "Settings",
             Group::Settings,
             go_page(Page::Settings),
-            matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers),
+            matches!(self.page, Page::Settings | Page::Updates | Page::Usage | Page::Developers | Page::Mcp),
             None,
             t,
         ));
@@ -1033,6 +1096,7 @@ impl App {
                 self.tree_row(icons::dashboard(), "Overview".into(), 1, self.page == Page::Settings, None, go_page(Page::Settings), t),
                 self.tree_row(icons::activity(), "Usage".into(), 1, self.page == Page::Usage, None, go_page(Page::Usage), t),
                 self.tree_row(icons::refresh(), "Updates".into(), 1, self.page == Page::Updates, update.then(|| "new".to_string()), go_page(Page::Updates), t),
+                self.tree_row(icons::terminal(), "MCP".into(), 1, self.page == Page::Mcp, self.mcp_page.running().then(|| "on".to_string()), go_page(Page::Mcp), t),
             ];
             if self.settings.developer_mode {
                 rows.push(self.tree_row(icons::terminal(), "Developers".into(), 1, self.page == Page::Developers, None, go_page(Page::Developers), t));
@@ -1163,6 +1227,7 @@ fn page_named(name: &str) -> Option<Page> {
         "settings" => Some(Page::Settings),
         "updates" => Some(Page::Updates),
         "usage" => Some(Page::Usage),
+        "mcp" => Some(Page::Mcp),
         "widgets" => Some(Page::Widgets),
         "layout" => Some(Page::WidgetsLayout),
         "stacks" => Some(Page::WidgetsStacks),

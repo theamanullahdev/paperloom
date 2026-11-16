@@ -2938,6 +2938,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperloom-mcp"
+version = "0.40.3"
+dependencies = [
+ "paperloom-common",
+ "paperloom-fetch",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "paperloom-skin"
 version = "0.41.0"
 dependencies = [

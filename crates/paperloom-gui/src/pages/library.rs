@@ -242,6 +242,20 @@ impl State {
         state
     }
 
+    /// Picks up changes another Paperloom program made to the library (the
+    /// MCP server importing or tagging for an agent). One small file read;
+    /// the app calls it only while MCP is switched on.
+    pub fn sync_from_disk(&mut self) {
+        let on_disk = Library::load_manifest();
+        if on_disk != self.library {
+            // `load` also makes preview frames for anything that lacks them.
+            self.library = Library::load();
+            self.preview_cache.clear();
+            self.hovered = None;
+            self.queue_optimizations();
+        }
+    }
+
     /// Hands wallpapers waiting for the background optimizer to its worker.
     fn queue_optimizations(&self) {
         for (id, path) in self.library.pending_optimizations() {

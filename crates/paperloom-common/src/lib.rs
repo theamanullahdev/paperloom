@@ -16,6 +16,8 @@ pub mod hotkey;
 pub mod ipc;
 mod library;
 pub mod lock;
+/// The MCP server's settings, and starting/stopping it (`paperloom-mcp`).
+pub mod mcp;
 pub mod log;
 pub mod media;
 pub mod os_auth;
@@ -38,6 +40,7 @@ pub use paths::skins_dir;
 pub use paths::stacks_dir;
 pub use paths::{widgets_file, widgets_status};
 pub use paths::widgets_lock;
+pub use paths::mcp_file;
 pub use paths::{background_frames_dir, config_file, dev_file, logs_dir, downloads_dir, engine_log, library_dir, online_cache_dir, state_file, thumbnails_dir, updates_dir, wallpapers_dir};
 pub use state::{EngineInfo, EngineState, SavedSetting};
 pub use settings::{pick_monitor, ImportMode, ScreenTarget, LibraryLayout, LibraryView, Settings, SourceSetting, ThemeMode, TraySize, TrayStyle, UpdateSettings, ViewSize, SOURCE_MIXKIT, SOURCE_MOTIONBGS, SOURCE_PEXELS, SOURCE_PIXABAY, SOURCE_WALLPAPERWAVES};

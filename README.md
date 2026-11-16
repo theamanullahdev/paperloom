@@ -22,6 +22,7 @@ Open the app, import an MP4 (or download one from the built-in online library), 
 - **Rotation and schedule:** change the wallpaper on an interval or by a weekly schedule, even with the window closed.
 - **Pauses by itself:** fullscreen app, locked screen, low battery, covered desktop, chosen apps, or no input for a while.
 - **Control:** tray menu, global keyboard shortcuts, and `paperloom-gui next|pause|resume|mute|stop|status|set <name>` from a terminal.
+- **AI agents (MCP):** switch MCP on (Settings → MCP) and an agent on your computer (Claude Code, OpenCode, Cursor, a browser agent, or anything that can make a web request) can do what the window does: set and change the wallpaper, import files and links, manage collections, search and download, place widgets. It runs only while switched on.
 - **Updates:** inside the app, any release (older ones too) can be downloaded and installed.
 - **Developer mode:** Settings → Advanced adds a Developers page with live engine status, copyable diagnostics, logs, test actions, and **Run all tests**, which checks everything on a computer and writes one report.
 
@@ -84,7 +85,7 @@ makepkg -si
 ```
 git clone https://github.com/theamanullahdev/paperloom && cd paperloom
 cargo build --release
-sudo install -Dm755 target/release/paperloom-gui target/release/paperloom-engine -t /usr/local/bin
+sudo install -Dm755 target/release/paperloom-gui target/release/paperloom-engine target/release/paperloom-widgets target/release/paperloom-mcp -t /usr/local/bin
 paperloom-gui
 ```
 
@@ -112,6 +113,27 @@ On Fedora, replace `\.deb` with `\.rpm` and the last line with `sudo dnf install
 - **macOS:** open **System Settings → Privacy & Security** and click **Open Anyway** next to Paperloom, or run `xattr -dr com.apple.quarantine /Applications/Paperloom.app`.
 
 Linux requirements: the `.deb`/`.rpm` need the system's libmpv (`libmpv2` on Ubuntu 24.04 / Mint 22; `mpv-libs` on Fedora), which the package manager installs automatically. Ubuntu 22.04 / Mint 21 ship an mpv that's too old (client API v1).
+
+## Use it with an AI agent (MCP)
+
+Open **Settings → MCP** and press **Turn on MCP**. The page then shows what to copy for your agent:
+
+| Agent | What you copy |
+|---|---|
+| Any agent on this computer | a ready prompt with the address, the token and every way to connect |
+| Claude Code | one `claude mcp add …` command |
+| OpenCode | a block for `opencode.json` |
+| Cursor, Claude Desktop, VS Code and other MCP clients | an `mcpServers` block (HTTP, or a program to start) |
+| A browser agent | a link to a page with a form for every action |
+
+Then ask in your own words: "download this video and set it as my wallpaper", "put my rainy wallpapers in a collection and rotate them every 30 minutes", "add a clock to the top right corner". If Paperloom can't download from a link itself, the agent downloads the file and imports it.
+
+How it is built:
+
+- `paperloom-mcp` is its own small program. It starts when you press **Turn on MCP**, never by itself or at login, and ends when you turn it off (or after 12 hours without a request). While it is on, the top bar shows **MCP on** on every page.
+- It listens on `127.0.0.1` only, and every request needs the token shown on the page. **New token** replaces it.
+- Three switches decide what an agent may do: **Allow changes** (on), **Allow removing** (off), **Allow changing settings** (off). Removing always needs an explicit confirmation from the agent as well.
+- One set of tools, reachable as MCP over HTTP (`/mcp`), MCP over stdin/stdout (`paperloom-mcp`), plain JSON (`/tools`, `/call/<tool>`), a web page (`/`) and a shell command (`paperloom-mcp call <tool> '{…}'`). `paperloom-mcp tools` lists them.
 
 ## Releases
 

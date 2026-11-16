@@ -250,8 +250,16 @@ impl Library {
         self.collections.iter().filter(move |collection| collection.members.contains(&entry))
     }
 
-    fn save(&self) -> std::io::Result<()> {
+    /// Writes the manifest. Public for callers that change an entry's own
+    /// fields (the MCP server renaming a fresh import).
+    pub fn save(&self) -> std::io::Result<()> {
         self.save_to(&manifest_file())
+    }
+
+    /// When the manifest was last written: lets the app notice a change made
+    /// by another Paperloom program (the MCP server) with one `stat`.
+    pub fn manifest_modified() -> Option<std::time::SystemTime> {
+        fs::metadata(manifest_file()).and_then(|meta| meta.modified()).ok()
     }
 
     fn save_to(&self, path: &Path) -> std::io::Result<()> {
@@ -259,7 +267,12 @@ impl Library {
             fs::create_dir_all(parent)?;
         }
         let contents = toml::to_string_pretty(self).expect("Library always serializes");
-        fs::write(path, contents)
+        // Written beside the manifest and renamed over it, so another
+        // Paperloom program reading at the same moment sees the old file or
+        // the new one, never half of one (which would read as "empty").
+        let staged = path.with_extension("toml.new");
+        fs::write(&staged, contents)?;
+        fs::rename(&staged, path)
     }
 
     /// Imports `source` per `mode` and persists the updated manifest.

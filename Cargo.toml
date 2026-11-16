@@ -7,6 +7,7 @@ members = [
     "crates/paperloom-widgets",
     "crates/paperloom-skin",
     "crates/paperloom-fetch",
+    "crates/paperloom-mcp",
 ]
 
 [workspace.package]

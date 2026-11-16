@@ -28,6 +28,11 @@ pub fn logs_dir() -> PathBuf {
     project_dirs().data_dir().join("logs")
 }
 
+/// The MCP server's port, token and permissions (see `mcp.rs`).
+pub fn mcp_file() -> PathBuf {
+    project_dirs().config_dir().join("mcp.toml")
+}
+
 /// Developer switches (see `dev.rs`); a separate file so they are never
 /// mixed into the user's settings.
 pub fn dev_file() -> PathBuf {

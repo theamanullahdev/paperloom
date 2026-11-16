@@ -68,6 +68,7 @@ Filename: "{app}\paperloom-gui.exe"; Description: "{cm:LaunchProgram,Paperloom}"
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM paperloom-engine.exe"; Flags: runhidden; RunOnceId: "StopEngine"
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM paperloom-widgets.exe"; Flags: runhidden; RunOnceId: "StopWidgets"
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM paperloom-mcp.exe"; Flags: runhidden; RunOnceId: "StopMcp"
 
 [Code]
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -77,5 +78,6 @@ begin
   { An upgrade can't replace a running engine; stop it first. }
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM paperloom-engine.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM paperloom-widgets.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM paperloom-mcp.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := '';
 end;

@@ -23,6 +23,7 @@ const PAGES: &[(Page, &str, &[&str])] = &[
     (Page::Downloads, "Downloads", &["downloads", "queue", "progress", "downloading"]),
     (Page::Sources, "Sources", &["sources", "sites", "api key", "pexels", "pixabay", "motionbgs", "custom source"]),
     (Page::Settings, "Settings", &["settings", "preferences", "options", "config"]),
+    (Page::Mcp, "MCP", &["mcp", "ai", "agent", "agents", "claude", "opencode", "cursor", "assistant", "automation", "api", "control"]),
     (Page::Updates, "Updates", &["updates", "update", "upgrade", "new version", "release", "version"]),
 ];
 

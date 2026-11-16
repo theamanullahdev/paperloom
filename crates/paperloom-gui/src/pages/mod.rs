@@ -4,6 +4,7 @@ pub mod developers;
 pub mod downloads;
 pub mod gallery;
 pub mod library;
+pub mod mcp;
 pub mod network;
 pub mod online;
 pub mod rotation;

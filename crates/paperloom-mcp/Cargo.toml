@@ -1,0 +1,12 @@
+[package]
+name = "paperloom-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Paperloom's MCP server: lets an AI agent on this computer do what the window does."
+
+[dependencies]
+paperloom-common = { path = "../paperloom-common" }
+paperloom-fetch = { path = "../paperloom-fetch" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

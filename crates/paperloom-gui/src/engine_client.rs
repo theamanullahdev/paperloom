@@ -49,6 +49,8 @@ pub fn quit() {
     let _ = ipc::send(&Command::Quit);
     // The widgets process is a program file too: an installer can't replace it while it runs.
     end_widgets();
+    // So is the MCP server, when it is switched on.
+    paperloom_common::mcp::stop();
 }
 
 /// Ends this copy's widgets process, if one runs. Settings are untouched, so
@@ -174,6 +176,11 @@ pub fn restart_app() -> ! {
     crate::instance::wait_for_replacement("gui", Duration::from_secs(12));
     restart_engine();
     restart_widgets();
+    // A switched-on MCP server moves to the new version too.
+    if paperloom_common::mcp::is_running() {
+        paperloom_common::mcp::stop();
+        let _ = paperloom_common::mcp::start();
+    }
     std::process::exit(0)
 }
 

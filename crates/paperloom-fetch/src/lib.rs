@@ -25,6 +25,8 @@ mod wallpaperwaves;
 pub mod update;
 
 pub use http::FetchError;
+/// One resumable download attempt (the queue and the MCP server use it).
+pub use download::download as download_file;
 pub use net::{diagnose, is_online, Diagnosis, HostCheck, Verdict};
 pub use stats::received as bytes_received;
 pub use queue::{Job, Queue, Status};
