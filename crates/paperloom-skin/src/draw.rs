@@ -363,24 +363,6 @@ fn fit(text: &mut Text, content: String, style: &mut Style, room: f32) -> String
     chars[..low].iter().collect::<String>().trim_end().to_string() + "…"
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn long_text_is_made_to_fit() {
-        let mut text = Text::new();
-        for room in [60.0, 120.0, 200.0] {
-            let mut style = Style::bold(24.0, [255; 4]);
-            let fitted = fit(&mut text, "Wish You Were Here (2011 Remastered Version) — Pink Floyd".to_string(), &mut style, room);
-            assert!(text.measure(&fitted, &style).0 <= room + 0.5, "{fitted:?} is wider than {room}");
-        }
-        let mut style = Style::bold(24.0, [255; 4]);
-        assert_eq!(fit(&mut text, "Short".to_string(), &mut style, 300.0), "Short");
-        assert_eq!(style.size, 24.0, "short text keeps its size");
-    }
-}
-
 /// Draws `content` scrolling to the left inside `room` pixels, starting again after a pause, with a
 /// gap before the text comes round again.
 #[allow(clippy::too_many_arguments)]
@@ -412,6 +394,24 @@ fn marquee(pixmap: &mut Pixmap, item: &TextElement, content: &str, style: &Style
         }
     }
     pixmap.draw_pixmap(left.round() as i32, (item.y * s).round() as i32, strip.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_text_is_made_to_fit() {
+        let mut text = Text::new();
+        for room in [60.0, 120.0, 200.0] {
+            let mut style = Style::bold(24.0, [255; 4]);
+            let fitted = fit(&mut text, "Wish You Were Here (2011 Remastered Version) — Pink Floyd".to_string(), &mut style, room);
+            assert!(text.measure(&fitted, &style).0 <= room + 0.5, "{fitted:?} is wider than {room}");
+        }
+        let mut style = Style::bold(24.0, [255; 4]);
+        assert_eq!(fit(&mut text, "Short".to_string(), &mut style, 300.0), "Short");
+        assert_eq!(style.size, 24.0, "short text keeps its size");
+    }
 
     #[test]
     fn long_marked_text_scrolls_and_short_text_stays() {
