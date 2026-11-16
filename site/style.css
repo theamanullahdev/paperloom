@@ -72,6 +72,10 @@ main, .top, footer { width: min(1120px, 100% - 32px); margin-inline: auto; }
 .btn .btn-sub { font-size: .8rem; font-weight: 400; opacity: .85; }
 .btn.ghost { background: transparent; color: var(--fg); border-color: var(--border); flex-direction: row; align-items: center; }
 .btn.ghost:hover { background: var(--muted); color: var(--fg); }
+.stats { list-style: none; display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 0; padding: 0; }
+.stats li { display: flex; flex-direction: column; gap: 2px; padding: 10px 16px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); min-width: 96px; }
+.stats strong { font: 800 1.35rem "Bricolage Grotesque", sans-serif; color: var(--primary); font-variant-numeric: tabular-nums; }
+.stats span { font-size: .8rem; color: var(--fg-muted); }
 .fine { margin: 14px 0 0; font-size: .9rem; color: var(--fg-muted); min-height: 1.4em; }
 .hero-media video {
   width: 100%; aspect-ratio: 16 / 9; display: block; background: #000;

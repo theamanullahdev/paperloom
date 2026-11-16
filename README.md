@@ -1,5 +1,12 @@
 # Paperloom
 
+[![Downloads](https://img.shields.io/github/downloads/theamanullahdev/paperloom/total?label=downloads&color=C2410C)](https://theamanullahdev.github.io/paperloom/)
+[![Latest release](https://img.shields.io/github/v/release/theamanullahdev/paperloom?label=latest&color=9A3412)](https://github.com/theamanullahdev/paperloom/releases/latest)
+[![Downloads of the latest release](https://img.shields.io/github/downloads/theamanullahdev/paperloom/latest/total?label=this%20release&color=C2410C)](https://github.com/theamanullahdev/paperloom/releases/latest)
+[![Stars](https://img.shields.io/github/stars/theamanullahdev/paperloom?color=9A3412)](https://github.com/theamanullahdev/paperloom/stargazers)
+[![Open issues](https://img.shields.io/github/issues/theamanullahdev/paperloom?color=78716C)](https://github.com/theamanullahdev/paperloom/issues)
+[![Licence](https://img.shields.io/github/license/theamanullahdev/paperloom?color=78716C)](./LICENSE)
+
 Live (video) wallpapers for Linux, Windows and macOS. Built first for Linux Mint Cinnamon, with general Ubuntu/Mint compatibility, and now ported to Windows and macOS as well.
 
 Think "Wallpaper Engine" / "Lively Wallpaper": GUI-only, and engineered to cost effectively nothing in CPU/RAM while idle.

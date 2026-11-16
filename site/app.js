@@ -237,6 +237,43 @@
     });
   }
 
+  // --- Paperloom in numbers: how many times the installers were downloaded.
+  // Only real installers count; the small-update pieces, checksums and
+  // manifests an installed copy fetches by itself are left out.
+  var INSTALLER = /\.(deb|rpm|flatpak|exe|msi|dmg)$/i;
+  var REPO_API = "https://api.github.com/repos/theamanullahdev/paperloom";
+
+  function installs(rel) {
+    return (rel.assets || []).reduce(function (sum, a) { return sum + (INSTALLER.test(a.name) ? (a.download_count || 0) : 0); }, 0);
+  }
+
+  function count(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+    if (n >= 1e4) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
+    return n.toLocaleString();
+  }
+
+  function renderStats(list) {
+    var live = list.filter(function (r) { return !r.draft; });
+    if (!live.length) return;
+    var newest = live.slice().sort(function (a, b) { return new Date(b.published_at || b.created_at) - new Date(a.published_at || a.created_at); })[0];
+    $("stat-downloads").textContent = count(live.reduce(function (sum, r) { return sum + installs(r); }, 0));
+    $("stat-latest").textContent = count(installs(newest));
+    $("stat-releases").textContent = count(live.length);
+    $("stats").hidden = false;
+  }
+
+  // The saved list is from the last release; GitHub has the counts as of now.
+  // Both requests are optional: when they fail the saved numbers stay.
+  function refreshStats() {
+    load(REPO_API + "/releases?per_page=100").then(renderStats, function () {});
+    load(REPO_API).then(function (repo) {
+      if (typeof repo.stargazers_count !== "number") return;
+      $("stat-stars").textContent = count(repo.stargazers_count);
+      $("stat-stars-item").hidden = false;
+    }, function () {});
+  }
+
   function start(list) {
     releases = list
       .filter(function (r) { return !r.draft; })
@@ -248,6 +285,8 @@
     }
     if (!releases.length) { fail(); return; }
 
+    renderStats(releases);
+    refreshStats();
     renderPlatforms(releases[0]);
     renderPrimary(releases[0]);
     renderPicker();
