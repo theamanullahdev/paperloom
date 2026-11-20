@@ -1,0 +1,3 @@
+This folder is a frozen copy for Paperloom versions up to 0.44, which read the library from here.
+New and changed items go to https://github.com/theamanullahdev/paperloom-assets
+This copy is removed after two releases.

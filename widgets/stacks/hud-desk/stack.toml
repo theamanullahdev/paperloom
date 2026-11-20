@@ -1,0 +1,29 @@
+id = "stack/hud-desk"
+name = "HUD desk"
+author = "Paperloom"
+description = "An orbit clock beside two glowing HUD rings and a network bar."
+size = [652, 274]
+
+[[widget]]
+kind = "clock"
+skin = "clock/orbit"
+dx = 0
+dy = 0
+
+[[widget]]
+kind = "cpu"
+skin = "meter/hud-ring"
+dx = 276
+dy = 0
+
+[[widget]]
+kind = "memory"
+skin = "meter/hud-ring"
+dx = 472
+dy = 0
+
+[[widget]]
+kind = "network"
+skin = "meter/hud-bar"
+dx = 276
+dy = 196

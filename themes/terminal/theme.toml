@@ -1,0 +1,36 @@
+id = "terminal"
+name = "Terminal"
+author = "Paperloom"
+description = "Green on black with square corners, hard outlines and the navigation across the top."
+
+[colors.dark]
+background = "#050805"
+surface = "#0A0F0A"
+muted = "#121A12"
+border = "#1F7A3A"
+foreground = "#B6FFC8"
+muted_foreground = "#5FB878"
+primary = "#33FF77"
+primary_hover = "#8CFFB0"
+success = "#33FF77"
+destructive = "#FF5C5C"
+overlay = "#000000B3"
+
+[shape]
+control_radius = 0
+card_radius = 0
+popup_radius = 0
+shadow = 0
+
+[layout]
+nav = "top"
+
+[part.button_primary]
+background = "#050805"
+foreground = "#33FF77"
+border = "#33FF77"
+border_width = 1
+
+[part.nav]
+background = "#050805"
+border = "#1F7A3A"

@@ -1,0 +1,34 @@
+id = "fjord"
+name = "Fjord"
+author = "Paperloom"
+description = "Cold water and slate: blue-grey panels, an icy accent, an icon rail at the side."
+
+[colors.dark]
+background = "#1B2028"
+surface = "#232A34"
+muted = "#2C3542"
+border = "#FFFFFF16"
+foreground = "#E6EDF5"
+muted_foreground = "#8FA1B5"
+primary = "#7CC4F0"
+primary_hover = "#A6D9F7"
+success = "#7FD6A8"
+destructive = "#F28B82"
+
+[colors.light]
+background = "#EEF2F6"
+surface = "#FFFFFF"
+muted = "#E1E8EF"
+border = "#CFD9E3"
+foreground = "#17212B"
+muted_foreground = "#5A6B7C"
+primary = "#1F6FA8"
+primary_hover = "#2A86C8"
+
+[shape]
+control_radius = 6
+card_radius = 10
+popup_radius = 14
+
+[layout]
+nav_style = "icons"

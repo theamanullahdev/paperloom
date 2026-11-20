@@ -1,0 +1,46 @@
+id = "date/audiowide"
+name = "Wide"
+author = "Paperloom"
+description = "A bold wide date with an accent bar."
+kinds = ["date"]
+fonts = ["fonts/Audiowide-Regular.ttf", "fonts/ShareTechMono-Regular.ttf"]
+size = [190, 120]
+
+[[element]]
+type = "rect"
+x = 0
+y = 8
+w = 6
+h = 104
+radius = 3
+fill = "grad(#00e5ff,#7b61ff,90)"
+glow = 3.0
+
+[[element]]
+type = "text"
+text = "{day}"
+x = 22
+y = -10
+size = 84
+font = "Audiowide"
+color = "#ffffff"
+shadow = "#00000077"
+
+[[element]]
+type = "text"
+text = "{month_short}"
+x = 22
+y = 88
+size = 22
+font = "Audiowide"
+color = "#00e5ff"
+
+[[element]]
+type = "text"
+text = "{weekday}"
+x = 172
+y = 94
+size = 14
+font = "Share Tech Mono"
+color = "#c4cbe0"
+align = "right"

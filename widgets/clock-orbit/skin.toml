@@ -1,0 +1,95 @@
+id = "clock/orbit"
+name = "Orbit"
+author = "Paperloom"
+description = "A glowing HUD clock: a ring of sixty segments for the seconds, rings for the minutes and hours, and Orbitron digits."
+kinds = ["clock"]
+fonts = ["fonts/Orbitron[wght].ttf", "fonts/ShareTechMono-Regular.ttf"]
+size = [260, 260]
+
+[[element]]
+type = "circle"
+cx = 130
+cy = 130
+r = 127
+fill = "#050b16d0"
+stroke = "#00e5ff33"
+stroke_width = 1.5
+
+[[element]]
+type = "segments"
+cx = 130
+cy = 130
+r = 117
+width = 7
+count = 60
+start = 0
+sweep = 360
+gap = 2.2
+value = "second_fraction"
+fill = "grad(#00e5ff,#ff3df2,45)"
+track = "#ffffff12"
+glow = 1.0
+
+[[element]]
+type = "arc"
+cx = 130
+cy = 130
+r = 99
+width = 5
+value = "minute_fraction"
+fill = "grad(#00e5ff,#7b61ff,0)"
+track = "#ffffff12"
+glow = 1.2
+
+[[element]]
+type = "arc"
+cx = 130
+cy = 130
+r = 86
+width = 4
+value = "hour_fraction"
+fill = "grad(#ff3df2,#ff9a3d,0)"
+track = "#ffffff10"
+glow = 1.2
+
+[[element]]
+type = "text"
+text = "{time}"
+x = 130
+y = 88
+size = 42
+bold = true
+font = "Orbitron"
+color = "#eafcff"
+shadow = "#00e5ff66"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{seconds}"
+x = 130
+y = 140
+size = 17
+font = "Orbitron"
+color = "#ff3df2"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{weekday}"
+x = 130
+y = 170
+size = 13
+font = "Share Tech Mono"
+color = "#00e5ff"
+align = "center"
+
+[[element]]
+type = "text"
+text = "{date_short}"
+x = 130
+y = 188
+size = 13
+font = "Share Tech Mono"
+color = "#9fb4c8"
+align = "center"

@@ -1,0 +1,135 @@
+{
+  "format": 1,
+  "packs": [
+    {
+      "id": "dusk",
+      "name": "Dusk",
+      "author": "Paperloom",
+      "description": "An evening sky behind see-through panels, with the navigation along the bottom.",
+      "folder": "dusk",
+      "files": [
+        {
+          "path": "theme.toml",
+          "sha256": "b3e5635c76117639fbd3e15e0f1988e2c4582952c58e6aa4744d3ea78e922d42",
+          "size": 735
+        }
+      ]
+    },
+    {
+      "id": "fireflies",
+      "name": "Fireflies",
+      "author": "Paperloom",
+      "description": "A warm night with fireflies drifting in the corner of the window.",
+      "folder": "fireflies",
+      "files": [
+        {
+          "path": "images/fly-01.png",
+          "sha256": "9f1632f1e083df77a44edf21a7f712229ef2b0dab0199660e7dd908f0fbf111d",
+          "size": 27616
+        },
+        {
+          "path": "images/fly-02.png",
+          "sha256": "97e40b7860985abc539e4073ff481f03c9a413bad2a62e1a78bff66b1a88ae10",
+          "size": 27111
+        },
+        {
+          "path": "images/fly-03.png",
+          "sha256": "49cbd4d85a432685b910ab33924d9f5bed210d43c20f9282ea3cda07e1bcde12",
+          "size": 26271
+        },
+        {
+          "path": "images/fly-04.png",
+          "sha256": "eae18d4b1e836df550c28a9f34c795d5b4014cd626e7d2707c6b1922f0e0845f",
+          "size": 26050
+        },
+        {
+          "path": "images/fly-05.png",
+          "sha256": "941b5840f0a703e0d3e627604b591f6f77175f97e3a000d6136863a21ff4b247",
+          "size": 25746
+        },
+        {
+          "path": "images/fly-06.png",
+          "sha256": "4f4bac11a394f6250cf204a944d1fcdf69bf9d199b3cf6621cf7f32e2c0caf88",
+          "size": 26741
+        },
+        {
+          "path": "images/fly-07.png",
+          "sha256": "201a12e325733420b969ad6acb5ffb330891d1d73c78765ea6717a52676a463b",
+          "size": 27528
+        },
+        {
+          "path": "images/fly-08.png",
+          "sha256": "b095254b007e978e933c5e732b17597439266f212775e0ad02bb84b18444f990",
+          "size": 28003
+        },
+        {
+          "path": "images/fly-09.png",
+          "sha256": "9e783e75537e5f456bc4b5ccbcdd56913f8dcf5bbabfa88e4432ed533131160c",
+          "size": 27259
+        },
+        {
+          "path": "images/fly-10.png",
+          "sha256": "d0b35f78cc73948d1c3d2b4ee8751986d81e1b0d1c808714faa05ef857d6ac68",
+          "size": 27373
+        },
+        {
+          "path": "images/fly-11.png",
+          "sha256": "e5af0ef82d7b1389fe5cb5d000fbfac917e587b4971feb51e98d884555172e03",
+          "size": 27482
+        },
+        {
+          "path": "images/fly-12.png",
+          "sha256": "d496f76eb279112b7d16326a94742cf528daa6ea429e5e6b59ccb068b0690307",
+          "size": 27757
+        },
+        {
+          "path": "theme.toml",
+          "sha256": "e5bd106c7907b1ef394a10609c8b16dd70bb8784fe4e1c465ec5e93da17c4fc6",
+          "size": 787
+        }
+      ]
+    },
+    {
+      "id": "fjord",
+      "name": "Fjord",
+      "author": "Paperloom",
+      "description": "Cold water and slate: blue-grey panels, an icy accent, an icon rail at the side.",
+      "folder": "fjord",
+      "files": [
+        {
+          "path": "theme.toml",
+          "sha256": "dffabf91ff981c48e89d5f0e6a30d0a55d232b0cb8cad24911440b9beb48c8de",
+          "size": 672
+        }
+      ]
+    },
+    {
+      "id": "sakura",
+      "name": "Sakura",
+      "author": "Paperloom",
+      "description": "Soft pink paper, very round corners and the navigation on the right.",
+      "folder": "sakura",
+      "files": [
+        {
+          "path": "theme.toml",
+          "sha256": "26638b35a0cca19d6a3d41c127b3d98ae1120987b0b7a5f4e8fc400a394c5950",
+          "size": 673
+        }
+      ]
+    },
+    {
+      "id": "terminal",
+      "name": "Terminal",
+      "author": "Paperloom",
+      "description": "Green on black with square corners, hard outlines and the navigation across the top.",
+      "folder": "terminal",
+      "files": [
+        {
+          "path": "theme.toml",
+          "sha256": "70b82de19578a22339c01e05c4fb90f5c58a08c31a80decf26f5f12ea7853d6f",
+          "size": 668
+        }
+      ]
+    }
+  ]
+}
