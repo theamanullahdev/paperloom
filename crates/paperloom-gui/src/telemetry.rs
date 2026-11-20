@@ -99,7 +99,6 @@ impl Recorder {
 
     fn scan(&self) -> Vec<(Pid, bool)> {
         let me = Pid::from_u32(std::process::id());
-        let ours = |pid: Pid| self.system.process(pid).is_some_and(|p| p.name().to_string_lossy().to_lowercase().starts_with("paperloom"));
         let mut found = Vec::new();
         for (pid, process) in self.system.processes() {
             if process.thread_kind().is_some() {
@@ -110,7 +109,7 @@ impl Recorder {
                 found.push((*pid, false));
             } else if lower.starts_with("paperloom-engin") {
                 found.push((*pid, true));
-            } else if lower.starts_with("paperloom") || (lower.starts_with("ffmpeg") && process.parent().is_some_and(ours)) {
+            } else if lower.starts_with("paperloom") {
                 found.push((*pid, false));
             }
         }

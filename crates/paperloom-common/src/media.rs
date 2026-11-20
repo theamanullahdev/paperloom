@@ -158,10 +158,10 @@ pub fn encode_args(plan: &Plan, info: &MediaInfo, input: &Path, output: &Path) -
     filters.push("format=yuv420p".to_string());
     let fps = plan.fps_cap.map_or(info.fps.round().max(1.0) as u32, |cap| cap.min(info.fps.round().max(1.0) as u32));
 
-    let mut args: Vec<std::ffi::OsString> = ["-hide_banner", "-nostdin", "-y", "-i"].iter().map(Into::into).collect();
+    let mut args: Vec<std::ffi::OsString> = ["-hide_banner", "-nostdin", "-y", "-threads", "2", "-i"].iter().map(Into::into).collect();
     args.push(input.into());
     for item in [
-        "-map", "0:v:0", "-an", "-sn", "-vf", &filters.join(","), "-c:v", "libx264", "-preset", "veryfast", "-crf", if plan.lower_bitrate && plan.scale_to.is_none() && plan.fps_cap.is_none() { "24" } else { "21" }, "-profile:v", "high", "-g", &(fps * 2).to_string(), "-movflags", "+faststart",
+        "-map", "0:v:0", "-an", "-sn", "-filter_threads", "1", "-vf", &filters.join(","), "-c:v", "libx264", "-preset", "veryfast", "-crf", if plan.lower_bitrate && plan.scale_to.is_none() && plan.fps_cap.is_none() { "24" } else { "21" }, "-profile:v", "high", "-g", &(fps * 2).to_string(), "-threads", "2", "-x264-params", "rc-lookahead=10:sync-lookahead=0:lookahead-threads=1", "-movflags", "+faststart",
         "-progress", "pipe:1", "-nostats",
     ] {
         args.push(item.into());

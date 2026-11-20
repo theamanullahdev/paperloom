@@ -29,6 +29,8 @@ enum Kind {
     App,
     Engine,
     Helper,
+    /// The background optimizer's ffmpeg: temporary, listed on its own.
+    Optimizer,
 }
 
 struct Row {
@@ -130,7 +132,9 @@ impl State {
                 Kind::App
             } else if lower.starts_with("paperloom-engin") {
                 Kind::Engine
-            } else if lower.starts_with("paperloom") || (lower.starts_with("ffmpeg") && process.parent().is_some_and(|parent| self.is_ours(parent))) {
+            } else if lower.starts_with("ffmpeg") && process.parent().is_some_and(|parent| self.is_ours(parent)) {
+                Kind::Optimizer
+            } else if lower.starts_with("paperloom") {
                 Kind::Helper
             } else {
                 continue;
@@ -175,6 +179,8 @@ impl State {
         let write = total_of(&all, |row| row.write_per_second as f32) as u64;
         let engine = self.rows.iter().find(|row| row.kind == Kind::Engine);
 
+        let optimizer_memory = total_of(&[Kind::Optimizer], |row| row.memory as f32) as u64;
+        let optimizing_note = if optimizer_memory > 0 { format!(" · plus {} while optimizing", bytes(optimizer_memory)) } else { String::new() };
         let tile = |label: &'static str, value: String, note: String| -> Element<'a, Message> {
             container(
                 column![
@@ -201,7 +207,7 @@ impl State {
                 match engine {
                     Some(engine) => format!("app {} · wallpaper {}", bytes(total_of(&[Kind::App, Kind::Helper], |row| row.memory as f32) as u64), bytes(engine.memory)),
                     None => "no wallpaper running".to_string(),
-                },
+                } + &optimizing_note,
             ),
             tile("With shared libraries", bytes(total_of(&all, |row| row.resident as f32) as u64), "what Task Manager lists; system libraries counted in every program".into()),
             tile("Paperloom network", rate(self.network_rate), "downloaded by Paperloom".into()),
@@ -311,6 +317,7 @@ impl State {
                 Kind::App => format!("{} (this window)", row_data.name),
                 Kind::Engine => format!("{} (wallpaper)", row_data.name),
                 Kind::Helper if row_data.name.to_lowercase().starts_with("paperloom-widget") => format!("{} (widgets)", row_data.name),
+                Kind::Optimizer => format!("{} (optimizing your library, temporary)", row_data.name),
                 Kind::Helper => row_data.name.clone(),
             };
             table = table.push(
