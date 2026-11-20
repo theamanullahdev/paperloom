@@ -19,9 +19,9 @@ use crate::http;
 use crate::looks::{self, Index, Pack, MAX_PACK_BYTES};
 use crate::share::{base64url_decode, base64url_encode};
 
-/// Where the catalogue is read from, in order. (One place to change if the
-/// themes move to a repository of their own.)
-const BASES: &[&str] = &["https://raw.githubusercontent.com/theamanullahdev/paperloom/main/themes/", "https://theamanullahdev.github.io/paperloom/themes/"];
+/// Where the catalogue is read from, in order: the `paperloom-assets`
+/// repository itself and its GitHub Pages copy.
+const BASES: &[&str] = &["https://raw.githubusercontent.com/theamanullahdev/paperloom-assets/main/themes/", "https://theamanullahdev.github.io/paperloom-assets/themes/"];
 const FORMAT: u32 = 1;
 const PREFIX: &str = "paperloom-theme:1:";
 

@@ -219,7 +219,9 @@
         "disk",
         "network",
         "battery",
-        "uptime"
+        "uptime",
+        "weather",
+        "nowplaying"
       ],
       "folder": "meter-hud-bar",
       "files": [
@@ -245,8 +247,8 @@
         },
         {
           "path": "skin.toml",
-          "sha256": "bc28fdc3e079b7140e9d3545f8813eb8af4826f56fe790067ad14e241e8aa006",
-          "size": 1079
+          "sha256": "dd0cdd0c8fc17ecb58f8ccc69338f444ef284a9ace52266e50f2b3f737c213e7",
+          "size": 1104
         }
       ]
     },
@@ -331,7 +333,9 @@
         "disk",
         "network",
         "battery",
-        "uptime"
+        "uptime",
+        "weather",
+        "nowplaying"
       ],
       "folder": "meter-terminal",
       "files": [
@@ -347,8 +351,8 @@
         },
         {
           "path": "skin.toml",
-          "sha256": "bac648839f41f399977e1feb8f9aba21206658efc47dac1b2585782ce9b4b85e",
-          "size": 882
+          "sha256": "5be1a3df738410d8441d615b029803d66f6d04ada7f9828c62158a2cba680405",
+          "size": 907
         }
       ]
     },
@@ -363,7 +367,9 @@
         "disk",
         "network",
         "battery",
-        "uptime"
+        "uptime",
+        "weather",
+        "nowplaying"
       ],
       "folder": "meter-thin",
       "files": [
@@ -384,8 +390,8 @@
         },
         {
           "path": "skin.toml",
-          "sha256": "b7fc6dc0b0d7c3728d612c5598296886ad8140dcb84656f95fd6411fe2952e7e",
-          "size": 668
+          "sha256": "80bd16f495816dbe901600c6e02fdf209c3f7cc66afb642d5f03b6a50c00d8ff",
+          "size": 693
         }
       ]
     }

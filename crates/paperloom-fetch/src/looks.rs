@@ -12,9 +12,9 @@ use sha2::{Digest, Sha256};
 
 use crate::http;
 
-/// Where the catalogue is read from, in order: the repository itself (always the
-/// latest) and the project's GitHub Pages copy.
-const BASES: &[&str] = &["https://raw.githubusercontent.com/theamanullahdev/paperloom/main/widgets/", "https://theamanullahdev.github.io/paperloom/widgets/"];
+/// Where the catalogue is read from, in order: the `paperloom-assets` repository
+/// itself (always the latest) and its GitHub Pages copy.
+const BASES: &[&str] = &["https://raw.githubusercontent.com/theamanullahdev/paperloom-assets/main/widgets/", "https://theamanullahdev.github.io/paperloom-assets/widgets/"];
 
 /// The newest index format this version understands.
 const FORMAT: u32 = 1;
