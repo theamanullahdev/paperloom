@@ -183,8 +183,14 @@ fn open_widget(at: Option<(i32, i32)>) {
     if x >= 0 && y >= 0 {
         command.args(["--at", &x.to_string(), &y.to_string()]);
     }
-    if let Err(err) = command.spawn() {
-        eprintln!("paperloom-engine: couldn't open the tray widget: {err}");
+    match command.spawn() {
+        // Collect the window's exit when it closes, or it lingers as a defunct process.
+        Ok(mut child) => {
+            let _ = std::thread::Builder::new().name("paperloom-widget-reap".into()).spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(err) => eprintln!("paperloom-engine: couldn't open the tray widget: {err}"),
     }
 }
 
