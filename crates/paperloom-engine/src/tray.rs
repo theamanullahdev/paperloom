@@ -90,6 +90,13 @@ pub fn sync(settings: &paperloom_common::Settings) {
     }
 }
 
+/// Takes the icon away now (handing over to a new engine, or quitting).
+pub fn shutdown() {
+    if let Some(old) = HANDLE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() {
+        old.shutdown().wait();
+    }
+}
+
 /// Keeps the icon's menu/tooltip in step with the engine.
 pub fn set_paused(paused: bool) {
     update(|tray| tray.paused = paused);

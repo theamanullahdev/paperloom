@@ -33,6 +33,8 @@ mod usage_history;
 mod selftest;
 mod player;
 #[cfg(all(unix, not(target_os = "macos")))]
+mod idle;
+#[cfg(all(unix, not(target_os = "macos")))]
 mod tray;
 #[cfg(windows)]
 mod tray_windows;
@@ -46,6 +48,13 @@ fn main() -> ExitCode {
     player::refresh_dev(&paperloom_common::load());
     let mut args = env::args().skip(1);
     let mut first = args.next();
+
+    // `--idle`: what is left after a Stop, only the tray icon (see `idle.rs`).
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if first.as_deref() == Some("--idle") {
+        idle::run();
+        return ExitCode::SUCCESS;
+    }
 
     // `--on-demand`: the app started the engine to play something it is
     // about to send. Without it (login autostart) an engine with no remembered
@@ -80,6 +89,12 @@ fn main() -> ExitCode {
         eprintln!("paperloom-engine: {err}");
         player::record_failure(&err);
         return ExitCode::FAILURE;
+    }
+    // After a Stop the wallpaper, its window and its decoder are gone; only
+    // the tray icon stays, so the app can be started again from it.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if player::stopped() && first.as_deref() != Some("--preview") {
+        idle::relaunch();
     }
     ExitCode::SUCCESS
 }

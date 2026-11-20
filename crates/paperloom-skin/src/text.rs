@@ -173,3 +173,13 @@ impl Default for Text {
         Self::new()
     }
 }
+
+/// The font families installed on this computer, sorted, each once (for a
+/// font picker). Reading them takes a moment, so call it off the UI thread.
+pub fn font_families() -> Vec<String> {
+    let system = FontSystem::new();
+    let mut names: Vec<String> = system.db().faces().filter_map(|face| face.families.first().map(|(name, _)| name.clone())).collect();
+    names.sort_by_key(|name| name.to_lowercase());
+    names.dedup();
+    names
+}

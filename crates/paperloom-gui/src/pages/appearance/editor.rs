@@ -12,6 +12,8 @@ use iced::{Alignment, Background, Border, Color, Element, Font, Length, Task};
 
 use paperloom_theme::{Anchor, Colors, Layer, Listed, Nav, NavStyle, Part, Theme, PARTS};
 
+use super::pick::{self, ColourPicker, FontPicker};
+use crate::pages::widgets_looks::blocking;
 use crate::{theme, ui};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,8 +71,23 @@ pub enum PartField {
     Border,
 }
 
+/// Which colour the picker is changing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    /// One of the general colours (of the mode being edited).
+    General(&'static str),
+    GradientFrom,
+    GradientTo,
+    Part(PartField),
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
+    OpenColor(Target),
+    Colour(pick::Colour),
+    OpenFont(pick::Which),
+    Fonts(pick::Fonts),
+    PickFrames(usize),
     TabSelected(Tab),
     /// Edit the dark colours (true) or the light ones.
     Mode(bool),
@@ -136,6 +153,10 @@ pub struct State {
     dark: bool,
     part: &'static str,
     raw: text_editor::Content,
+    /// The colour picker, while it is open.
+    picking: Option<(Target, ColourPicker)>,
+    /// The font picker, while it is open.
+    fonts: Option<FontPicker>,
     /// Why the raw text or a save was refused.
     error: Option<String>,
     warnings: Vec<String>,
@@ -145,7 +166,7 @@ impl State {
     pub fn new(listed: Listed) -> Self {
         let dir = listed.dir().map(PathBuf::from);
         let dark = listed.theme.colors.dark.is_some() || listed.theme.colors.light.is_none();
-        Self { dir, draft: listed.theme, tab: Tab::Colours, dark, part: PARTS[0].0, raw: text_editor::Content::new(), error: None, warnings: Vec::new() }
+        Self { dir, draft: listed.theme, tab: Tab::Colours, dark, part: PARTS[0].0, raw: text_editor::Content::new(), picking: None, fonts: None, error: None, warnings: Vec::new() }
     }
 
     fn colors(&mut self) -> &mut Colors {
@@ -153,6 +174,56 @@ impl State {
             self.draft.colors.dark.get_or_insert_with(Colors::default)
         } else {
             self.draft.colors.light.get_or_insert_with(Colors::default)
+        }
+    }
+
+    /// The colour `target` has now (written or default).
+    fn current(&self, target: Target) -> ([f32; 4], Option<String>) {
+        let palette = self.draft.palette(self.dark);
+        let part = self.draft.part.get(self.part);
+        let (written, fallback) = match target {
+            Target::General(name) => ((if self.dark { &self.draft.colors.dark } else { &self.draft.colors.light }).as_ref().and_then(|colors| colors.get(name)).cloned(), palette.get(name).unwrap_or([0.0, 0.0, 0.0, 1.0])),
+            Target::GradientFrom => (self.draft.backdrop.gradient.first().cloned(), palette.background),
+            Target::GradientTo => (self.draft.backdrop.gradient.get(1).cloned(), palette.surface),
+            Target::Part(PartField::Background) => (part.and_then(|part| part.background.clone()), palette.surface),
+            Target::Part(PartField::Foreground) => (part.and_then(|part| part.foreground.clone()), palette.foreground),
+            Target::Part(PartField::Border) => (part.and_then(|part| part.border.clone()), palette.border),
+        };
+        (written.as_deref().and_then(paperloom_theme::parse_color).unwrap_or(fallback), written)
+    }
+
+    /// Writes `value` (`None` = Paperloom's own) as the colour `target`.
+    fn write_colour(&mut self, target: Target, value: Option<String>) {
+        match target {
+            Target::General(name) => self.colors().set(name, value),
+            Target::GradientFrom | Target::GradientTo => {
+                let at = usize::from(target == Target::GradientTo);
+                let gradient = &mut self.draft.backdrop.gradient;
+                gradient.resize(2, String::new());
+                gradient[at] = value.unwrap_or_default();
+                if gradient.iter().all(String::is_empty) {
+                    gradient.clear();
+                }
+            }
+            Target::Part(field) => {
+                let part = self.draft.part.entry(self.part.to_string()).or_default();
+                match field {
+                    PartField::Background => part.background = value,
+                    PartField::Foreground => part.foreground = value,
+                    PartField::Border => part.border = value,
+                }
+            }
+        }
+    }
+
+    fn target_title(&self, target: Target) -> String {
+        match target {
+            Target::General(name) => format!("{} ({} mode)", name.replace('_', " "), if self.dark { "dark" } else { "light" }),
+            Target::GradientFrom => "Gradient: from".to_string(),
+            Target::GradientTo => "Gradient: to".to_string(),
+            Target::Part(PartField::Background) => format!("{}: background", self.part),
+            Target::Part(PartField::Foreground) => format!("{}: text", self.part),
+            Target::Part(PartField::Border) => format!("{}: outline", self.part),
         }
     }
 
@@ -192,6 +263,79 @@ impl State {
         // Leaving the Raw tab (or acting from it) reads the text first.
         let on_raw = self.tab == Tab::Raw;
         match message {
+            Message::OpenColor(target) => {
+                let (current, written) = self.current(target);
+                let own: Vec<[f32; 4]> = Colors::FIELDS.iter().filter_map(|(name, _)| self.draft.palette(self.dark).get(name)).collect();
+                self.picking = Some((target, ColourPicker::new(self.target_title(target), current, written, &own)));
+            }
+            Message::Colour(change) => {
+                let Some((target, picker)) = self.picking.as_mut() else { return (Task::none(), Outcome::None) };
+                let target = *target;
+                match &change {
+                    pick::Colour::Done => self.picking = None,
+                    pick::Colour::Undo => {
+                        let before = picker.before.clone();
+                        if let Some(colour) = before.as_deref().and_then(paperloom_theme::parse_color) {
+                            picker.update(&pick::Colour::Swatch(colour));
+                        }
+                        self.write_colour(target, before);
+                    }
+                    pick::Colour::Default => {
+                        self.write_colour(target, None);
+                        self.picking = None;
+                    }
+                    other => {
+                        if picker.update(other) {
+                            let hex = picker.hsva.hex();
+                            self.write_colour(target, Some(hex));
+                        }
+                    }
+                }
+            }
+            Message::OpenFont(which) => {
+                self.fonts = Some(FontPicker::new(which));
+                return (blocking(paperloom_skin::font_families, |list| Message::Fonts(pick::Fonts::Loaded(list))), Outcome::None);
+            }
+            Message::Fonts(change) => {
+                let Some(picker) = self.fonts.as_mut() else { return (Task::none(), Outcome::None) };
+                let which = picker.which;
+                match change {
+                    pick::Fonts::Choose(name) => {
+                        match which {
+                            pick::Which::Body => self.draft.fonts.body = name,
+                            pick::Which::Display => self.draft.fonts.display = name,
+                        }
+                        self.fonts = None;
+                    }
+                    pick::Fonts::Default => {
+                        match which {
+                            pick::Which::Body => self.draft.fonts.body.clear(),
+                            pick::Which::Display => self.draft.fonts.display.clear(),
+                        }
+                        self.fonts = None;
+                    }
+                    pick::Fonts::Close => self.fonts = None,
+                    other => picker.update(&other),
+                }
+            }
+            Message::PickFrames(index) => {
+                if let Some(dir) = self.dir.clone() {
+                    if let Some(picked) = rfd::FileDialog::new().set_title("Choose the frames of the animation, in order (PNG)").add_filter("Pictures", &["png"]).pick_files() {
+                        let mut frames = Vec::new();
+                        let mut picked = picked;
+                        picked.sort();
+                        for file in picked {
+                            let Some(name) = file.file_name().map(|name| name.to_string_lossy().replace(' ', "-")) else { continue };
+                            if std::fs::create_dir_all(dir.join("images")).is_ok() && std::fs::copy(&file, dir.join("images").join(&name)).is_ok() {
+                                frames.push(format!("images/{name}"));
+                            }
+                        }
+                        if let Some(layer) = self.draft.layer.get_mut(index).filter(|_| !frames.is_empty()) {
+                            layer.frames = frames;
+                        }
+                    }
+                }
+            }
             Message::TabSelected(tab) => {
                 if on_raw && tab != Tab::Raw && !self.take_raw() {
                     return (Task::none(), Outcome::None);
@@ -388,6 +532,15 @@ impl State {
         .into()
     }
 
+    /// The colour or font picker, over the editor.
+    pub fn overlay<'a>(&'a self, t: theme::Tokens) -> Option<Element<'a, Message>> {
+        if let Some(fonts) = &self.fonts {
+            return Some(fonts.view(Message::Fonts, t));
+        }
+        let (_, picker) = self.picking.as_ref()?;
+        Some(picker.view(Message::Colour, Message::Colour(pick::Colour::Done), t))
+    }
+
     fn colours<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let colors = if self.dark { &self.draft.colors.dark } else { &self.draft.colors.light };
         let palette = self.draft.palette(self.dark);
@@ -400,19 +553,36 @@ impl State {
             let written = colors.as_ref().and_then(|colors| colors.get(name)).cloned().unwrap_or_default();
             let shown = palette.get(name).unwrap_or([0.0, 0.0, 0.0, 1.0]);
             let valid = written.is_empty() || paperloom_theme::parse_color(&written).is_some();
-            rows = rows.push(color_row(name, about, written, shown, valid, move |value| Message::Color(name, value), t));
+            rows = rows.push(color_row(name, about, written, shown, valid, Message::OpenColor(Target::General(name)), move |value| Message::Color(name, value), t));
         }
         rows.into()
     }
 
     fn fonts<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
+        let font_row = |label: &'static str, hint: &'static str, name: &str, which: pick::Which, field: Words| {
+            let shown = if name.is_empty() { "Paperloom's own".to_string() } else { name.to_string() };
+            let face = if name.is_empty() { theme::body_font() } else { Font::with_name(theme::family(name)) };
+            column![
+                text(label).size(13).color(t.foreground),
+                row![
+                    container(text(shown).font(face).size(18).color(t.foreground)).padding([8, 12]).width(Length::Fill).style(move |_theme| container::Style { background: Some(Background::Color(t.muted)), border: Border { radius: theme::radius_control().into(), ..Border::default() }, ..container::Style::default() }),
+                    button(ui::label("Choose a font").size(13)).style(ui::secondary).padding([9, 14]).on_press(Message::OpenFont(which)),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+                row![text("or type its name").size(12).color(t.muted_foreground), text_input("", name).on_input(move |value| Message::Words(field, value)).padding(5).size(12).width(Length::Fixed(220.0))].spacing(8).align_y(Alignment::Center),
+                text(hint).size(12).color(t.muted_foreground),
+            ]
+            .spacing(6)
+        };
         let mut rows = column![
-            words("Title font (family name)", &self.draft.fonts.display, Words::DisplayFont, t),
-            words("Text font (family name; shows after a restart)", &self.draft.fonts.body, Words::BodyFont, t),
-            text("A family installed on this computer works as it is. To bring a font with the theme, add its file: the family name is the one inside the file.").size(12).color(t.muted_foreground),
+            font_row("Titles", "Page titles and big text.", &self.draft.fonts.display, pick::Which::Display, Words::DisplayFont),
+            font_row("Text", "Everything else. A different text font shows after Paperloom restarts.", &self.draft.fonts.body, pick::Which::Body, Words::BodyFont),
+            ui::rule(t),
+            text("To bring a font along with the theme (so it works on any computer), add its file.").size(12).color(t.muted_foreground),
             button(ui::label("Add a font file").size(13)).style(ui::secondary).padding([7, 12]).on_press_maybe(self.dir.is_some().then_some(Message::PickFont)),
         ]
-        .spacing(10);
+        .spacing(14);
         for file in &self.draft.fonts.files {
             rows = rows.push(text(file.clone()).size(13).font(Font::MONOSPACE).color(t.foreground));
         }
@@ -462,8 +632,8 @@ impl State {
         };
         column![
             text("Behind the pages: a gradient, a picture, or both. Give the Background and Surface colours some see-through (#RRGGBBAA) to let it show.").size(12).color(t.muted_foreground),
-            color_row("Gradient: from", "first colour", from.clone(), swatch(&from), from.is_empty() || paperloom_theme::parse_color(&from).is_some(), |value| Message::Words(Words::GradientFrom, value), t),
-            color_row("Gradient: to", "last colour", to.clone(), swatch(&to), to.is_empty() || paperloom_theme::parse_color(&to).is_some(), |value| Message::Words(Words::GradientTo, value), t),
+            color_row("Gradient: from", "first colour (click it to pick)", from.clone(), swatch(&from), from.is_empty() || paperloom_theme::parse_color(&from).is_some(), Message::OpenColor(Target::GradientFrom), |value| Message::Words(Words::GradientFrom, value), t),
+            color_row("Gradient: to", "last colour (click it to pick)", to.clone(), swatch(&to), to.is_empty() || paperloom_theme::parse_color(&to).is_some(), Message::OpenColor(Target::GradientTo), |value| Message::Words(Words::GradientTo, value), t),
             number("Gradient direction", backdrop.angle, 0.0..=360.0, 5.0, Number::BackdropAngle, "°", t),
             ui::rule(t),
             picture,
@@ -493,6 +663,7 @@ impl State {
                 .spacing(12)
                 .align_y(Alignment::Center)
                 .wrap(),
+                button(ui::label(if layer.frames.is_empty() { "Make it an animation: choose its frames" } else { "Choose different frames" }).size(12)).style(ui::secondary).padding([5, 10]).on_press(Message::PickFrames(index)),
                 labelled_slider("Opacity", layer.opacity, 0.0..=1.0, 0.05, move |value| Message::LayerOpacity(index, value), format!("{:.0}%", layer.opacity * 100.0), t),
                 labelled_slider("Width (far left = its own size)", layer.width.max(20.0), 20.0..=1600.0, 4.0, move |value| Message::LayerSize(index, value), if layer.width < 24.0 { "own size".to_string() } else { format!("{:.0} px", layer.width) }, t),
             ]
@@ -509,7 +680,7 @@ impl State {
             let written = written.clone().unwrap_or_default();
             let shown = paperloom_theme::parse_color(&written).unwrap_or(fallback);
             let valid = written.is_empty() || paperloom_theme::parse_color(&written).is_some();
-            color_row(label, "empty = the theme's general colour", written, shown, valid, move |value| Message::PartColor(which, value), t)
+            color_row(label, "empty = the theme's general colour", written, shown, valid, Message::OpenColor(Target::Part(which)), move |value| Message::PartColor(which, value), t)
         };
         let about = PARTS.iter().find(|(name, _)| *name == self.part).map(|(_, about)| *about).unwrap_or_default();
         let mut picker = row![].spacing(4);
@@ -546,9 +717,15 @@ fn words<'a>(label: &'a str, value: &str, which: Words, t: theme::Tokens) -> Ele
 }
 
 /// A swatch, what the colour is for, and its hex field (red outline while unreadable).
-fn color_row<'a>(name: &'a str, about: &'a str, written: String, shown: paperloom_theme::Rgba, valid: bool, on_input: impl Fn(String) -> Message + 'a, t: theme::Tokens) -> Element<'a, Message> {
+#[allow(clippy::too_many_arguments)]
+fn color_row<'a>(name: &'a str, about: &'a str, written: String, shown: paperloom_theme::Rgba, valid: bool, open: Message, on_input: impl Fn(String) -> Message + 'a, t: theme::Tokens) -> Element<'a, Message> {
     let fill = Color::from_rgba(shown[0], shown[1], shown[2], shown[3]);
-    let swatch = container(Space::new()).width(30).height(30).style(move |_theme| container::Style { background: Some(Background::Color(fill)), border: Border { color: if valid { t.border } else { t.destructive }, width: if valid { 1.0 } else { 2.0 }, radius: theme::radius_control().into() }, ..container::Style::default() });
+    // Click the colour to pick another: the picker opens over the editor.
+    let swatch = button(Space::new()).width(34).height(34).padding(0).on_press(open).style(move |_theme, status| button::Style {
+        background: Some(Background::Color(fill)),
+        border: Border { color: if !valid { t.destructive } else if matches!(status, button::Status::Hovered | button::Status::Pressed) { t.primary } else { t.border }, width: if valid { 1.5 } else { 2.0 }, radius: theme::radius_control().into() },
+        ..button::Style::default()
+    });
     row![
         swatch,
         column![text(name.replace('_', " ")).size(13).color(t.foreground), text(about).size(11).color(t.muted_foreground)].spacing(1).width(Length::Fill),

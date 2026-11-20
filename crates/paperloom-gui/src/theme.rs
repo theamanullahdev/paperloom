@@ -113,7 +113,7 @@ impl Active {
 }
 
 /// Font families are `&'static str` in iced; each distinct name is kept once.
-fn family(name: &str) -> &'static str {
+pub fn family(name: &str) -> &'static str {
     static NAMES: RwLock<Vec<&'static str>> = RwLock::new(Vec::new());
     if let Some(known) = NAMES.read().unwrap_or_else(|poisoned| poisoned.into_inner()).iter().find(|known| **known == name) {
         return known;

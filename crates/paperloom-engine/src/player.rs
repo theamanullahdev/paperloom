@@ -324,6 +324,15 @@ fn publish_status(mpv: &Mpv, with_drops: bool) {
     *last = Some(info);
 }
 
+/// The engine was asked to stop the wallpaper (as opposed to quit).
+static STOPPED: AtomicBool = AtomicBool::new(false);
+
+/// Did the engine end because the wallpaper was stopped?
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+pub fn stopped() -> bool {
+    STOPPED.load(Ordering::Relaxed)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flow {
     Continue,
@@ -378,13 +387,14 @@ pub fn poll_ipc(listener: &mut Listener, mpv: &Mpv) -> Flow {
             }
             play(mpv, &path.to_string_lossy());
         }
-        // Stopping the wallpaper ends the engine: an idle engine would keep
-        // its (now black) window over the desktop, and costs memory for
-        // nothing. The GUI starts a fresh one on the next Play. The user's
-        // own desktop background comes back too.
+        // Stopping the wallpaper ends the playing engine: its (now black)
+        // window would sit over the desktop. The user's own desktop
+        // background comes back too. Where there is a tray icon the icon
+        // stays (see `idle.rs`) so the app can be started again from it.
         Command::Stop => {
             let _ = mpv.command("stop", &[]);
             remember(None);
+            STOPPED.store(true, Ordering::Relaxed);
             #[cfg(all(unix, not(target_os = "macos")))]
             crate::desktop_background::restore();
             return Flow::Quit;

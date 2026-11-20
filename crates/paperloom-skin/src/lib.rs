@@ -17,7 +17,7 @@ pub mod rainmeter;
 
 pub use element::Skin;
 pub use registry::{all, default_for, for_kind, get, refresh, set_user_dir};
-pub use text::{Style, Text};
+pub use text::{font_families, Style, Text};
 pub use vars::{clock, meter, preview, Value, Vars};
 
 /// A skin with its draw instructions rendered at `scale`.

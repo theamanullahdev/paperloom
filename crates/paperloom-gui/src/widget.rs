@@ -20,7 +20,7 @@ use paperloom_common::{EngineState, Library, Settings};
 use crate::{icons, theme};
 
 const WIDTH: f32 = 360.0;
-const HEIGHT: f32 = 640.0;
+const HEIGHT: f32 = 684.0;
 
 /// Where the widget sits and which way its arrow points.
 #[derive(Clone, Copy)]
@@ -227,6 +227,8 @@ enum Message {
     PauseFullscreen(bool),
     PauseBattery(bool),
     OpenApp,
+    /// Stop everything: wallpaper, tray icon, widgets, MCP server.
+    QuitAll,
     Open(&'static str),
     Close,
     FocusGained,
@@ -292,12 +294,13 @@ impl Widget {
             process.thread_kind().is_none() && process.name().to_string_lossy().to_lowercase().starts_with("paperloom-engin")
         });
         match engine {
-            Some(process) => {
+            // A stopped engine stays up only for the tray icon: nothing is playing.
+            Some(process) if self.state.current_wallpaper.is_some() => {
                 self.engine_running = true;
                 self.engine_cpu = process.cpu_usage() / self.cores;
                 self.engine_memory = process.memory();
             }
-            None => {
+            _ => {
                 self.engine_running = false;
                 self.engine_cpu = 0.0;
                 self.engine_memory = 0;
@@ -348,6 +351,10 @@ impl Widget {
                     other => command.args(["--page", other]),
                 };
                 let _ = command.spawn();
+                return iced::exit();
+            }
+            Message::QuitAll => {
+                crate::engine_client::quit_all();
                 return iced::exit();
             }
             Message::Close => return iced::exit(),
@@ -475,6 +482,8 @@ impl Widget {
             .width(Length::Fill)
             .style(crate::ui::primary)
             .on_press(Message::OpenApp);
+        // Below it, quieter: Stop keeps the icon, this one takes it away too.
+        let quit = button(crate::ui::label("Quit Paperloom").size(13).center()).padding([8, 12]).width(Length::Fill).style(crate::ui::ghost).on_press(Message::QuitAll);
 
         let body = column![
             header,
@@ -485,6 +494,7 @@ impl Widget {
             shortcuts,
             Space::new().height(Length::Fill),
             open_app,
+            quit,
         ]
         .spacing(12)
         .padding(16);

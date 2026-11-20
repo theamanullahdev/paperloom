@@ -6,6 +6,7 @@
 //! through a form (`editor.rs`).
 
 mod editor;
+mod pick;
 mod preview;
 
 use std::collections::HashMap;
@@ -507,6 +508,11 @@ impl State {
             ]
             .spacing(12);
             return Some(ui::modal(content, 440.0, Message::CancelRemove, t));
+        }
+        if let Some(editor) = &self.editor {
+            if let Some(picker) = editor.overlay(t) {
+                return Some(picker.map(Message::Editor));
+            }
         }
         let notice = self.notice.as_ref()?;
         let mut content = column![text(notice.title.clone()).font(theme::display_font()).size(18).color(t.foreground)].spacing(10);

@@ -53,6 +53,19 @@ pub fn quit() {
     paperloom_common::mcp::stop();
 }
 
+/// "Quit Paperloom" from the tray pop-up: the wallpaper stops (the desktop's
+/// own background comes back), then the engine and its tray icon, the widgets
+/// process and the MCP server all end. The app's window is its own process
+/// and stays as it is.
+pub fn quit_all() {
+    let _ = ipc::send(&Command::Stop);
+    // The stopped engine stays up for its icon; give it a moment, then end it.
+    std::thread::sleep(Duration::from_millis(600));
+    let _ = ipc::send(&Command::Quit);
+    end_widgets();
+    paperloom_common::mcp::stop();
+}
+
 /// Ends this copy's widgets process, if one runs. Settings are untouched, so
 /// `paperloom_common::widgets::start()` brings the same widgets back.
 pub fn end_widgets() {
