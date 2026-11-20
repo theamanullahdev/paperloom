@@ -223,6 +223,11 @@ pub struct Settings {
     /// Lets the engine lower decoding quality by itself when the wallpaper
     /// keeps the CPU busy (see the engine's `perf_guard`).
     pub performance_guard: bool,
+    /// While the app window is open, quietly make every wallpaper in the
+    /// library cheap to play (scaled to the screen, 30 fps, a format the
+    /// graphics card decodes), including ones that were already looked at
+    /// when the rules have improved since.
+    pub optimize_library: bool,
     /// Pause while the focused window belongs to one of these apps (names
     /// matched case-insensitively against the program or window class).
     pub pause_apps: Vec<String>,
@@ -329,6 +334,7 @@ impl Default for Settings {
             library_folder: None,
             developer_mode: false,
             performance_guard: true,
+            optimize_library: true,
             pause_apps: Vec::new(),
             pause_when_idle_minutes: 0,
             hotkey_next: "Ctrl+Alt+N".to_string(),

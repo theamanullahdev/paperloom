@@ -37,7 +37,9 @@ struct Row {
     pid: u32,
     /// Percent of the whole CPU (all cores), like Task Manager.
     cpu: f32,
+    /// Only this process's own memory (the headline); `resident` also counts shared libraries.
     memory: u64,
+    resident: u64,
     read_per_second: u64,
     write_per_second: u64,
     run_time: u64,
@@ -139,7 +141,8 @@ impl State {
                 name,
                 pid: pid.as_u32(),
                 cpu: process.cpu_usage() / self.cores,
-                memory: process.memory(),
+                memory: paperloom_common::memory::of(pid.as_u32(), process.memory()),
+                resident: process.memory(),
                 read_per_second: (disk.read_bytes as f32 / elapsed) as u64,
                 write_per_second: (disk.written_bytes as f32 / elapsed) as u64,
                 run_time: process.run_time(),
@@ -200,6 +203,7 @@ impl State {
                     None => "no wallpaper running".to_string(),
                 },
             ),
+            tile("With shared libraries", bytes(total_of(&all, |row| row.resident as f32) as u64), "what Task Manager lists; system libraries counted in every program".into()),
             tile("Paperloom network", rate(self.network_rate), "downloaded by Paperloom".into()),
             tile("Paperloom disk", format!("{} read", rate(read as f32)), format!("{} write", rate(write as f32))),
             tile(
@@ -232,7 +236,7 @@ impl State {
         );
         let memory_chart = graph_card(
             "Memory",
-            "Paperloom only — memory in use",
+            "Paperloom only — its own memory (shared libraries are in the table below)",
             vec![("app", app_color), ("wallpaper", engine_color)],
             line_chart(
                 vec![Series { samples: samples(&history.memory_app), color: app_color }, Series { samples: samples(&history.memory_engine), color: engine_color }],
@@ -291,6 +295,7 @@ impl State {
             cell("PID".into(), 70.0, t.muted_foreground),
             cell("CPU".into(), 70.0, t.muted_foreground),
             cell("Memory".into(), 90.0, t.muted_foreground),
+            cell("With shared".into(), 90.0, t.muted_foreground),
             cell("Read/s".into(), 90.0, t.muted_foreground),
             cell("Write/s".into(), 90.0, t.muted_foreground),
             cell("Running".into(), 90.0, t.muted_foreground),
@@ -314,6 +319,7 @@ impl State {
                     cell(row_data.pid.to_string(), 70.0, t.foreground),
                     cell(format!("{:.1}%", row_data.cpu), 70.0, t.foreground),
                     cell(bytes(row_data.memory), 90.0, t.foreground),
+                    cell(bytes(row_data.resident), 90.0, t.muted_foreground),
                     cell(rate(row_data.read_per_second as f32), 90.0, t.foreground),
                     cell(rate(row_data.write_per_second as f32), 90.0, t.foreground),
                     cell(uptime(row_data.run_time), 90.0, t.foreground),

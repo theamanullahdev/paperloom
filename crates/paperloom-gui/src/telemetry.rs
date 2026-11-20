@@ -78,7 +78,7 @@ impl Recorder {
             let Some(process) = self.system.process(*pid) else { continue };
             let slot = usize::from(*engine);
             cpu[slot] += process.cpu_usage() / self.cores;
-            memory[slot] += process.memory() as f32;
+            memory[slot] += paperloom_common::memory::of(pid.as_u32(), process.memory()) as f32;
             let disk = process.disk_usage();
             read += disk.read_bytes as f32 / elapsed;
             write += disk.written_bytes as f32 / elapsed;

@@ -20,6 +20,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod backends;
+mod heap;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod desktop_background;
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -44,6 +45,7 @@ use std::error::Error;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    heap::limit_arenas();
     paperloom_common::log::init("engine");
     player::refresh_dev(&paperloom_common::load());
     let mut args = env::args().skip(1);

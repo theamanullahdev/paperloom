@@ -26,6 +26,7 @@ pub enum SettingId {
     LibraryFolder,
     DeveloperMode,
     PerformanceGuard,
+    OptimizeLibrary,
     PauseApps,
     PauseIdle,
     Hotkeys,
@@ -179,6 +180,12 @@ pub const ENTRIES: &[Entry] = &[
         label: "Keep CPU use low automatically",
         section: "Playback",
         aliases: &["performance guard", "cpu", "fan", "hot", "laptop", "lower quality", "battery", "throttle"],
+    },
+    Entry {
+        id: SettingId::OptimizeLibrary,
+        label: "Keep optimizing my library in the background",
+        section: "Playback",
+        aliases: &["optimize", "optimise", "shrink", "reduce size", "4k", "resolution", "scale down", "memory", "ram", "re-encode", "convert"],
     },
     Entry {
         id: SettingId::DeveloperMode,

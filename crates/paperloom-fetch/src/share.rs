@@ -403,6 +403,7 @@ mod tests {
             hidden: false,
             added: 0,
             optimize: Default::default(),
+            rules: 0,
             fingerprint: None,
             favorite: false,
             tags: vec![],

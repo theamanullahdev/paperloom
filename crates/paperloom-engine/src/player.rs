@@ -435,6 +435,56 @@ mod tests {
     }
 }
 
+/// A budget for the always-on engine: playing a 1080p clip with the engine's
+/// own settings must stay inside a private-memory limit (headless, so only
+/// the decoder, cache and allocator count), and the engine must not pick up
+/// heavy dependencies. A change that makes the engine fatter fails here.
+#[cfg(all(test, target_os = "linux"))]
+mod budget_tests {
+    use super::*;
+
+    const LIMIT_MB: u64 = 140;
+
+    #[test]
+    fn playing_a_clip_stays_inside_the_memory_budget() {
+        let dir = std::env::temp_dir().join(format!("paperloom-budget-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let clip = dir.join("clip.mp4");
+        let made = std::process::Command::new("ffmpeg")
+            .args(["-y", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=30", "-t", "4", "-pix_fmt", "yuv420p"])
+            .arg(&clip)
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if !made {
+            eprintln!("ffmpeg missing: budget test skipped");
+            return;
+        }
+        crate::heap::limit_arenas();
+        let mpv = Mpv::with_initializer(|init| {
+            init.set_property("vo", "null")?;
+            init.set_property("ao", "null")?;
+            init.set_property("hwdec", "no")?;
+            Ok(())
+        })
+        .expect("libmpv starts headless");
+        configure_wallpaper(&mpv).expect("configures");
+        mpv.command("loadfile", &[clip.to_str().unwrap()]).expect("loads");
+        std::thread::sleep(std::time::Duration::from_secs(4));
+        crate::heap::trim_now_and_then();
+        let private = paperloom_common::memory::private_bytes(std::process::id()).expect("private memory is readable") / 1_048_576;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(private <= LIMIT_MB, "engine used {private} MB of its own memory (budget {LIMIT_MB} MB)");
+    }
+
+    #[test]
+    fn the_engine_keeps_out_of_heavy_dependencies() {
+        let manifest = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap();
+        for banned in ["iced", "ureq", "reqwest", "tokio", "image", "wgpu"] {
+            assert!(!manifest.lines().any(|line| line.trim_start().starts_with(&format!("{banned} "))), "the engine must not depend on {banned}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod status_tests {
     use super::*;

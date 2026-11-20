@@ -20,6 +20,7 @@ pub mod lock;
 pub mod mcp;
 pub mod log;
 pub mod media;
+pub mod memory;
 pub mod os_auth;
 mod paths;
 pub mod process;

@@ -48,6 +48,9 @@ pub struct LibraryEntry {
     /// Where this file is in the background "make it cheap to play" step.
     #[serde(default)]
     pub optimize: Optimize,
+    /// The `media::OPTIMIZER_RULES` this file was last judged under (0 = never).
+    #[serde(default)]
+    pub rules: u32,
     /// Size plus a few kilobytes from both ends, to notice the same video
     /// imported twice (even under another name).
     #[serde(default)]
@@ -314,6 +317,18 @@ impl Library {
         self.entries.iter().filter(|entry| entry.optimize == Optimize::Pending).map(|entry| (entry.id, entry.path.clone())).collect()
     }
 
+    /// Every managed copy the optimizer hasn't judged under the current
+    /// rules yet — downloads and older entries included, ones already
+    /// finished once too when the rules have improved since. Files linked in
+    /// place and copies the user asked to keep as they are are never touched.
+    pub fn sweep_optimizations(&self) -> Vec<(u64, PathBuf)> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.mode == ImportMode::CopyAndOptimize && entry.rules != crate::media::OPTIMIZER_RULES && entry.optimize != Optimize::Pending && entry.path.is_file())
+            .map(|entry| (entry.id, entry.path.clone()))
+            .collect()
+    }
+
     /// Records the optimizer's verdict: `Ok(Some(path))` the file was
     /// replaced by a cheaper one, `Ok(None)` it was already fine.
     pub fn finish_optimize(&mut self, id: u64, result: Result<Option<PathBuf>, String>) -> std::io::Result<()> {
@@ -326,6 +341,7 @@ impl Library {
                 Ok(None) => entry.optimize = Optimize::NotNeeded,
                 Err(_) => entry.optimize = Optimize::Failed,
             }
+            entry.rules = crate::media::OPTIMIZER_RULES;
             entry.fingerprint = fingerprint(&entry.path);
         }
         self.save()
@@ -409,6 +425,7 @@ impl Library {
             hidden: false,
             added,
             optimize: if mode == ImportMode::CopyAndOptimize { Optimize::Pending } else { Optimize::Untouched },
+            rules: 0,
             fingerprint,
             favorite: false,
             tags: Vec::new(),
@@ -685,6 +702,7 @@ mod tests {
             hidden: true,
             added: 1,
             optimize: Optimize::Untouched,
+            rules: 0,
             fingerprint: None,
             favorite: false,
             tags: Vec::new(),
@@ -713,6 +731,7 @@ mod tests {
                 hidden: false,
                 added: 0,
                 optimize: Optimize::Untouched,
+                rules: 0,
                 fingerprint: None,
                 favorite: false,
                 tags: Vec::new(),

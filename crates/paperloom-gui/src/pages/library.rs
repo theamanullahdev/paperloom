@@ -261,6 +261,12 @@ impl State {
         for (id, path) in self.library.pending_optimizations() {
             self.optimizer.enqueue(id, path);
         }
+        // The background sweep over the rest of the library (a Settings switch).
+        if paperloom_common::load().optimize_library {
+            for (id, path) in self.library.sweep_optimizations() {
+                self.optimizer.enqueue_quiet(id, path);
+            }
+        }
     }
 
     /// Ticks only while the library tab is on screen *and* a wallpaper with

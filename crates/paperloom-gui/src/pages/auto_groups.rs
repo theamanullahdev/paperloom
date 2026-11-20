@@ -132,6 +132,7 @@ mod tests {
             hidden: false,
             added: id,
             optimize: Default::default(),
+            rules: 0,
             fingerprint: None,
             favorite: false,
             tags: Vec::new(),

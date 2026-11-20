@@ -298,7 +298,7 @@ impl Widget {
             Some(process) if self.state.current_wallpaper.is_some() => {
                 self.engine_running = true;
                 self.engine_cpu = process.cpu_usage() / self.cores;
-                self.engine_memory = process.memory();
+                self.engine_memory = paperloom_common::memory::of(process.pid().as_u32(), process.memory());
             }
             _ => {
                 self.engine_running = false;

@@ -19,6 +19,8 @@ pub struct MediaInfo {
     pub fps: f32,
     pub has_audio: bool,
     pub duration_secs: f32,
+    /// The whole file's average bit rate in kilobits per second (0 when unknown).
+    pub bitrate_kbps: u32,
 }
 
 /// Saves one sharp still of `video` (a second in, `width` pixels wide) to
@@ -77,7 +79,14 @@ pub fn parse_probe(text: &str) -> Option<MediaInfo> {
         })
         .unwrap_or(0.0);
 
-    Some(MediaInfo { codec, pixel_format, width, height, fps, has_audio: text.lines().any(|line| line.contains("Audio:") && line.contains("Stream #")), duration_secs })
+    let bitrate_kbps = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Duration:"))
+        .and_then(|rest| rest.split("bitrate:").nth(1))
+        .and_then(|value| value.trim().strip_suffix("kb/s")?.trim().parse::<u32>().ok())
+        .unwrap_or(0);
+
+    Some(MediaInfo { codec, pixel_format, width, height, fps, has_audio: text.lines().any(|line| line.contains("Audio:") && line.contains("Stream #")), duration_secs, bitrate_kbps })
 }
 
 /// Why a file would be re-encoded.
@@ -89,7 +98,17 @@ pub struct Plan {
     pub fps_cap: Option<u32>,
     /// The codec or pixel format is one graphics cards often cannot decode.
     pub change_format: bool,
+    /// Right-sized and playable, but carries far more data per pixel than the
+    /// picture needs; a leaner encode keeps the same look.
+    pub lower_bitrate: bool,
 }
+
+/// Bump this whenever `plan` or `encode_args` improves: every library file
+/// recorded under an older number is looked at again.
+pub const OPTIMIZER_RULES: u32 = 2;
+
+/// Above this many bits per pixel per frame a clip is heavier than it looks.
+const MAX_BITS_PER_PIXEL: f32 = 0.20;
 
 pub const FPS_LIMIT: u32 = 30;
 
@@ -118,7 +137,12 @@ pub fn plan(info: &MediaInfo, screen: Option<(u32, u32)>) -> Option<Plan> {
     });
     let fps_cap = (info.fps > FPS_LIMIT as f32 + 1.0).then_some(FPS_LIMIT);
 
-    (!friendly || scale_to.is_some() || fps_cap.is_some()).then_some(Plan { scale_to, fps_cap, change_format: !friendly })
+    let (out_w, out_h) = scale_to.unwrap_or((info.width, info.height));
+    let out_fps = fps_cap.map_or(info.fps, |cap| cap as f32).max(1.0);
+    let bits_per_pixel = info.bitrate_kbps as f32 * 1000.0 / (out_w as f32 * out_h as f32 * out_fps);
+    let lower_bitrate = info.bitrate_kbps > 0 && bits_per_pixel > MAX_BITS_PER_PIXEL;
+
+    (!friendly || scale_to.is_some() || fps_cap.is_some() || lower_bitrate).then_some(Plan { scale_to, fps_cap, change_format: !friendly, lower_bitrate })
 }
 
 /// The ffmpeg arguments (after `-i <input>`) that produce a wallpaper-ready
@@ -137,7 +161,7 @@ pub fn encode_args(plan: &Plan, info: &MediaInfo, input: &Path, output: &Path) -
     let mut args: Vec<std::ffi::OsString> = ["-hide_banner", "-nostdin", "-y", "-i"].iter().map(Into::into).collect();
     args.push(input.into());
     for item in [
-        "-map", "0:v:0", "-an", "-sn", "-vf", &filters.join(","), "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-profile:v", "high", "-g", &(fps * 2).to_string(), "-movflags", "+faststart",
+        "-map", "0:v:0", "-an", "-sn", "-vf", &filters.join(","), "-c:v", "libx264", "-preset", "veryfast", "-crf", if plan.lower_bitrate && plan.scale_to.is_none() && plan.fps_cap.is_none() { "24" } else { "21" }, "-profile:v", "high", "-g", &(fps * 2).to_string(), "-movflags", "+faststart",
         "-progress", "pipe:1", "-nostats",
     ] {
         args.push(item.into());

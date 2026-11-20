@@ -152,7 +152,7 @@ pub fn run(settings: &Settings, progress: Progress) -> String {
         });
         report.step("a video can be re-encoded (libx264)", || {
             let info = paperloom_common::media::probe(path).ok_or("probe failed")?;
-            let plan = paperloom_common::media::Plan { scale_to: Some((640, 360)), fps_cap: Some(24), change_format: true };
+            let plan = paperloom_common::media::Plan { scale_to: Some((640, 360)), fps_cap: Some(24), change_format: true, lower_bitrate: false };
             let out = path.with_file_name("paperloom-test-encoded.mp4");
             let status = paperloom_common::process::command("ffmpeg")
                 .args(paperloom_common::media::encode_args(&plan, &info, path, &out))

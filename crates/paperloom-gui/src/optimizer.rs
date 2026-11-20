@@ -24,6 +24,9 @@ struct Shared {
     queue: VecDeque<(u64, PathBuf)>,
     working: Option<u64>,
     percent: HashMap<u64, u8>,
+    /// Library sweep jobs: shown only once a re-encode really runs, so the
+    /// whole library doesn't read "Optimizing…" while the worker looks at each file.
+    quiet: std::collections::HashSet<u64>,
     finished: Vec<(u64, Outcome)>,
 }
 
@@ -51,6 +54,12 @@ impl Optimizer {
         }
     }
 
+    /// Like `enqueue`, for the background sweep over the whole library.
+    pub fn enqueue_quiet(&self, id: u64, path: PathBuf) {
+        self.shared.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).quiet.insert(id);
+        self.enqueue(id, path);
+    }
+
     /// Anything queued or running (the app ticks while this is true).
     pub fn busy(&self) -> bool {
         let state = self.shared.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -60,8 +69,12 @@ impl Optimizer {
     /// 0–100 while this wallpaper is being re-encoded; `Some(0)` while it waits.
     pub fn progress(&self, id: u64) -> Option<u8> {
         let state = self.shared.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let quiet = state.quiet.contains(&id);
         if state.working == Some(id) {
-            Some(state.percent.get(&id).copied().unwrap_or(0))
+            let done = state.percent.get(&id).copied();
+            if quiet { done } else { Some(done.unwrap_or(0)) }
+        } else if quiet {
+            None
         } else {
             state.queue.iter().any(|(queued, _)| *queued == id).then_some(0)
         }
@@ -98,6 +111,7 @@ fn worker(shared: Arc<(Mutex<Shared>, Condvar)>) {
         let mut state = shared.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         state.working = None;
         state.percent.remove(&id);
+        state.quiet.remove(&id);
         state.finished.push((id, outcome));
     }
 }

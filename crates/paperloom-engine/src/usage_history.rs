@@ -35,13 +35,13 @@ pub fn tick() {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn resident_bytes() -> Option<u64> {
+fn resident_raw() -> Option<u64> {
     let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
     Some(statm.split_whitespace().nth(1)?.parse::<u64>().ok()? * 4096)
 }
 
 #[cfg(windows)]
-fn resident_bytes() -> Option<u64> {
+fn resident_raw() -> Option<u64> {
     use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
     // SAFETY: fills the struct we own for our own process.
@@ -53,6 +53,12 @@ fn resident_bytes() -> Option<u64> {
 }
 
 #[cfg(target_os = "macos")]
-fn resident_bytes() -> Option<u64> {
+fn resident_raw() -> Option<u64> {
     None
+}
+
+/// The engine's own memory (what no other program shares), falling back to the resident size.
+fn resident_bytes() -> Option<u64> {
+    let resident = resident_raw()?;
+    Some(paperloom_common::memory::of(std::process::id(), resident))
 }

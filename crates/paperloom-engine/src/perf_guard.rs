@@ -36,6 +36,7 @@ pub fn reset() {
 
 /// Called on the engine tick. `paused`: nothing is decoding, so nothing to judge.
 pub fn tick(mpv: &Mpv, enabled: bool, paused: bool, hardware: bool) {
+    crate::heap::trim_now_and_then();
     let mut slot = GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let Some(now_cpu) = cpu_seconds() else { return };
     let guard = slot.get_or_insert_with(|| Guard { level: 0, started: Instant::now(), cpu_at_start: now_cpu });

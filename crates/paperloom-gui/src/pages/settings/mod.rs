@@ -257,6 +257,7 @@ impl State {
                     SettingId::LockScreen => settings.lock_screen_still = value,
                     SettingId::DeveloperMode => settings.developer_mode = value,
                     SettingId::PerformanceGuard => settings.performance_guard = value,
+                    SettingId::OptimizeLibrary => settings.optimize_library = value,
                     SettingId::ImportMode
                     | SettingId::Theme
                     | SettingId::LowBatteryPercent
@@ -641,6 +642,15 @@ impl State {
                     column![
                         toggler(settings.performance_guard).label("Keep CPU use low automatically").on_toggle(|v| Message::Toggle(SettingId::PerformanceGuard, v)),
                         hint("If a wallpaper keeps the processor busy for half a minute, Paperloom lowers decoding quality a step at a time until it calms down."),
+                    ]
+                    .spacing(4)
+                    .into(),
+                ),
+                item(
+                    SettingId::OptimizeLibrary,
+                    column![
+                        toggler(settings.optimize_library).label("Keep optimizing my library in the background").on_toggle(|v| Message::Toggle(SettingId::OptimizeLibrary, v)),
+                        hint("While this window is open, wallpapers that are bigger than your screen, run above 30 fps or use a format graphics cards struggle with are re-encoded one at a time at low priority. It never runs on battery, and the original stays until the new copy checks out."),
                     ]
                     .spacing(4)
                     .into(),
