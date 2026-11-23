@@ -88,6 +88,11 @@ pub fn all() -> Vec<&'static Skin> {
     skins
 }
 
+/// Whether `id` is one of the looks that ship inside Paperloom (an import must not replace those).
+pub fn is_built_in(id: &str) -> bool {
+    built_in().iter().any(|skin| skin.id == id)
+}
+
 pub fn get(id: &str) -> Option<&'static Skin> {
     all().into_iter().find(|skin| skin.id == id)
 }

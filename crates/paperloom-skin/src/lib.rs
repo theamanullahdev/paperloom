@@ -16,7 +16,7 @@ mod vars;
 pub mod rainmeter;
 
 pub use element::Skin;
-pub use registry::{all, default_for, for_kind, get, refresh, set_user_dir};
+pub use registry::{all, default_for, for_kind, get, is_built_in, refresh, set_user_dir};
 pub use text::{font_families, Style, Text};
 pub use vars::{clock, meter, preview, Value, Vars};
 

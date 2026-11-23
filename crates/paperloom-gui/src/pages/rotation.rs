@@ -85,6 +85,9 @@ impl State {
         match message {
             Message::Enabled(on) => {
                 rotation.enabled = on;
+                if on {
+                    paperloom_fetch::counts::feature("rotation_on");
+                }
                 if on && rotation.collection.is_none() {
                     rotation.collection = collections.first().map(|collection| collection.id);
                 }

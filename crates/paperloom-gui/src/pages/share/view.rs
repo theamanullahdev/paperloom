@@ -26,7 +26,7 @@ impl State {
         let left = sender.share.left_out;
 
         let wall: Element<'a, Message> = if count == 0 {
-            container(text("None of these can be shared. They came from your own files, or they are hidden. Only wallpapers downloaded from a website can be sent.").size(14).color(t.muted_foreground))
+            container(text("None of these can go into a share code. Wallpapers from your own files are sent as the file itself: use Show in folder on the right. Hidden ones are never shared.").size(14).color(t.muted_foreground))
                 .center(Length::Fill)
                 .padding(24)
                 .into()
@@ -44,7 +44,23 @@ impl State {
         ]
         .spacing(10);
         if left > 0 {
-            side = side.push(text(format!("{left} left out: they came from your own files, or they are hidden.")).size(13).color(t.muted_foreground));
+            side = side.push(text(format!("{left} left out of the code: they came from your own files, or they are hidden.")).size(13).color(t.muted_foreground));
+        }
+        if !sender.own_files.is_empty() {
+            side = side.push(text("Your own files go to a friend as the file itself (it is already optimized for your screen):").size(13).color(t.muted_foreground));
+            for (index, (name, _)) in sender.own_files.iter().enumerate().take(5) {
+                side = side.push(
+                    row![
+                        text(name.clone()).size(13).color(t.foreground).width(Length::Fill),
+                        iced::widget::button(crate::ui::label("Show in folder")).style(crate::ui::secondary).padding([6, 12]).on_press(Message::ShowOwnFile(index)),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                );
+            }
+            if sender.own_files.len() > 5 {
+                side = side.push(text(format!("…and {} more in your library.", sender.own_files.len() - 5)).size(12).color(t.muted_foreground));
+            }
         }
         if count > 0 {
             if Self::code_is_long(&sender.share) {

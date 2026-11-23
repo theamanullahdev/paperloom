@@ -26,6 +26,7 @@ pub enum SettingId {
     LibraryFolder,
     DeveloperMode,
     PerformanceGuard,
+    ShareCounts,
     OptimizeLibrary,
     PauseApps,
     PauseIdle,
@@ -156,6 +157,12 @@ pub const ENTRIES: &[Entry] = &[
         label: "Password for the Hidden section",
         section: "Privacy",
         aliases: &["password", "lock", "hidden", "private", "pin", "protect", "privacy"],
+    },
+    Entry {
+        id: SettingId::ShareCounts,
+        label: "Send anonymous usage counts",
+        section: "Privacy",
+        aliases: &["telemetry", "analytics", "statistics", "counts", "tracking", "privacy", "data", "usage", "anonymous"],
     },
     Entry {
         id: SettingId::Hotkeys,

@@ -15,6 +15,7 @@ mod engine_client;
 mod icons;
 mod instance;
 mod layout;
+mod link;
 mod lock_reset;
 mod optimizer;
 mod pages;
@@ -144,6 +145,8 @@ pub fn main() -> iced::Result {
         "PAGE developers".to_string()
     } else if args.iter().any(|arg| arg == "--tray-settings") {
         "TRAY-SETTINGS".to_string()
+    } else if let Some(open) = app::open_arg() {
+        open
     } else if let Some(file) = app::share_file_arg() {
         let full = std::fs::canonicalize(&file).unwrap_or_else(|_| file.clone().into());
         format!("IMPORT {}", full.display())
@@ -155,6 +158,8 @@ pub fn main() -> iced::Result {
     if !instance::claim("gui", &request) {
         return Ok(());
     }
+    // One anonymous "the window was opened" count a day (Settings → Privacy switches it off).
+    paperloom_fetch::counts::opened();
 
     let mut application = iced::application(app::App::new, app::App::update, app::App::view)
         .title("Paperloom")

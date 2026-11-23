@@ -33,6 +33,13 @@ pub fn mcp_file() -> PathBuf {
     project_dirs().config_dir().join("mcp.toml")
 }
 
+/// The random id this installation uses for anonymous usage counts (see
+/// `paperloom_fetch::counts`); a file of its own so it never travels with
+/// the settings.
+pub fn counts_id_file() -> PathBuf {
+    project_dirs().config_dir().join("counts-id")
+}
+
 /// Developer switches (see `dev.rs`); a separate file so they are never
 /// mixed into the user's settings.
 pub fn dev_file() -> PathBuf {

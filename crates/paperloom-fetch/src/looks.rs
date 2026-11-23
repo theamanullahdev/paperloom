@@ -117,7 +117,7 @@ pub fn fetch_stack_preview(base: &str, pack: &Pack) -> Result<Vec<u8>, String> {
 
 /// A path a look may contain: relative, inside its folder, and a kind of file a
 /// look can use.
-pub(crate) fn safe_path(path: &str) -> bool {
+pub fn safe_path(path: &str) -> bool {
     let allowed = Path::new(path).extension().and_then(|extension| extension.to_str()).is_some_and(|extension| {
         ["toml", "ttf", "otf", "png", "txt"].iter().any(|allowed| allowed.eq_ignore_ascii_case(extension))
     });
@@ -127,12 +127,21 @@ pub(crate) fn safe_path(path: &str) -> bool {
 /// Downloads `pack` into `skins_dir/<folder>`, replacing an older copy. Nothing
 /// is installed unless every file arrives and matches its checksum.
 pub fn install(base: &str, pack: &Pack, skins_dir: &Path) -> Result<(), String> {
-    install_from(&format!("{base}{}", pack.folder), pack, skins_dir, "skin.toml")
+    let result = install_from(&format!("{base}{}", pack.folder), pack, skins_dir, "skin.toml");
+    if result.is_ok() {
+        crate::counts::install("look", &pack.id);
+        crate::counts::feature("look_installed");
+    }
+    result
 }
 
 /// Downloads a stack into `stacks_dir/<folder>`.
 pub fn install_stack(base: &str, pack: &Pack, stacks_dir: &Path) -> Result<(), String> {
-    install_from(&format!("{base}stacks/{}", pack.folder), pack, stacks_dir, "stack.toml")
+    let result = install_from(&format!("{base}stacks/{}", pack.folder), pack, stacks_dir, "stack.toml");
+    if result.is_ok() {
+        crate::counts::install("stack", &pack.id);
+    }
+    result
 }
 
 /// The shared part: `url` is the pack's folder in the catalogue, `main` the file it must have.

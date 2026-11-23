@@ -56,6 +56,8 @@ pub fn install(base: &str, pack: &Pack, themes_dir: &Path) -> Result<(), String>
         let _ = std::fs::remove_dir_all(&dir);
         return Err(format!("this theme can't be used: {}", report.errors.join(" ")));
     }
+    crate::counts::install("theme", &pack.id);
+    crate::counts::feature("theme_installed");
     Ok(())
 }
 
@@ -76,7 +78,7 @@ struct Bundle {
 }
 
 /// Every file of a theme folder that a theme may have, by relative path.
-fn read_folder(dir: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
+pub fn read_folder(dir: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
     fn walk(root: &Path, dir: &Path, depth: u8, out: &mut BTreeMap<String, Vec<u8>>, total: &mut u64) -> Result<(), String> {
         for entry in std::fs::read_dir(dir).map_err(|err| err.to_string())?.flatten() {
             let path = entry.path();
@@ -93,7 +95,7 @@ fn read_folder(dir: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
             let bytes = std::fs::read(&path).map_err(|err| format!("{relative}: {err}"))?;
             *total += bytes.len() as u64;
             if *total > MAX_PACK_BYTES {
-                return Err("this theme is larger than the 12 MB limit".into());
+                return Err("this is larger than the 12 MB limit".into());
             }
             out.insert(relative, bytes);
         }

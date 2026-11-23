@@ -21,6 +21,8 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, 
 use paperloom_common::widgets::{self, Widgets, BUILT_IN, MAX_PLACED};
 
 mod looks;
+mod share;
+mod share_format;
 mod stacks;
 
 use super::widgets_looks::{self, Previews, CARD};
@@ -42,6 +44,15 @@ pub enum Message {
     Opacity(u32, f32),
     Drag(u32, bool),
     Menu(u32, bool),
+    /// A clock or date shows this time zone (an IANA name); empty = this computer's.
+    Zone(u32, String),
+    Share(share::Message),
+    /// Share this widget (by id).
+    ShareWidget(u32),
+    /// Share this stack (by id).
+    ShareStack(u32),
+    /// Open "Add a shared widget".
+    ReceiveShare,
     /// Go to Browse (the looks gallery).
     Browse,
     /// Go to Add widgets.
@@ -158,6 +169,10 @@ pub enum BrowseTab {
 }
 
 pub struct State {
+    /// "Share" and "Add a shared widget".
+    share: share::State,
+    /// Every time zone, for the clock's "which time zone" box.
+    zones: iced::widget::combo_box::State<String>,
     widgets: Widgets,
     selected: Option<u32>,
     running: bool,
@@ -229,7 +244,7 @@ impl State {
     pub fn new() -> Self {
         let widgets = Widgets::load();
         let selected = widgets.placed.first().map(|placed| placed.id);
-        Self { widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, show_import: false, pack_open: None, pack_shown: looks::PAGE, part: DetailTab::Look, confirm: None, notice: None, removed: Vec::new(), menu: None, inside: false, last_start: None, status: widgets::Status::read().unwrap_or_default(), open_stack: None, menu_stack: None, menu_preset: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
+        Self { share: share::State::default(), zones: iced::widget::combo_box::State::new(chrono_tz::TZ_VARIANTS.iter().map(|zone| zone.name().to_string()).collect()), widgets, selected, running: widgets::is_running(), problem: None, screen: paperloom_common::primary_size().unwrap_or((1920, 1080)), previews: Previews::new(), previews_loading: false, filter: String::new(), tab: BrowseTab::Installed, online: widgets_online::State::new(Catalog::Looks), open: None, expanded: None, importing: false, imported: None, show_import: false, pack_open: None, pack_shown: looks::PAGE, part: DetailTab::Look, confirm: None, notice: None, removed: Vec::new(), menu: None, inside: false, last_start: None, status: widgets::Status::read().unwrap_or_default(), open_stack: None, menu_stack: None, menu_preset: None, stacks_tab: BrowseTab::Installed, stacks_online: widgets_online::State::new(Catalog::Stacks), removed_stacks: Vec::new(), minute: 0, wallpaper: paperloom_common::EngineState::load().current_wallpaper }
     }
 
     /// Opens the Browse page on its Online tab (`--online`).
@@ -287,6 +302,9 @@ impl State {
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.problem = widgets::set_enabled(enabled).err().map(|err| format!("Couldn't change the widgets: {err}"));
+        if enabled && self.problem.is_none() {
+            paperloom_fetch::counts::feature("widgets_on");
+        }
         self.widgets = Widgets::load();
         self.running = widgets::is_running();
         if self.selected.is_none() {
@@ -494,6 +512,7 @@ impl State {
                 let Some(preset) = paperloom_common::stacks::preset(&id) else { return Task::none() };
                 match self.widgets.add_stack(&preset, self.screen) {
                     Some(stack) => {
+                        paperloom_fetch::counts::feature("stack_placed");
                         self.widgets.enabled = true;
                         self.selected = self.widgets.members(stack).next().map(|placed| placed.id);
                         self.notice = Notice::new(format!("{} is on your desktop. Drag any part of it to move the whole stack.", preset.name), Some(("Open it", Message::OpenStack(stack))));
@@ -677,6 +696,7 @@ impl State {
                 self.widgets = Widgets::load();
                 match self.widgets.add(&kind) {
                     Some(id) => {
+                        paperloom_fetch::counts::feature("widget_placed");
                         if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
                             target.skin = skin.clone();
                         }
@@ -699,6 +719,7 @@ impl State {
             Message::Add(kind) => {
                 self.widgets = Widgets::load();
                 if let Some(id) = self.widgets.add(kind) {
+                    paperloom_fetch::counts::feature("widget_placed");
                     self.selected = Some(id);
                     self.expanded = Some(kind);
                     self.widgets.enabled = true;
@@ -846,6 +867,39 @@ impl State {
                     target.menu = value;
                 }
             }
+            Message::Share(message) => {
+                let (task, outcome) = self.share.update(message, &mut self.widgets);
+                match outcome {
+                    share::Outcome::Nothing => return task.map(Message::Share),
+                    share::Outcome::Placed(line) => {
+                        self.widgets.enabled = true;
+                        self.apply();
+                        self.notice = Notice::new(line, None);
+                    }
+                    share::Outcome::Added(line) => self.notice = Notice::new(line, None),
+                }
+                return task.map(Message::Share);
+            }
+            Message::ShareWidget(id) => {
+                if let Some(placed) = self.widgets.placed.iter().find(|placed| placed.id == id) {
+                    if let Err(why) = self.share.send_widget(placed) {
+                        self.notice = Notice::new(format!("Couldn't share it: {why}"), None);
+                    }
+                }
+                return Task::none();
+            }
+            Message::ShareStack(id) => {
+                if let Err(why) = self.share.send_stack(&self.widgets, id) {
+                    self.notice = Notice::new(format!("Couldn't share it: {why}"), None);
+                }
+                return Task::none();
+            }
+            Message::ReceiveShare => return self.share.receive("").map(Message::Share),
+            Message::Zone(id, zone) => {
+                if let Some(target) = self.widgets.placed.iter_mut().find(|target| target.id == id) {
+                    target.set_option("timezone", &zone);
+                }
+            }
         }
         self.apply();
         Task::none()
@@ -870,10 +924,16 @@ impl State {
         ("Checking that they show…".to_string(), t.muted_foreground)
     }
 
+    /// Opens "Add a shared widget" with a file's text (a double-click or a drop).
+    pub fn open_share_text(&mut self, text: &str) -> Task<Message> {
+        self.share.receive(text).map(Message::Share)
+    }
+
     pub fn header<'a>(&'a self, t: theme::Tokens) -> Element<'a, Message> {
         let (state, color) = self.state_line(t);
         row![
             text(state).size(13).color(color),
+            button(ui::label("Add a shared widget…")).style(ui::secondary).on_press(Message::ReceiveShare),
             toggler(self.widgets.enabled).label("Show widgets").on_toggle(Message::SetEnabled),
         ]
         .spacing(16)
@@ -993,6 +1053,9 @@ impl State {
 
     /// A widget's ⋯ menu, over the whole window: its looks, and what else can be done to it.
     pub fn overlay<'a>(&'a self, t: theme::Tokens) -> Option<Element<'a, Message>> {
+        if let Some(overlay) = self.share.view(t) {
+            return Some(overlay.map(Message::Share));
+        }
         if let Some(overlay) = self.looks_overlay(t) {
             return Some(overlay);
         }
@@ -1096,6 +1159,7 @@ impl State {
             button(ui::label("← My widgets")).style(ui::ghost).on_press(Message::Back),
             text(self.title_of(placed)).size(20).color(t.foreground),
             Space::new().width(Length::Fill),
+            button(ui::label("Share")).style(ui::secondary).on_press(Message::ShareWidget(id)),
             button(ui::label("Remove from desktop")).style(ui::danger).on_press(Message::Remove(id)),
         ]
         .spacing(12)
@@ -1155,6 +1219,20 @@ impl State {
                     toggler(placed.menu).label("Right-click it for a menu").on_toggle(move |value| Message::Menu(id, value)),
                 ]
                 .spacing(10);
+                // A clock or a date can show another place's time.
+                if matches!(placed.kind.as_str(), "clock" | "date") {
+                    let chosen = placed.options.get("timezone");
+                    let mut zone_row = row![iced::widget::combo_box(&self.zones, "Search a city or region, for example Karachi", chosen, move |zone| Message::Zone(id, zone)).width(Length::Fixed(300.0))]
+                        .spacing(8)
+                        .align_y(Alignment::Center);
+                    if chosen.is_some() {
+                        zone_row = zone_row.push(button(ui::label("Use this computer's")).style(ui::secondary).on_press(Message::Zone(id, String::new())));
+                    }
+                    options = options
+                        .push(ui::rule(t))
+                        .push(text("Which time zone this widget shows. Pick one to make a second clock for someone far away; leave it empty to follow this computer.").size(13).color(t.muted_foreground))
+                        .push(zone_row);
+                }
                 // The weather needs to know where you are.
                 if placed.kind == "weather" {
                     options = options

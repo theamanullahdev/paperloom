@@ -32,7 +32,11 @@ pub fn start() -> Result<(), Error> {
 }
 
 pub fn play(path: &Path) -> Result<(), Error> {
-    send_or_spawn(&Command::Play(path.to_path_buf()))
+    let result = send_or_spawn(&Command::Play(path.to_path_buf()));
+    if result.is_ok() {
+        paperloom_fetch::counts::feature("wallpaper_set");
+    }
+    result
 }
 
 /// Stops playback. Deliberately does *not* spawn the engine if it isn't
@@ -40,6 +44,7 @@ pub fn play(path: &Path) -> Result<(), Error> {
 /// succeeding is correct, not a bug swallowed.
 pub fn stop() -> Result<(), Error> {
     let _ = ipc::send(&Command::Stop);
+    paperloom_fetch::counts::feature("wallpaper_stop");
     Ok(())
 }
 

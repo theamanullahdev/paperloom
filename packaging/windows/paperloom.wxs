@@ -61,6 +61,16 @@
         <RegistryValue Root="HKCR" Key=".paperloomshare" Type="string" Value="Paperloom.Share" KeyPath="yes" />
         <RegistryValue Root="HKCR" Key="Paperloom.Share" Type="string" Value="Paperloom share" />
         <RegistryValue Root="HKCR" Key="Paperloom.Share\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]paperloom-gui.exe&quot; &quot;%1&quot;" />
+        <!-- Theme and widget files, and paperloom:// links (the website's "Open in Paperloom"). -->
+        <RegistryValue Root="HKCR" Key=".paperloomtheme" Type="string" Value="Paperloom.Theme" />
+        <RegistryValue Root="HKCR" Key="Paperloom.Theme" Type="string" Value="Paperloom theme" />
+        <RegistryValue Root="HKCR" Key="Paperloom.Theme\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]paperloom-gui.exe&quot; &quot;%1&quot;" />
+        <RegistryValue Root="HKCR" Key=".paperloomwidget" Type="string" Value="Paperloom.Widget" />
+        <RegistryValue Root="HKCR" Key="Paperloom.Widget" Type="string" Value="Paperloom widget" />
+        <RegistryValue Root="HKCR" Key="Paperloom.Widget\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]paperloom-gui.exe&quot; &quot;%1&quot;" />
+        <RegistryValue Root="HKCR" Key="paperloom" Type="string" Value="URL:Paperloom" />
+        <RegistryValue Root="HKCR" Key="paperloom" Name="URL Protocol" Type="string" Value="" />
+        <RegistryValue Root="HKCR" Key="paperloom\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]paperloom-gui.exe&quot; &quot;%1&quot;" />
       </Component>
     </ComponentGroup>
 

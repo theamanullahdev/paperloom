@@ -130,7 +130,11 @@ impl State {
             Message::Switched(result) => {
                 self.busy = false;
                 match result {
-                    Ok(_) => self.error = None,
+                    Ok(true) => {
+                        self.error = None;
+                        paperloom_fetch::counts::feature("mcp_on");
+                    }
+                    Ok(false) => self.error = None,
                     Err(why) => self.error = Some(format!("MCP could not be turned on: {why}")),
                 }
                 self.guide = None;

@@ -82,7 +82,7 @@ pub fn size_of(placed: &Placed) -> (u32, u32) {
 
 pub fn render(placed: &Placed, text: &mut Text, context: &Context) -> Option<Frame> {
     let skin = skin_of(placed)?;
-    let (mut vars, mut next_change) = data(&placed.kind, skin, context)?;
+    let (mut vars, mut next_change) = data(&placed.kind, skin, context, placed.option("timezone"))?;
     let look = (std::ptr::from_ref(skin) as u64) ^ (u64::from(placed.scale.to_bits()) << 1);
     LIVE.with(|live| {
         let mut live = live.borrow_mut();
@@ -134,6 +134,23 @@ pub fn render(placed: &Placed, text: &mut Text, context: &Context) -> Option<Fra
     })
 }
 
+/// "Karachi" for `Asia/Karachi`; empty for this computer's own time zone.
+fn zone_label(timezone: &str) -> String {
+    if timezone.parse::<chrono_tz::Tz>().is_err() {
+        return String::new();
+    }
+    timezone.rsplit('/').next().unwrap_or_default().replace('_', " ")
+}
+
+/// The time now in the named time zone (`Asia/Karachi`), or on this
+/// computer's clock when none is named or the name is not one.
+fn now_in(timezone: &str) -> chrono::DateTime<chrono::FixedOffset> {
+    match timezone.parse::<chrono_tz::Tz>() {
+        Ok(zone) if !timezone.is_empty() => chrono::Utc::now().with_timezone(&zone).fixed_offset(),
+        _ => Local::now().fixed_offset(),
+    }
+}
+
 /// Part of the way from `from` to `to`; an angle takes the short way round.
 fn glide(name: &str, from: f32, to: f32, part: f32) -> f32 {
     if name.ends_with("angle") {
@@ -145,9 +162,9 @@ fn glide(name: &str, from: f32, to: f32, part: f32) -> f32 {
 }
 
 /// The data for one widget kind and when it next changes.
-fn data(kind: &str, skin: &Skin, context: &Context) -> Option<(Vars, Duration)> {
+fn data(kind: &str, skin: &Skin, context: &Context, timezone: &str) -> Option<(Vars, Duration)> {
     let sample = context.sample;
-    let now = Local::now();
+    let now = now_in(timezone);
     Some(match kind {
         "clock" => {
             let vars = paperloom_skin::clock(now.hour(), now.minute(), now.second())
@@ -158,7 +175,8 @@ fn data(kind: &str, skin: &Skin, context: &Context) -> Option<(Vars, Duration)> 
                 .text("day", now.format("%-d").to_string())
                 .text("month", now.format("%B").to_string())
                 .text("month_short", now.format("%b").to_string())
-                .text("year", now.format("%Y").to_string());
+                .text("year", now.format("%Y").to_string())
+                .text("zone", zone_label(timezone));
             // Wall clock, never counted ticks: right after sleep or a clock change.
             let into = |unit: u64| Duration::new(u64::from(now.second()) % unit, now.nanosecond());
             let wait = if skin.uses_seconds { Duration::from_secs(1) - Duration::from_nanos(u64::from(now.nanosecond())) } else { Duration::from_secs(60) - into(60) };
@@ -282,5 +300,23 @@ fn size(bytes: u64) -> String {
         format!("{:.0} KB", value / KB)
     } else {
         format!("{bytes} B")
+    }
+}
+
+#[cfg(test)]
+mod zone_tests {
+    use super::*;
+    use chrono::Offset;
+
+    #[test]
+    fn a_clock_can_show_another_time_zone() {
+        assert_eq!(now_in("Asia/Tokyo").offset().fix().local_minus_utc(), 9 * 3600);
+        assert_eq!(now_in("Asia/Karachi").offset().fix().local_minus_utc(), 5 * 3600);
+        // Nothing, or something that is not a zone, follows this computer.
+        assert_eq!(now_in("").offset().fix().local_minus_utc(), Local::now().offset().fix().local_minus_utc());
+        assert_eq!(now_in("Not/AZone").offset().fix().local_minus_utc(), Local::now().offset().fix().local_minus_utc());
+        assert_eq!(zone_label("Asia/Karachi"), "Karachi");
+        assert_eq!(zone_label("America/Port_of_Spain"), "Port of Spain");
+        assert_eq!(zone_label("nonsense"), "");
     }
 }

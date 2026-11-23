@@ -141,6 +141,11 @@ pub fn find_origin(sources: &[SourceSetting], title: &str, key: &str) -> Option<
     page.items.into_iter().find(|item| item.id == item_id && item.source == source_id).map(|item| item.origin())
 }
 
+/// Whether `entry` can go into a share code (it came from a public source and is not hidden).
+pub fn is_shareable(entry: &LibraryEntry) -> bool {
+    !entry.hidden && origin_of(entry).is_some_and(|origin| !origin.variants.is_empty())
+}
+
 impl Share {
     /// Builds a share from library entries. Hidden wallpapers and ones with
     /// no public source are left out and counted.
@@ -272,7 +277,7 @@ fn sanitize(item: &mut Item, hosts: &[String]) -> bool {
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-pub(crate) fn base64url_encode(bytes: &[u8]) -> String {
+pub fn base64url_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 4 / 3 + 4);
     for chunk in bytes.chunks(3) {
         let n = chunk.iter().enumerate().fold(0u32, |acc, (i, b)| acc | (*b as u32) << (16 - 8 * i));
@@ -284,7 +289,7 @@ pub(crate) fn base64url_encode(bytes: &[u8]) -> String {
     out
 }
 
-pub(crate) fn base64url_decode(text: &str) -> Option<Vec<u8>> {
+pub fn base64url_decode(text: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(text.len() * 3 / 4);
     let mut acc = 0u32;
     let mut bits = 0;

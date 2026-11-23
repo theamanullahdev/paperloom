@@ -59,6 +59,16 @@ Name: "{autodesktop}\Paperloom"; Filename: "{app}\paperloom-gui.exe"; Tasks: des
 Root: HKA; Subkey: "Software\Classes\.paperloomshare"; ValueType: string; ValueName: ""; ValueData: "Paperloom.Share"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\Paperloom.Share"; ValueType: string; ValueName: ""; ValueData: "Paperloom share"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Paperloom.Share\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\paperloom-gui.exe"" ""%1"""
+; Theme and widget files, and paperloom:// links (the website's "Open in Paperloom").
+Root: HKA; Subkey: "Software\Classes\.paperloomtheme"; ValueType: string; ValueName: ""; ValueData: "Paperloom.Theme"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Paperloom.Theme"; ValueType: string; ValueName: ""; ValueData: "Paperloom theme"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Paperloom.Theme\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\paperloom-gui.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.paperloomwidget"; ValueType: string; ValueName: ""; ValueData: "Paperloom.Widget"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Paperloom.Widget"; ValueType: string; ValueName: ""; ValueData: "Paperloom widget"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Paperloom.Widget\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\paperloom-gui.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\paperloom"; ValueType: string; ValueName: ""; ValueData: "URL:Paperloom"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\paperloom"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\paperloom\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\paperloom-gui.exe"" ""%1"""
 ; Removes the "start at login" entry the app may have created.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "Paperloom"; Flags: uninsdeletevalue dontcreatekey
 

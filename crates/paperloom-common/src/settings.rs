@@ -223,6 +223,10 @@ pub struct Settings {
     /// Lets the engine lower decoding quality by itself when the wallpaper
     /// keeps the CPU busy (see the engine's `perf_guard`).
     pub performance_guard: bool,
+    /// Sends anonymous usage counts (see `paperloom_fetch::counts`): what is
+    /// installed from the online library, that the window was opened, which
+    /// features are used. No personal data. On by default; Settings → Privacy.
+    pub share_counts: bool,
     /// While the app window is open, quietly make every wallpaper in the
     /// library cheap to play (scaled to the screen, 30 fps, a format the
     /// graphics card decodes), including ones that were already looked at
@@ -334,6 +338,7 @@ impl Default for Settings {
             library_folder: None,
             developer_mode: false,
             performance_guard: true,
+            share_counts: true,
             optimize_library: true,
             pause_apps: Vec::new(),
             pause_when_idle_minutes: 0,

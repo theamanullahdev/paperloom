@@ -14,6 +14,8 @@ use crate::{icons, search, theme};
 pub struct App {
     /// The "Forgot password?" pop-up, when open.
     lock_reset: Option<crate::lock_reset::State>,
+    /// "Open in Paperloom": a library item named by a `paperloom://` link.
+    link: Option<crate::link::State>,
     page: Page,
     settings: Settings,
     settings_page: settings::State,
@@ -134,6 +136,7 @@ pub enum Message {
     SystemTheme(iced::theme::Mode),
     Escape,
     LockReset(crate::lock_reset::Message),
+    Link(crate::link::Message),
     /// A file was dropped on the window (a share file opens the import dialog).
     FileDropped(std::path::PathBuf),
     // --- Global search (see `search.rs`)
@@ -171,6 +174,7 @@ impl App {
             theme_stamp: theme_stamp(&theme::active()),
             ticks: 0,
             lock_reset: None,
+            link: None,
             recorder: crate::telemetry::Recorder::new(),
             expanded: HashSet::from([Group::Library, Group::Online, Group::Settings]),
             online_stale: false,
@@ -213,6 +217,11 @@ impl App {
             Some(text) => app.library_page.open_share_text(&app.settings, app.online_page.queue(), &text).map(Message::Library),
             None => Task::none(),
         };
+        // Opened by a `paperloom://` link or a theme file.
+        let opened = match open_arg() {
+            Some(request) => app.update(Message::OtherLaunch(request)),
+            None => Task::none(),
+        };
         // Clears away stuck or doubled-up engines left by an older build.
         std::thread::spawn(crate::engine_client::heal_engines);
         let check = if app.settings.updates.check_on_startup {
@@ -224,7 +233,7 @@ impl App {
         // so it is already full by the time the tab is opened.
         let warm = app.online_page.ensure_loaded(&app.settings).map(Message::Online);
         let origins = app.library_page.find_origins(&app.settings).map(Message::Library);
-        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check, start, warm, share, origins]))
+        (app, Task::batch([iced::system::theme().map(Message::SystemTheme), check, start, warm, share, origins, opened]))
     }
 
     fn effective_theme(&self) -> paperloom_common::ThemeMode {
@@ -245,6 +254,23 @@ impl App {
             Message::Library(library::Message::ForgotPassword) | Message::Settings(settings::Message::ForgotPassword) => {
                 self.lock_reset = Some(crate::lock_reset::State::new());
                 Task::none()
+            }
+            Message::Link(message) => {
+                let Some(state) = self.link.as_mut() else { return Task::none() };
+                let (task, outcome) = state.update(message);
+                let task = task.map(Message::Link);
+                match outcome {
+                    crate::link::Outcome::Nothing => task,
+                    crate::link::Outcome::Close => {
+                        self.link = None;
+                        task
+                    }
+                    crate::link::Outcome::UseTheme(id) => {
+                        self.link = None;
+                        self.page = Page::Appearance;
+                        Task::batch([task, self.apply_theme(&id, true)])
+                    }
+                }
             }
             Message::LockReset(msg) => {
                 let Some(state) = self.lock_reset.as_mut() else { return Task::none() };
@@ -328,6 +354,21 @@ impl App {
                     );
                 } else if let Some(path) = request.strip_prefix("IMPORT ") {
                     tasks.push(self.update(Message::FileDropped(path.into())));
+                } else if let Some(url) = request.strip_prefix("LINK ") {
+                    if let Some((kind, id)) = crate::link::parse(url) {
+                        let (state, task) = crate::link::State::open(kind, id);
+                        self.link = Some(state);
+                        tasks.push(task.map(Message::Link));
+                    }
+                } else if let Some(path) = request.strip_prefix("WIDGET ") {
+                    if let Ok(text) = std::fs::read_to_string(path) {
+                        self.page = Page::Widgets;
+                        tasks.push(self.widgets_page.open_share_text(&text).map(Message::Widgets));
+                    }
+                } else if let Some(path) = request.strip_prefix("THEME ") {
+                    self.page = Page::Appearance;
+                    self.appearance_page.refresh();
+                    tasks.push(self.appearance_page.import_path(path.into()).map(Message::Appearance));
                 } else if let Some(page) = request.strip_prefix("PAGE ") {
                     if let Some(page) = page_named(page) {
                         tasks.push(self.update(Message::SwitchPage(page)));
@@ -335,6 +376,13 @@ impl App {
                 }
                 Task::batch(tasks)
             }
+            Message::FileDropped(path) if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("paperloomwidget")) => match std::fs::read_to_string(&path) {
+                Ok(text) => {
+                    self.page = Page::Widgets;
+                    self.widgets_page.open_share_text(&text).map(Message::Widgets)
+                }
+                Err(_) => Task::none(),
+            },
             Message::FileDropped(path) => {
                 let is_share = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("paperloomshare") || e.eq_ignore_ascii_case("txt"));
                 match std::fs::read_to_string(&path) {
@@ -590,6 +638,9 @@ impl App {
             paperloom_common::log::warn(&why);
         }
         let now = theme::active();
+        if now.id() != before.id() {
+            paperloom_fetch::counts::feature("theme_applied");
+        }
         self.settings.app_theme = if now.id() == paperloom_theme::DEFAULT_ID { String::new() } else { now.id().to_string() };
         let _ = paperloom_common::save(&self.settings);
         self.theme_stamp = theme_stamp(&now);
@@ -937,7 +988,10 @@ impl App {
         let root: Element<'_, Message> = crate::layout::backdrop(&active, t, page_name, self.layer_frame, layout.into());
         // Pop-ups and screens cover the whole window, sidebar and top bar included.
         let reset = self.lock_reset.as_ref().map(|state| state.view(t).map(Message::LockReset));
-        let overlay: Option<Element<'_, Message>> = if reset.is_some() {
+        let link = self.link.as_ref().map(|state| state.view(t).map(Message::Link));
+        let overlay: Option<Element<'_, Message>> = if link.is_some() {
+            link
+        } else if reset.is_some() {
             reset
         } else {
             match self.page {
@@ -1480,4 +1534,23 @@ fn raise_window() -> Task<Message> {
 /// A `.paperloomshare` file named on the command line, if any.
 pub fn share_file_arg() -> Option<String> {
     std::env::args().skip(1).find(|arg| arg.to_lowercase().ends_with(".paperloomshare"))
+}
+
+/// What a launch asked for besides a share file: a `paperloom://install/…`
+/// link ("LINK <url>"), a theme file ("THEME <path>") or a widget file ("WIDGET <path>").
+pub fn open_arg() -> Option<String> {
+    for arg in std::env::args().skip(1) {
+        if arg.to_lowercase().starts_with("paperloom://") {
+            return Some(format!("LINK {arg}"));
+        }
+        if arg.to_lowercase().ends_with(".paperloomwidget") {
+            let full = std::fs::canonicalize(&arg).unwrap_or_else(|_| arg.clone().into());
+            return Some(format!("WIDGET {}", full.display()));
+        }
+        if arg.to_lowercase().ends_with(".paperloomtheme") {
+            let full = std::fs::canonicalize(&arg).unwrap_or_else(|_| arg.clone().into());
+            return Some(format!("THEME {}", full.display()));
+        }
+    }
+    None
 }

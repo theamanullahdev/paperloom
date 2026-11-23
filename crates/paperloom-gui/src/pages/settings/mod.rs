@@ -257,6 +257,7 @@ impl State {
                     SettingId::LockScreen => settings.lock_screen_still = value,
                     SettingId::DeveloperMode => settings.developer_mode = value,
                     SettingId::PerformanceGuard => settings.performance_guard = value,
+                    SettingId::ShareCounts => settings.share_counts = value,
                     SettingId::OptimizeLibrary => settings.optimize_library = value,
                     SettingId::ImportMode
                     | SettingId::Theme
@@ -750,7 +751,8 @@ impl State {
 
         let privacy = card(
             "Privacy",
-            "Keep the Hidden section to yourself.",
+            "Keep the Hidden section to yourself, and choose what Paperloom may count.",
+            column![
             item(
                 SettingId::HiddenPassword,
                 {
@@ -774,6 +776,18 @@ impl State {
                     body.into()
                 },
             ),
+            item(
+                SettingId::ShareCounts,
+                column![
+                    toggler(settings.share_counts).label("Send anonymous usage counts").on_toggle(|v| Message::Toggle(SettingId::ShareCounts, v)),
+                    hint("Sends a random number made on this computer, the Paperloom version, your system, and counts such as \"a look was installed\" or \"widgets were switched on\" so the library can show what people use. Never your wallpapers, files, names, links or address. Turn it off and nothing is sent."),
+                ]
+                .spacing(6)
+                .into(),
+            ),
+            ]
+            .spacing(14)
+            .into(),
             t,
         );
 

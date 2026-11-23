@@ -143,6 +143,7 @@ pub enum Message {
     CloseActions,
     SetAsWallpaper(u64),
     OptimizeTick,
+    ShowInFolder(u64),
     Rotation(super::rotation::Message),
     /// The engine answered (or didn't): the text to show.
     PlayFinished(Result<String, String>),
@@ -299,8 +300,18 @@ impl State {
         match message {
             Message::SearchChanged(value) => self.search = value,
             Message::Rotation(message) => self.rotation.update(message, &self.library.collections),
+            Message::ShowInFolder(id) => {
+                if let Some(entry) = self.library.entries.iter().find(|entry| entry.id == id) {
+                    if !paperloom_common::reveal::show_in_folder(&entry.path) {
+                        self.status = Some("Couldn't open the folder.".into());
+                    }
+                }
+            }
             Message::OptimizeTick => {
                 for (id, outcome) in self.optimizer.take_finished() {
+                    if matches!(outcome, Ok(Some(_))) {
+                        paperloom_fetch::counts::feature("optimizer_ran");
+                    }
                     let result = self.library.finish_optimize(id, outcome);
                     self.saved(result);
                     self.preview_cache.remove(&id);
@@ -696,8 +707,13 @@ impl State {
             .iter()
             .filter_map(|entry| Some((entry.source_id.clone()?, entry.thumbnail.clone()?)))
             .collect();
+        let own_files: Vec<(String, std::path::PathBuf)> = entries
+            .iter()
+            .filter(|entry| !entry.hidden && !paperloom_fetch::share::is_shareable(entry))
+            .map(|entry| (entry.display_name.clone(), entry.path.clone()))
+            .collect();
         let share = paperloom_fetch::share::Share::from_entries(kind, name, entries);
-        self.share.send(title, share, posters);
+        self.share.send(title, share, posters, own_files);
     }
 
     /// Ids of the wallpapers the current tab lists (for "Select all").
@@ -743,7 +759,11 @@ impl State {
         let total = paths.len();
         let mut failed = Vec::new();
         for path in &paths {
-            if let Err(err) = self.library.import(path, settings.import_mode) {
+            let imported = self.library.import(path, settings.import_mode);
+            if imported.is_ok() {
+                paperloom_fetch::counts::feature("import_file");
+            }
+            if let Err(err) = imported {
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 failed.push(format!("{name} ({err})"));
             }
@@ -777,7 +797,9 @@ impl State {
             .import_named(&job.final_path(), settings.import_mode, &job.title, &job.id)
             .map_err(|err| format!("Couldn't add \"{}\" to your library: {err}", job.title));
         if result.is_ok() {
+            paperloom_fetch::counts::feature("download_finished");
             if let Some(origin) = &job.origin {
+                paperloom_fetch::counts::feature(paperloom_fetch::counts::source_feature(&origin.source));
                 let _ = self.library.set_origin(&job.id, origin.clone());
             }
             super::share::State::finished(&mut self.library, &job.id);
@@ -1488,7 +1510,8 @@ impl State {
         right = right.push(
             row![
                 button(crate::ui::label("Share this wallpaper")).style(crate::ui::secondary).padding([8, 14]).on_press_maybe(shareable.then_some(Message::ShareEntry(id))),
-                text(if shareable { "Send it to a friend" } else { "Imported from your own file, so it can't be shared" }).size(12).color(t.muted_foreground),
+                button(crate::ui::label("Show in folder")).style(crate::ui::secondary).padding([8, 14]).on_press(Message::ShowInFolder(id)),
+                text(if shareable { "Send it to a friend, as a code or as the file" } else { "Your own file: send the file itself (it is already optimized for your screen)" }).size(12).color(t.muted_foreground),
             ]
             .spacing(10)
             .align_y(Alignment::Center)

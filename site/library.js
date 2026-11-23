@@ -15,6 +15,8 @@
   };
 
   const $ = (id) => document.getElementById(id);
+  // The link opens the app on Linux and Windows; elsewhere the steps under "In Paperloom" are shown.
+  const canOpen = /Linux|Windows/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
   const grid = $("grid"), state = $("state"), dialog = $("detail");
   let items = [], base = BASES[0], kind = "all", query = "";
 
@@ -89,7 +91,9 @@
     $("d-where").textContent = WHERE[it.kind] + (it.needs.length ? " It also installs: " + it.needs.join(", ") + "." : "");
     $("d-files").replaceChildren(...it.files.map((f) => el("li", {}, el("span", { text: f.path }), el("span", { text: prettySize(f.size) }))));
     $("d-source").href = REPO + folderPath(it);
+    $("d-open").href = "paperloom://install/" + it.kind + "/" + encodeURIComponent(it.id);
     history.replaceState(null, "", "#" + it.kind + "/" + it.folder);
+    $("d-open-row").hidden = !canOpen;
     if (!dialog.open) dialog.showModal();
   }
 

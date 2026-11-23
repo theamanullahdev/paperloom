@@ -43,6 +43,8 @@ dialog#detail img { width: 100%; max-height: 360px; object-fit: contain; backgro
 .d-body { padding: 18px 22px 24px; }
 .d-body h2 { font-size: 1.7rem; margin-bottom: 2px; }
 .d-body h3 { font-size: 1rem; margin: 18px 0 6px; }
+.d-open { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 14px 0 0; }
+.d-open[hidden] { display: none; }
 .d-files { list-style: none; margin: 0 0 16px; padding: 0; font-size: .9rem; color: var(--fg-muted); }
 .d-files li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
 .close {

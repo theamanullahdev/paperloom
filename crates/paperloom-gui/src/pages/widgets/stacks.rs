@@ -83,6 +83,7 @@ impl State {
             button(ui::label("← My widgets")).style(ui::ghost).on_press(Message::Back),
             text(stack.name.as_str()).size(20).color(t.foreground),
             iced::widget::Space::new().width(Length::Fill),
+            button(ui::label("Share")).style(ui::secondary).on_press(Message::ShareStack(id)),
             button(ui::label("Ungroup")).style(ui::secondary).on_press(Message::Ungroup(id)),
             button(ui::label("Remove stack")).style(ui::danger).on_press(Message::RemoveStack(id)),
         ]

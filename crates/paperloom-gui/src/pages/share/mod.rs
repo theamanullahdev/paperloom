@@ -51,6 +51,9 @@ struct Sender {
     notice: Option<String>,
     /// The sender's own posters, by wallpaper key, for the preview.
     posters: HashMap<String, PathBuf>,
+    /// The selected wallpapers that are the person's own files (name, file):
+    /// they can't go into a code, so they are offered as "Show in folder".
+    own_files: Vec<(String, PathBuf)>,
 }
 
 struct Import {
@@ -76,6 +79,7 @@ pub enum Message {
     CloseSender,
     CopyCode,
     SaveFile,
+    ShowOwnFile(usize),
     // --- Importing
     OpenImport,
     CloseImport,
@@ -109,9 +113,9 @@ impl State {
     }
 
     /// Opens the sender dialog for `share`, called `title`.
-    pub fn send(&mut self, title: String, share: Share, posters: HashMap<String, PathBuf>) {
+    pub fn send(&mut self, title: String, share: Share, posters: HashMap<String, PathBuf>, own_files: Vec<(String, PathBuf)>) {
         let code = share.encode();
-        self.sender = Some(Sender { title, share, code, notice: None, posters });
+        self.sender = Some(Sender { title, share, code, notice: None, posters, own_files });
     }
 
     /// Opens the import dialog, already holding `text` (a pasted code or a
@@ -176,6 +180,7 @@ impl State {
             Message::CloseSender => self.sender = None,
             Message::CopyCode => {
                 if let Some(sender) = &mut self.sender {
+                    paperloom_fetch::counts::feature("share_made");
                     sender.notice = Some("Copied. Paste it in a chat for your friend.".into());
                     return iced::clipboard::write(sender.code.clone());
                 }
@@ -187,9 +192,20 @@ impl State {
                     let picked = rfd::FileDialog::new().set_title("Save share file").set_file_name(format!("{safe}.paperloomshare")).add_filter("Paperloom share", &["paperloomshare"]).save_file();
                     if let Some(path) = picked {
                         sender.notice = Some(match std::fs::write(&path, &sender.code) {
-                            Ok(()) => format!("Saved {}", path.display()),
+                            Ok(()) => {
+                                paperloom_fetch::counts::feature("share_made");
+                                format!("Saved {}", path.display())
+                            }
                             Err(err) => format!("Couldn't save the file: {err}"),
                         });
+                    }
+                }
+            }
+            Message::ShowOwnFile(index) => {
+                if let Some(sender) = &mut self.sender {
+                    if let Some((_, path)) = sender.own_files.get(index) {
+                        let shown = paperloom_common::reveal::show_in_folder(path);
+                        sender.notice = Some(if shown { "Opened the folder. Send that file to your friend.".into() } else { "Couldn't open the folder.".into() });
                     }
                 }
             }
@@ -252,6 +268,7 @@ impl State {
     fn start(&mut self, ctx: &mut Ctx) {
         let Some(import) = self.import.take() else { return };
         let Some(share) = &import.share else { return };
+        paperloom_fetch::counts::feature("share_imported");
         let collection = import.collection.trim().to_string();
         let (mut queued, mut have, mut waiting) = (0, 0, Vec::new());
         for (index, item) in share.items.iter().enumerate() {

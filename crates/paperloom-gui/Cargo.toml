@@ -24,6 +24,10 @@ toml = "1"
 tiny-skia = "0.11"
 # Decodes the wallpaper the widget previews are drawn on.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+chrono-tz = "0.10"
+flate2 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 paperloom-fetch = { path = "../paperloom-fetch" }
 
 # cargo-deb reads this to build a .deb package containing both binaries —

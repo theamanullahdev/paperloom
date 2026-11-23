@@ -157,6 +157,7 @@ impl Queue {
         save(&state);
         drop(state);
         self.shared.wake.notify_all();
+        crate::counts::feature("download_started");
         true
     }
 

@@ -76,9 +76,28 @@ pub struct Placed {
     pub stack: u32,
     pub dx: f32,
     pub dy: f32,
+    /// This widget's own settings, by name: `timezone` (a clock or date: an
+    /// IANA name such as `Asia/Karachi`; absent = this computer's). Kept as
+    /// plain text so a widget can be shared with them and new ones added
+    /// without changing the file format.
+    pub options: std::collections::BTreeMap<String, String>,
 }
 
 impl Placed {
+    /// One of this widget's own settings; empty when it has none.
+    pub fn option(&self, name: &str) -> &str {
+        self.options.get(name).map_or("", String::as_str)
+    }
+
+    /// Sets (or, with an empty value, removes) one of this widget's own settings.
+    pub fn set_option(&mut self, name: &str, value: &str) {
+        if value.trim().is_empty() {
+            self.options.remove(name);
+        } else {
+            self.options.insert(name.to_string(), value.trim().to_string());
+        }
+    }
+
     /// It takes mouse input, so it sits above the desktop icons (the icons'
     /// window would otherwise swallow every click). With both off it is
     /// click-through and sits below them.
@@ -89,7 +108,7 @@ impl Placed {
 
 impl Default for Placed {
     fn default() -> Self {
-        Self { id: 1, kind: "clock".into(), skin: String::new(), x: 0.76, y: 0.06, scale: 1.0, opacity: 1.0, drag: true, menu: true, stack: 0, dx: 0.0, dy: 0.0 }
+        Self { id: 1, kind: "clock".into(), skin: String::new(), x: 0.76, y: 0.06, scale: 1.0, opacity: 1.0, drag: true, menu: true, stack: 0, dx: 0.0, dy: 0.0, options: Default::default() }
     }
 }
 

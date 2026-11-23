@@ -123,6 +123,11 @@ impl State {
     }
 
     /// The page was opened, or themes changed on disk.
+    /// Imports a theme file opened from outside the window (a double-click).
+    pub fn import_path(&mut self, path: std::path::PathBuf) -> Task<Message> {
+        blocking(move || themes::import_path(&path, &paperloom_common::themes_dir()), Message::Imported)
+    }
+
     pub fn refresh(&mut self) {
         self.themes = paperloom_theme::list(&paperloom_common::themes_dir());
         if !self.themes.iter().any(|listed| listed.theme.id == self.selected) {

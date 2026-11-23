@@ -4,4 +4,12 @@
     <comment>Paperloom share</comment>
     <glob pattern="*.paperloomshare"/>
   </mime-type>
+  <mime-type type="application/x-paperloom-theme">
+    <comment>Paperloom theme</comment>
+    <glob pattern="*.paperloomtheme"/>
+  </mime-type>
+  <mime-type type="application/x-paperloom-widget">
+    <comment>Paperloom widget</comment>
+    <glob pattern="*.paperloomwidget"/>
+  </mime-type>
 </mime-info>
