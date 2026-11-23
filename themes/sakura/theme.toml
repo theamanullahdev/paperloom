@@ -1,0 +1,35 @@
+id = "sakura"
+name = "Sakura"
+author = "Paperloom"
+description = "Soft pink paper, very round corners and the navigation on the right."
+
+[colors.light]
+background = "#FFF5F7"
+surface = "#FFFFFF"
+muted = "#FCE8EE"
+border = "#F6D3DE"
+foreground = "#3B2330"
+muted_foreground = "#8A6475"
+primary = "#C2456E"
+primary_hover = "#D95F88"
+success = "#2F8F6B"
+destructive = "#C0392B"
+
+[colors.dark]
+background = "#241820"
+surface = "#2F2029"
+muted = "#3A2833"
+border = "#FFFFFF14"
+foreground = "#FBEAF0"
+muted_foreground = "#C29BAC"
+primary = "#F58FB0"
+primary_hover = "#F9B4CA"
+
+[shape]
+control_radius = 12
+card_radius = 18
+popup_radius = 24
+
+[layout]
+nav = "right"
+nav_width = 220

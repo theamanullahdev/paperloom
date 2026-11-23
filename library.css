@@ -1,0 +1,56 @@
+/* The library page: cards for looks, stacks and themes, and a detail pop-up. */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.top nav a[aria-current="page"] { color: var(--primary); font-weight: 600; }
+
+.lib-head { padding: 56px 0 8px; }
+.lib-head h1 { font-size: clamp(2rem, 4.4vw, 3.1rem); font-weight: 800; }
+.lib-tools { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; margin-top: 8px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tabs button {
+  font: 600 .95rem "IBM Plex Sans", sans-serif; color: var(--fg); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 999px; padding: 8px 16px; cursor: pointer;
+}
+.tabs button[aria-selected="true"] { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+.tabs .count { opacity: .7; font-weight: 400; margin-left: 4px; }
+.search input {
+  font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 9px 14px; width: min(320px, 100%);
+}
+
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin: 20px 0 48px; }
+.lib-card {
+  display: flex; flex-direction: column; text-align: left; font: inherit; color: var(--fg); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0; overflow: hidden;
+  transition: transform .15s, box-shadow .15s, border-color .15s;
+}
+.lib-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--primary); }
+.lib-card img { width: 100%; aspect-ratio: 16 / 10; object-fit: contain; background: var(--muted); display: block; }
+.lib-card .meta { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 4px; }
+.lib-card h3 { font-size: 1.05rem; }
+.lib-card p { margin: 0; color: var(--fg-muted); font-size: .88rem; }
+.lib-card .about { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.chip {
+  display: inline-block; align-self: flex-start; margin: 0 0 6px; padding: 2px 10px; border-radius: 999px;
+  font-size: .75rem; font-weight: 600; letter-spacing: .02em; background: var(--muted); color: var(--fg-muted);
+}
+
+dialog#detail {
+  width: min(760px, calc(100% - 24px)); max-height: calc(100% - 24px); padding: 0; overflow: auto;
+  border: 1px solid var(--border); border-radius: 18px; background: var(--bg); color: var(--fg); box-shadow: var(--shadow);
+}
+dialog#detail::backdrop { background: rgba(0, 0, 0, .55); }
+dialog#detail img { width: 100%; max-height: 360px; object-fit: contain; background: var(--muted); display: block; }
+.d-body { padding: 18px 22px 24px; }
+.d-body h2 { font-size: 1.7rem; margin-bottom: 2px; }
+.d-body h3 { font-size: 1rem; margin: 18px 0 6px; }
+.d-open { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 14px 0 0; }
+.d-open[hidden] { display: none; }
+.d-files { list-style: none; margin: 0 0 16px; padding: 0; font-size: .9rem; color: var(--fg-muted); }
+.d-files li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.close {
+  position: absolute; top: 10px; right: 12px; width: 36px; height: 36px; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-size: 1.3rem; line-height: 1;
+}
+.lib-share { margin-bottom: 72px; }
+.lib-share h2 { font-size: 1.4rem; margin-bottom: 6px; }
+@media (max-width: 520px) { .lib-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; } }

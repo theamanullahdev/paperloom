@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Paperloom library — looks, stacks and themes</title>
+<meta name="description" content="Browse the Paperloom library: widget looks, stacks of widgets and app themes, free to use in Paperloom.">
+<meta name="theme-color" content="#FFFBEB" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1C1917" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://theamanullahdev.github.io/paperloom/library.html">
+<link rel="icon" type="image/png" href="assets/icon.png">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="library.css">
+</head>
+<body>
+
+<header class="top">
+  <a class="brand" href="./"><img src="assets/icon.png" alt="" width="32" height="32"><span>Paperloom</span></a>
+  <nav>
+    <a href="./#platforms">Download</a>
+    <a href="library.html" aria-current="page">Library</a>
+    <a href="https://github.com/theamanullahdev/paperloom">GitHub</a>
+    <a class="nav-cta" href="./#platforms">Get Paperloom</a>
+  </nav>
+</header>
+
+<main>
+  <section class="lib-head">
+    <h1>The Paperloom library</h1>
+    <p class="sub">Widget looks, stacks of widgets and app themes made for Paperloom. Everything here is also in the app under Browse → Online.</p>
+    <div class="lib-tools">
+      <div class="tabs" role="tablist" aria-label="Kind">
+        <button role="tab" data-kind="all" aria-selected="true">All <span class="count"></span></button>
+        <button role="tab" data-kind="look" aria-selected="false">Looks <span class="count"></span></button>
+        <button role="tab" data-kind="stack" aria-selected="false">Stacks <span class="count"></span></button>
+        <button role="tab" data-kind="theme" aria-selected="false">Themes <span class="count"></span></button>
+      </div>
+      <label class="search"><span class="sr">Search the library</span><input id="q" type="search" placeholder="Search by name, author or idea" autocomplete="off"></label>
+    </div>
+  </section>
+
+  <p id="state" class="fine" role="status">Loading the library…</p>
+  <div id="grid" class="lib-grid"></div>
+
+  <section class="lib-share card">
+    <h2>Made something?</h2>
+    <p>Add your own look, stack or theme: <a href="https://github.com/theamanullahdev/paperloom-assets/blob/main/CONTRIBUTING.md">how to contribute</a>. Pull requests are checked automatically, and once merged the item shows up here and in the app.</p>
+  </section>
+</main>
+
+<dialog id="detail" aria-labelledby="d-title">
+  <form method="dialog"><button class="close" aria-label="Close">×</button></form>
+  <img id="d-preview" alt="">
+  <div class="d-body">
+    <p class="chip" id="d-kind"></p>
+    <h2 id="d-title"></h2>
+    <p class="muted" id="d-by"></p>
+    <p id="d-about"></p>
+    <p id="d-open-row" class="d-open"><a id="d-open" class="btn primary" href="#"><span class="btn-title">Open in Paperloom</span><span class="btn-sub">The app asks before it adds anything</span></a> <a class="muted" href="./#platforms">Get Paperloom</a></p>
+    <h3>In Paperloom</h3>
+    <p id="d-where"></p>
+    <h3>Files</h3>
+    <ul id="d-files" class="d-files"></ul>
+    <p><a id="d-source" class="btn ghost" href="#" target="_blank" rel="noopener">View the folder on GitHub ↗</a></p>
+  </div>
+</dialog>
+
+<footer>
+  <p>Paperloom is free software, GPL-3.0-or-later. Library items belong to their authors; see each item's licence.</p>
+  <p><a href="https://github.com/theamanullahdev/paperloom-assets">Library source on GitHub</a> · <a href="https://github.com/theamanullahdev/paperloom">Paperloom on GitHub</a></p>
+</footer>
+
+<script src="library.js"></script>
+</body>
+</html>

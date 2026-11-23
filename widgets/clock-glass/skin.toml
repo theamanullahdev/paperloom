@@ -1,0 +1,60 @@
+id = "clock/glass"
+name = "Glass"
+author = "Paperloom"
+description = "A frosted-glass card with a big Rajdhani time and the date on the side."
+kinds = ["clock"]
+fonts = ["fonts/Rajdhani-Bold.ttf", "fonts/Rajdhani-Regular.ttf"]
+size = [310, 124]
+
+[[element]]
+type = "rect"
+x = 0
+y = 0
+w = 310
+h = 124
+radius = 20
+fill = "grad(#ffffff2e,#ffffff0e,90)"
+stroke = "grad(#ffffff66,#ffffff1a,90)"
+stroke_width = 1.5
+
+[[element]]
+type = "text"
+text = "{time12}"
+x = 24
+y = 10
+size = 78
+bold = true
+font = "Rajdhani"
+color = "#ffffff"
+shadow = "#00000055"
+
+[[element]]
+type = "text"
+text = "{ampm}"
+x = 288
+y = 28
+size = 24
+bold = true
+font = "Rajdhani"
+color = "#ffd27a"
+align = "right"
+
+[[element]]
+type = "text"
+text = "{weekday}"
+x = 288
+y = 62
+size = 22
+font = "Rajdhani"
+color = "#ffffff"
+align = "right"
+
+[[element]]
+type = "text"
+text = "{date_short}"
+x = 288
+y = 86
+size = 18
+font = "Rajdhani"
+color = "#ffffffaa"
+align = "right"
